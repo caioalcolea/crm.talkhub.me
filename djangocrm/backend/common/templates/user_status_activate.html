@@ -1,0 +1,18 @@
+{% extends 'root_email_template_new.html' %}
+
+{% block preheader %}Sua conta no TalkHub CRM foi ativada{% endblock preheader %}
+
+{% block heading %}Conta Ativada{% endblock heading %}
+
+{% block content_body %}
+<p style="margin:0 0 8px 0;">Sua conta foi ativada por {{ status_changed_user }}. Agora você pode fazer login e acessar todos os recursos do TalkHub CRM.</p>
+{% endblock content_body %}
+
+{% block button_link %}
+{% if url %}
+<a class="btn-link" href="{{ url }}"
+   style="display:inline-block;padding:14px 32px;background-color:#EA580C;color:#ffffff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;line-height:1;">
+  Entrar
+</a>
+{% endif %}
+{% endblock button_link %}

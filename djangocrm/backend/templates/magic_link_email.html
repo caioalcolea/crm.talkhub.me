@@ -1,0 +1,22 @@
+{% extends "root_email_template_new.html" %}
+
+{% block preheader %}Seu link de acesso ao TalkHub CRM{% endblock preheader %}
+
+{% block heading %}Entrar no TalkHub CRM{% endblock heading %}
+
+{% block content_body %}
+<p style="margin:0 0 8px 0;">Clique no botão abaixo para entrar na sua conta. Este link expira em 10 minutos.</p>
+{% endblock content_body %}
+
+{% block button_link %}
+<a class="btn-link" href="{{ magic_link_url }}"
+   style="display:inline-block;padding:14px 32px;background-color:#EA580C;color:#ffffff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;line-height:1;">
+  Entrar no TalkHub CRM
+</a>
+{% endblock button_link %}
+
+{% block extra_content %}
+<p style="font-size:13px;color:#757575;margin:0;">
+  Se você não solicitou este link, pode ignorar este e-mail com segurança.
+</p>
+{% endblock extra_content %}

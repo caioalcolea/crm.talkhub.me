@@ -1,0 +1,49 @@
+version: "3.7"
+
+services:
+  ## --------------------------- ORION --------------------------- ##
+
+  mcp_server:
+    image: talkhub/mcp-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    networks:
+      - talkhub ## Nome da rede interna
+    environment:
+      ## 🔑 Multi-tenant: API Key vem na requisição
+      ## Para single-tenant, descomente:
+      # - TALKHUB_API_KEY=${TALKHUB_API_KEY}
+
+      ## ⚙️ Configurações
+      - TALKHUB_API_URL=https://chat.talkhub.me/api
+      - LOG_LEVEL=info
+      - NODE_ENV=production
+      - PORT=3000
+
+      ## 🌐 TimeZone
+      - TZ=America/Sao_Paulo
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.mcp_server.rule=Host(`mcptalk.talkhub.me`)
+        - traefik.http.routers.mcp_server.entrypoints=websecure
+        - traefik.http.routers.mcp_server.tls.certresolver=letsencryptresolver
+        - traefik.http.services.mcp_server.loadbalancer.server.port=3000
+        - traefik.http.services.mcp_server.loadbalancer.passHostHeader=true
+        - traefik.http.routers.mcp_server.service=mcp_server
+        - traefik.http.routers.mcp_server.tls=true
+
+  ## --------------------------- ORION --------------------------- ##
+
+networks:
+  talkhub: ## Nome da rede interna
+    external: true
+    name: talkhub ## Nome da rede interna

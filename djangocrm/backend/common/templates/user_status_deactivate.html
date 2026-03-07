@@ -1,0 +1,15 @@
+{% extends 'root_email_template_new.html' %}
+
+{% block preheader %}Sua conta no TalkHub CRM foi desativada{% endblock preheader %}
+
+{% block heading %}Conta Desativada{% endblock heading %}
+
+{% block content_body %}
+<p style="margin:0 0 8px 0;">Sua conta foi desativada por {{ status_changed_user }}. Você receberá um e-mail caso sua conta seja reativada.</p>
+{% endblock content_body %}
+
+{% block extra_content %}
+<p style="font-size:13px;color:#757575;margin:0;">
+  Entre em contato com o administrador se tiver alguma dúvida.
+</p>
+{% endblock extra_content %}

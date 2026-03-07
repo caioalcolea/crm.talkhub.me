@@ -1,0 +1,55 @@
+{% extends 'root_email_template_new.html' %}
+
+{% block heading %}
+Atenção, {{ user.get_username }}!
+{% endblock heading %}
+
+{% block content_body %}
+<p>A meta de vendas <strong>"{{ goal.name }}"</strong> está <strong style="color:#dc2626;">atrasada</strong> e faltam apenas <strong>{{ days_remaining }} dia{{ days_remaining|pluralize:"s" }}</strong> para o fim do período.</p>
+
+<table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;">
+  <tbody>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;width:40%;">Meta</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ goal.name }}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">Tipo</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ goal.get_goal_type_display }}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">Status</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#dc2626;font-weight:600;">Atrasado</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">Progresso</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ percent }}%</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">Alcançado</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ achieved }}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">Alvo</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ goal.target_value }}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">Período</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ goal.period_start }} &ndash; {{ goal.period_end }}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">Dias Restantes</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#dc2626;font-weight:600;">{{ days_remaining }}</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="color:#6b7280;font-size:13px;">Revise as oportunidades em andamento e tome ações para acelerar o fechamento antes do fim do período.</p>
+{% endblock content_body %}
+
+{% block button_link %}
+<div style="margin-bottom:20px">
+    <a href="{{url}}/goals"
+        style="display:block;width:200px;background:#dc2626;padding:10px;text-align:center;color:#fff;font-size:1rem;font-weight:600;margin:0px auto;margin-bottom:20px;border-radius:5px;text-decoration:none">Ver Metas</a>
+</div>
+{% endblock button_link %}

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novo Contato — TalkHub CRM</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f7;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:#7c3aed;padding:28px 40px;">
+              <p style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">
+                TalkHub CRM
+              </p>
+              <p style="margin:4px 0 0;color:#ddd6fe;font-size:13px;">
+                Nova Mensagem de Suporte
+              </p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px 40px;">
+
+              <p style="margin:0 0 20px;font-size:15px;color:#374151;">
+                Uma nova mensagem foi recebida pelo formulário de suporte do TalkHub CRM.
+              </p>
+
+              <!-- Info table -->
+              <table width="100%" cellpadding="0" cellspacing="0"
+                     style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #e5e7eb;">
+                    <span style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Tipo</span><br/>
+                    <span style="font-size:15px;color:#111827;font-weight:600;">{{ reason_label }}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #e5e7eb;">
+                    <span style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Remetente</span><br/>
+                    <span style="font-size:15px;color:#111827;">{{ submission.name }}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #e5e7eb;">
+                    <span style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Email</span><br/>
+                    <a href="mailto:{{ submission.email }}" style="font-size:15px;color:#7c3aed;text-decoration:none;">
+                      {{ submission.email }}
+                    </a>
+                  </td>
+                </tr>
+                {% if submission.subject %}
+                <tr>
+                  <td style="padding:14px 20px;border-bottom:1px solid #e5e7eb;">
+                    <span style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Assunto</span><br/>
+                    <span style="font-size:15px;color:#111827;">{{ submission.subject }}</span>
+                  </td>
+                </tr>
+                {% endif %}
+                <tr>
+                  <td style="padding:14px 20px;">
+                    <span style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Data</span><br/>
+                    <span style="font-size:15px;color:#111827;">{{ submission.created_at|date:"d/m/Y H:i" }}</span>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Message -->
+              <p style="margin:0 0 8px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Mensagem</p>
+              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:16px 20px;margin-bottom:24px;">
+                <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;white-space:pre-wrap;">{{ submission.message }}</p>
+              </div>
+
+              {% if submission.metadata %}
+              <!-- Metadata -->
+              <p style="margin:0 0 8px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Informações Adicionais</p>
+              <table width="100%" cellpadding="0" cellspacing="0"
+                     style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:24px;">
+                {% for key, value in submission.metadata.items %}
+                {% if value %}
+                <tr>
+                  <td style="padding:12px 20px;{% if not forloop.last %}border-bottom:1px solid #e5e7eb;{% endif %}">
+                    <span style="font-size:12px;color:#6b7280;font-weight:600;text-transform:capitalize;">{{ key }}</span><br/>
+                    <span style="font-size:14px;color:#374151;white-space:pre-wrap;">{{ value }}</span>
+                  </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+              </table>
+              {% endif %}
+
+              {% if submission.ip_address %}
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                IP: {{ submission.ip_address }}
+              </p>
+              {% endif %}
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f9fafb;padding:20px 40px;border-top:1px solid #e5e7eb;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">
+                TalkHub CRM &bull; Este email foi enviado automaticamente pelo sistema de suporte.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

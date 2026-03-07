@@ -1,0 +1,15 @@
+{% extends 'root_email_template_new.html' %}
+
+{% block preheader %}Sua conta no TalkHub CRM foi excluída{% endblock preheader %}
+
+{% block heading %}Conta Excluída{% endblock heading %}
+
+{% block content_body %}
+<p style="margin:0 0 8px 0;">Sua conta foi excluída por {{ deleted_by }}. Você não poderá mais acessar sua conta.</p>
+{% endblock content_body %}
+
+{% block extra_content %}
+<p style="font-size:13px;color:#757575;margin:0;">
+  Se você acredita que isso foi um engano, entre em contato com o administrador da sua organização.
+</p>
+{% endblock extra_content %}

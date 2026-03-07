@@ -1,0 +1,40 @@
+﻿python : 
+ImportError while 
+loading conftest 'C
+:\Users\caio\OneDri
+ve\Documentos\CLIEN
+TES\CRM TALKHUB\crm
+talkhub-main\django
+crm\backend\conftes
+t.py'.
+No linha:1 
+caractere:128
++ ... NG="utf-8"; 
+python -m pytest co
+mmon/tests/test_com
+ment_post_bug.py 
+-v ...
++                 ~
+~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~
+    + CategoryInfo 
+             : No  
+  tSpecified: (I   
+ mportError whi    
+...d\conftest.    
+py'.:String) [    
+], RemoteExcep    
+tion
+    + FullyQualifi 
+   edErrorId : Na  
+  tiveCommandErr   
+ or
+ 
+conftest.py:9: in 
+<module>
+    from django.db 
+import connection
+E   ModuleNotFoundE
+rror: No module 
+named 'django'

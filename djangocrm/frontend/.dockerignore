@@ -1,0 +1,13 @@
+node_modules/
+.svelte-kit/
+build/
+.env
+.env.*
+*.md
+.git
+.gitignore
+.prettierrc
+.prettierignore
+eslint.config.js
+Dockerfile
+.dockerignore

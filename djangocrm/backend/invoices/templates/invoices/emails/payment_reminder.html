@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #dc2626; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9fafb; }
+        .details { background: white; padding: 15px; border-radius: 6px; margin: 20px 0; }
+        .details-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+        .total { font-size: 18px; font-weight: bold; color: #dc2626; }
+        .overdue { color: #dc2626; font-weight: bold; }
+        .button { display: inline-block; padding: 12px 24px; background: #3B82F6; color: white; text-decoration: none; border-radius: 6px; }
+        .footer { padding: 20px; text-align: center; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Lembrete de Pagamento</h1>
+        </div>
+        <div class="content">
+            <p>Prezado(a) {{ invoice.client_name }},</p>
+
+            {% if days_overdue > 0 %}
+            <p>Este é um lembrete de que a fatura <strong>#{{ invoice.invoice_number }}</strong> está <span class="overdue">{{ days_overdue }} dias em atraso</span>.</p>
+            {% else %}
+            <p>Este é um lembrete de que a fatura <strong>#{{ invoice.invoice_number }}</strong> vence em breve.</p>
+            {% endif %}
+
+            <div class="details">
+                <div class="details-row">
+                    <span>Número da Fatura:</span>
+                    <span>#{{ invoice.invoice_number }}</span>
+                </div>
+                {% if invoice.invoice_title %}
+                <div class="details-row">
+                    <span>Descrição:</span>
+                    <span>{{ invoice.invoice_title }}</span>
+                </div>
+                {% endif %}
+                <div class="details-row">
+                    <span>Data de Vencimento:</span>
+                    <span{% if days_overdue > 0 %} class="overdue"{% endif %}>{{ invoice.due_date|date:"d/m/Y" }}</span>
+                </div>
+                <div class="details-row total">
+                    <span>Valor Devido:</span>
+                    <span>{{ invoice.currency }} {{ invoice.amount_due }}</span>
+                </div>
+            </div>
+
+            {% if public_url %}
+            <p style="text-align: center; margin: 30px 0;">
+                <a href="{{ public_url }}" class="button">Ver e Pagar Fatura</a>
+            </p>
+            {% endif %}
+
+            <p>Se você já efetuou o pagamento, por favor desconsidere este lembrete. Em caso de dúvidas sobre esta fatura, não hesite em nos contatar.</p>
+            <p>Obrigado!</p>
+        </div>
+        <div class="footer">
+            <p>{{ org.name }}</p>
+        </div>
+    </div>
+</body>
+</html>

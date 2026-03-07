@@ -1,0 +1,31 @@
+{
+  "name": "talkhub-mcp-server",
+  "version": "1.2.1",
+  "description": "MCP Server for TalkHub API - Complete chatbot automation platform",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "mcp",
+    "talkhub",
+    "chatbot",
+    "whatsapp",
+    "automation",
+    "api"
+  ],
+  "author": "TalkHub MCP",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.21.0",
+    "zod": "^3.25.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,28 @@
+{% extends "root_email_template_new.html" %}
+
+{% block preheader %}Você foi convidado para {{ org_name }} no TalkHub CRM{% endblock preheader %}
+
+{% block heading %}Convite para {{ org_name }}{% endblock heading %}
+
+{% block content_body %}
+<p style="margin:0 0 8px 0;">
+  <strong>{{ invited_by_name }}</strong> convidou você para participar da organização
+  <strong>{{ org_name }}</strong> no TalkHub CRM como <strong>{{ role_label }}</strong>.
+</p>
+<p style="margin:0 0 8px 0;">
+  Clique no botão abaixo para aceitar o convite e criar sua conta. Este convite expira em 7 dias.
+</p>
+{% endblock content_body %}
+
+{% block button_link %}
+<a class="btn-link" href="{{ accept_url }}"
+   style="display:inline-block;padding:14px 32px;background-color:#EA580C;color:#ffffff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;line-height:1;">
+  Aceitar Convite
+</a>
+{% endblock button_link %}
+
+{% block extra_content %}
+<p style="font-size:13px;color:#757575;margin:0;">
+  Se você não esperava este convite, pode ignorar este e-mail com segurança.
+</p>
+{% endblock extra_content %}

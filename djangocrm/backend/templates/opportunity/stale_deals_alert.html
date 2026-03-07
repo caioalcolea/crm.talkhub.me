@@ -1,0 +1,37 @@
+{% extends 'root_email_template_new.html' %}
+
+{% block heading %}
+Olá {{ user.get_username }}
+{% endblock heading %}
+
+{% block content_body %}
+<p>Você tem <strong>{{ deal_count }}</strong> negócio{{ deal_count|pluralize:"s" }} parado{{ deal_count|pluralize:"s" }} que precisa{{ deal_count|pluralize:"m" }} de atenção:</p>
+
+<table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;">
+  <thead>
+    <tr style="background:#f0f0f0;">
+      <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #ddd;">Negócio</th>
+      <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #ddd;">Etapa</th>
+      <th style="text-align:center;padding:8px 12px;border-bottom:2px solid #ddd;">Dias na Etapa</th>
+      <th style="text-align:center;padding:8px 12px;border-bottom:2px solid #ddd;">Esperado</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for deal in deals %}
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ deal.name }}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">{{ deal.stage }}</td>
+      <td style="text-align:center;padding:8px 12px;border-bottom:1px solid #eee;color:#dc2626;font-weight:600;">{{ deal.days_in_stage }}d</td>
+      <td style="text-align:center;padding:8px 12px;border-bottom:1px solid #eee;">{{ deal.expected_days }}d</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock content_body %}
+
+{% block button_link %}
+<div style="margin-bottom:20px">
+    <a href="{{url}}/opportunities?rotten=true"
+        style="display:block;width:200px;background:#dc2626;padding:10px;text-align:center;color:#fff;font-size:1rem;font-weight:600;margin:0px auto;margin-bottom:20px;border-radius:5px;text-decoration:none">Ver Negócios Parados</a>
+</div>
+{% endblock button_link %}

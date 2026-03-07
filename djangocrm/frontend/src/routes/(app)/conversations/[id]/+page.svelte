@@ -1,0 +1,86 @@
+<script>
+  import { goto } from '$app/navigation';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { PageHeader } from '$lib/components/layout';
+  import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
+  import MessageInput from '$lib/components/conversations/MessageInput.svelte';
+  import { ArrowLeft } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
+
+  /** @type {{ data: any }} */
+  let { data } = $props();
+
+  let conversationData = $derived(data.conversation);
+  let initialMessages = $derived(data.messages || []);
+  /** @type {any} */
+  let conversation = $state(null);
+  let messages = $state([]);
+  let channels = $derived(data.channels || []);
+
+  $effect(() => {
+    conversation = conversationData;
+  });
+
+  $effect(() => {
+    messages = initialMessages;
+  });
+
+  $effect(() => {
+    if (data.error) toast.error(data.error);
+  });
+
+  /** @param {any} msg */
+  function onMessageSent(msg) {
+    messages = [...messages, msg];
+  }
+
+  /** @param {any} contact */
+  function handleConversationContactChanged(contact) {
+    if (conversation) {
+      conversation = {
+        ...conversation,
+        contact: contact.id,
+        contact_name: `${contact.first_name} ${contact.last_name}`.trim()
+      };
+    }
+  }
+</script>
+
+<svelte:head>
+  <title>{conversation?.contact_name || 'Conversa'} - TalkHub CRM</title>
+</svelte:head>
+
+<div class="flex h-[calc(100vh-4rem)] flex-col">
+  <!-- Top bar -->
+  <div class="flex items-center gap-3 border-b px-4 py-2">
+    <Button variant="ghost" size="icon" class="size-8" onclick={() => goto('/conversations')}>
+      <ArrowLeft class="size-4" />
+    </Button>
+    <span class="text-sm font-medium">{conversation?.contact_name || 'Conversa'}</span>
+  </div>
+
+  {#if data.error}
+    <div class="flex flex-1 items-center justify-center text-muted-foreground">
+      <div class="text-center">
+        <p class="text-destructive font-medium text-sm">Erro ao carregar conversa</p>
+        <p class="text-muted-foreground mt-1 text-xs">{data.error}</p>
+      </div>
+    </div>
+  {:else if conversation}
+    <ConversationTimeline
+      {conversation}
+      {messages}
+      onContactChanged={handleConversationContactChanged}
+    />
+    <MessageInput
+      conversationId={conversation.id}
+      {channels}
+      currentChannel={conversation.channel}
+      {onMessageSent}
+    />
+  {:else}
+    <div class="flex flex-1 items-center justify-center text-muted-foreground">
+      <p class="text-sm">Conversa não encontrada</p>
+    </div>
+  {/if}
+</div>
