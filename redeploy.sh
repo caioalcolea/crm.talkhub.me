@@ -118,7 +118,7 @@ ok "Containers finalizados"
 # ============================================================
 log "3/6 — Gerenciando volumes..."
 
-ALL_VOLUMES=(crm_db crm_static crm_media crm_redis)
+ALL_VOLUMES=(crm_db crm_static crm_media)
 DB_VOLUMES=(crm_db)
 
 if $CLEAN_ALL; then
@@ -140,7 +140,7 @@ elif $CLEAN_DB; then
         ok "Volume '${vol}' criado (limpo)"
     done
     # Garantir que os outros volumes existem
-    for vol in crm_static crm_media crm_redis; do
+    for vol in crm_static crm_media; do
         docker volume inspect "$vol" &>/dev/null || {
             docker volume create "$vol"
             ok "Volume '${vol}' criado"

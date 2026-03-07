@@ -52,14 +52,14 @@ services:
       - DBPASSWORD=${CRM_DB_PASSWORD:?CRM_DB_PASSWORD must be set}
       - DBHOST=crm_db
       - DBPORT=5432
-      ## Redis
-      - CELERY_BROKER_URL=redis://:${CRM_REDIS_PASSWORD}@crm_redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${CRM_REDIS_PASSWORD}@crm_redis:6379/0
+      ## Redis (shared service)
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
       ## MinIO S3
       - AWS_BUCKET_NAME=${CRM_S3_BUCKET:-talkhub-crm}
       - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY}
       - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY}
-      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://s3.talkhub.me}
+      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://bucketss3.talkhub.me}
       ## SMTP (Titan)
       - EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
       - EMAIL_HOST=smtp.titan.email
@@ -136,12 +136,12 @@ services:
       - DBPASSWORD=${CRM_DB_PASSWORD:?CRM_DB_PASSWORD must be set}
       - DBHOST=crm_db
       - DBPORT=5432
-      - CELERY_BROKER_URL=redis://:${CRM_REDIS_PASSWORD}@crm_redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${CRM_REDIS_PASSWORD}@crm_redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - AWS_BUCKET_NAME=${CRM_S3_BUCKET:-talkhub-crm}
       - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY}
       - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY}
-      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://s3.talkhub.me}
+      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://bucketss3.talkhub.me}
       - EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
       - EMAIL_HOST=smtp.titan.email
       - EMAIL_PORT=465
@@ -188,8 +188,8 @@ services:
       - DBPASSWORD=${CRM_DB_PASSWORD:?CRM_DB_PASSWORD must be set}
       - DBHOST=crm_db
       - DBPORT=5432
-      - CELERY_BROKER_URL=redis://:${CRM_REDIS_PASSWORD}@crm_redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${CRM_REDIS_PASSWORD}@crm_redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
     networks:
@@ -243,25 +243,6 @@ services:
         - traefik.http.services.crm_frontend.loadbalancer.server.port=3000
         - traefik.http.routers.crm_frontend.middlewares=crm_headers
 
-  ## ---- Redis (dedicado para CRM) ---- ##
-  crm_redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--port", "6379", "--requirepass", "${CRM_REDIS_PASSWORD:?CRM_REDIS_PASSWORD must be set}"]
-    volumes:
-      - crm_redis:/data
-    networks:
-      - talkhub
-    deploy:
-      mode: replicated
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-
 ## ========================== VOLUMES ========================== ##
 volumes:
   crm_db:
@@ -273,10 +254,6 @@ volumes:
   crm_media:
     external: true
     name: crm_media
-  crm_redis:
-    external: true
-    name: crm_redis
-
 ## ========================== REDE ========================== ##
 networks:
   talkhub:
