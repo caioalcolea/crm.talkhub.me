@@ -11,6 +11,17 @@ set -euo pipefail
 #   ./redeploy.sh --clean-all  # Recria TODOS os volumes (APAGA TUDO)
 # ============================================================
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log()  { echo -e "${CYAN}[$(date '+%H:%M:%S')]${NC} $*"; }
+ok()   { echo -e "${GREEN}[$(date '+%H:%M:%S')] ✔${NC} $*"; }
+warn() { echo -e "${YELLOW}[$(date '+%H:%M:%S')] ⚠${NC} $*"; }
+fail() { echo -e "${RED}[$(date '+%H:%M:%S')] ✘${NC} $*"; exit 1; }
+
 STACK_NAME="djangocrm"
 COMPOSE_FILE="docker/djangocrm.yaml"
 BACKEND_IMAGE="talkhub/djangocrm-backend:latest"
@@ -29,17 +40,6 @@ else
 fi
 
 SLEEP_SECONDS=15
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-log()  { echo -e "${CYAN}[$(date '+%H:%M:%S')]${NC} $*"; }
-ok()   { echo -e "${GREEN}[$(date '+%H:%M:%S')] ✔${NC} $*"; }
-warn() { echo -e "${YELLOW}[$(date '+%H:%M:%S')] ⚠${NC} $*"; }
-fail() { echo -e "${RED}[$(date '+%H:%M:%S')] ✘${NC} $*"; exit 1; }
 
 # ============================================================
 # Parse argumentos
