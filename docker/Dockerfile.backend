@@ -34,6 +34,8 @@ COPY djangocrm/backend/ .
 COPY docker/entrypoint-prod.sh /entrypoint-prod.sh
 RUN chmod +x /entrypoint-prod.sh
 
+RUN mkdir -p /app/staticfiles /app/media
+
 EXPOSE 8000
 
 RUN chown -R app:app /app
