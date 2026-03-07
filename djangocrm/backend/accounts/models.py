@@ -110,7 +110,7 @@ class AccountEmail(OrgScopedMixin, BaseModel):
     from_account = models.ForeignKey(
         Account, related_name="sent_email", on_delete=models.SET_NULL, null=True
     )
-    recipients = models.ManyToManyField(Contact, related_name="recieved_email")
+    recipients = models.ManyToManyField(Contact, related_name="received_email")
     message_subject = models.TextField(null=True)
     message_body = models.TextField(null=True)
     timezone = models.CharField(max_length=100, default="UTC")

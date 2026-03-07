@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from common.models import Profile
 from common.permissions import HasOrgContext
 from tasks.models import Board, BoardColumn, BoardMember, BoardTask
-from tasks.serializer import (
+from tasks.serializers import (
     BoardColumnSerializer,
     BoardListSerializer,
     BoardSerializer,

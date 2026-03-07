@@ -7,10 +7,10 @@ from rest_framework.views import APIView
 
 from common.models import Attachments, Comment
 from common.permissions import HasOrgContext
-from common.serializer import CommentSerializer
+from common.serializers import CommentSerializer
 from opportunity import swagger_params
 from opportunity.models import Opportunity
-from opportunity.serializer import OpportunityCommentEditSwaggerSerializer
+from opportunity.serializers import OpportunityCommentEditSwaggerSerializer
 
 
 class OpportunityCommentView(APIView):

@@ -1,15 +1,15 @@
 from rest_framework import serializers
 
 from accounts.models import Account
-from accounts.serializer import AccountSerializer
-from common.serializer import (
+from accounts.serializers import AccountSerializer
+from common.serializers import (
     OrganizationSerializer,
     ProfileSerializer,
     TeamsSerializer,
     UserSerializer,
 )
 from contacts.models import Contact
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 from invoices.models import (
     Estimate,
     EstimateLineItem,

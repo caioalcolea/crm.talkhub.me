@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from cases.models import Case, CasePipeline, CaseStage
-from cases.serializer import (
+from cases.serializers import (
     CaseKanbanCardSerializer,
     CaseMoveSerializer,
     CasePipelineListSerializer,

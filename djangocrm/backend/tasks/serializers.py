@@ -1,7 +1,7 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     CommentSerializer,
     ProfileSerializer,
@@ -9,7 +9,7 @@ from common.serializer import (
     TeamsSerializer,
     UserSerializer,
 )
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 from tasks.models import (
     Board,
     BoardColumn,

@@ -374,6 +374,15 @@ class OpportunityLineItem(OrgScopedMixin, BaseModel):
         if not self.org_id and self.opportunity_id:
             self.org_id = self.opportunity.org_id
 
+        # Validate cross-org FK integrity
+        if self.opportunity_id and self.org_id:
+            if self.opportunity.org_id != self.org_id:
+                from django.core.exceptions import ValidationError
+                raise ValidationError("OpportunityLineItem.org must match Opportunity.org")
+        if self.product_id and self.product.org_id != self.org_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Product must belong to the same organization")
+
         super().save(*args, **kwargs)
 
         # Recalculate opportunity amount after saving line item

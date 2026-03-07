@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     OrganizationSerializer,
     ProfileSerializer,

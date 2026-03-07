@@ -62,7 +62,7 @@ LEAD_SOURCE = (
     ("existing customer", "Cliente Existente"),
     ("partner", "Parceiro"),
     ("public relations", "Relações Públicas"),
-    ("compaign", "Campanha"),
+    ("campaign", "Campanha"),
     ("other", "Outro"),
 )
 

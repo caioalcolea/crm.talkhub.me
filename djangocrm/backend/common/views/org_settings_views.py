@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
 
-from common.serializer import OrgSettingsSerializer
+from common.serializers import OrgSettingsSerializer
 
 
 class OrgSettingsView(APIView):

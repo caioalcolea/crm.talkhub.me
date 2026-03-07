@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 
 from common.models import Attachments, Comment
 from common.permissions import HasOrgContext
-from common.serializer import AttachmentsSerializer, CommentSerializer
+from common.serializers import AttachmentsSerializer, CommentSerializer
 from invoices.models import (
     Estimate,
     Invoice,
@@ -34,7 +34,7 @@ from invoices.pdf import (
     generate_invoice_filename,
     generate_invoice_pdf,
 )
-from invoices.serializer import (
+from invoices.serializers import (
     EstimateCreateSerializer,
     EstimateListSerializer,
     EstimateSerializer,

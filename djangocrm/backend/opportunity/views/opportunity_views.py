@@ -12,20 +12,20 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import Account
-from accounts.serializer import AccountSerializer, TagsSerializer
+from accounts.serializers import AccountSerializer, TagsSerializer
 from common.models import Attachments, Comment, Profile, Tags, Teams
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     CommentSerializer,
     ProfileSerializer,
 )
 from common.utils import CURRENCY_CODES, SOURCES, STAGES
 from contacts.models import Contact
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 from opportunity import swagger_params
 from opportunity.models import Opportunity, StageAgingConfig
-from opportunity.serializer import (
+from opportunity.serializers import (
     OpportunityCreateSerializer,
     OpportunityCreateSwaggerSerializer,
     OpportunityDetailEditSwaggerSerializer,
@@ -41,7 +41,11 @@ class OpportunityListView(APIView, LimitOffsetPagination):
 
     def get_context_data(self, **kwargs):
         params = self.request.query_params
-        queryset = self.model.objects.filter(org=self.request.profile.org).order_by(
+        queryset = self.model.objects.filter(org=self.request.profile.org).select_related(
+            "account", "org", "lead", "closed_by"
+        ).prefetch_related(
+            "contacts", "assigned_to", "teams", "tags"
+        ).order_by(
             "-id"
         )
         accounts = Account.objects.filter(org=self.request.profile.org)

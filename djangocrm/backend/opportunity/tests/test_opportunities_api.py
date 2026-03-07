@@ -1479,7 +1479,7 @@ class TestOpportunitySerializer:
     """Cover OpportunitySerializer and OpportunityCreateSerializer methods."""
 
     def test_created_on_arrow_serializer(self, admin_user, org_a):
-        from opportunity.serializer import OpportunitySerializer
+        from opportunity.serializers import OpportunitySerializer
 
         _set_rls(org_a)
         opp = Opportunity.objects.create(
@@ -1492,7 +1492,7 @@ class TestOpportunitySerializer:
         assert "ago" in serializer.data["created_on_arrow"]
 
     def test_line_items_total_serializer(self, admin_user, org_a):
-        from opportunity.serializer import OpportunitySerializer
+        from opportunity.serializers import OpportunitySerializer
 
         _set_rls(org_a)
         opp = Opportunity.objects.create(
@@ -1559,7 +1559,7 @@ class TestOpportunityLineItemSerializer:
     """Cover OpportunityLineItemSerializer methods."""
 
     def test_formatted_unit_price(self, admin_user, org_a):
-        from opportunity.serializer import OpportunityLineItemSerializer
+        from opportunity.serializers import OpportunityLineItemSerializer
 
         _set_rls(org_a)
         opp = Opportunity.objects.create(
@@ -1581,7 +1581,7 @@ class TestOpportunityLineItemSerializer:
         assert "1,234.56" in serializer.data["formatted_unit_price"]
 
     def test_formatted_total(self, admin_user, org_a):
-        from opportunity.serializer import OpportunityLineItemSerializer
+        from opportunity.serializers import OpportunityLineItemSerializer
 
         _set_rls(org_a)
         opp = Opportunity.objects.create(
@@ -1602,7 +1602,7 @@ class TestOpportunityLineItemSerializer:
 
     def test_formatted_unit_price_no_currency(self, admin_user, org_a):
         """Formatted price uses USD when opportunity has no currency."""
-        from opportunity.serializer import OpportunityLineItemSerializer
+        from opportunity.serializers import OpportunityLineItemSerializer
 
         _set_rls(org_a)
         opp = Opportunity.objects.create(

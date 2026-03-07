@@ -2,7 +2,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from accounts.models import Account, AccountEmail, AccountEmailLog
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     OrganizationSerializer,
     ProfileSerializer,
@@ -10,7 +10,7 @@ from common.serializer import (
     TeamsSerializer,
     UserSerializer,
 )
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 
 
 # Note: Removed unused serializer properties that were computed but never used by frontend:

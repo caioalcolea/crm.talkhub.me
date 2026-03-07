@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     LeadCommentSerializer,
     ProfileSerializer,
@@ -9,7 +9,7 @@ from common.serializer import (
     UserSerializer,
 )
 from common.utils import LEAD_STATUS
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 from leads.models import Lead, LeadPipeline, LeadStage
 
 

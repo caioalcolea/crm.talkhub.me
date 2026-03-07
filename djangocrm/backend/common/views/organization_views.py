@@ -9,10 +9,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from common import serializer, swagger_params
+from common import serializers as common_serializers, swagger_params
 from common.models import Org, Profile
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     CreateProfileSerializer,
     OrganizationSerializer,
     OrgProfileCreateSerializer,
@@ -324,7 +324,7 @@ class ProfileDetailView(APIView):
                 description="Organization ID",
             )
         ],
-        responses={200: serializer.ProfileDetailSerializer},
+        responses={200: common_serializers.ProfileDetailSerializer},
     )
     def get(self, request):
         # request.profile is set by middleware based on org header
@@ -334,5 +334,5 @@ class ProfileDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        profile_serializer = serializer.ProfileDetailSerializer(request.profile)
+        profile_serializer = common_serializers.ProfileDetailSerializer(request.profile)
         return Response(profile_serializer.data, status=status.HTTP_200_OK)

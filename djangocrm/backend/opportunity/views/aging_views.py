@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from common.permissions import HasOrgContext
 from common.utils import STAGES
 from opportunity.models import StageAgingConfig
-from opportunity.serializer import StageAgingConfigSerializer
+from opportunity.serializers import StageAgingConfigSerializer
 from opportunity.workflow import CLOSED_STAGES, DEFAULT_STAGE_EXPECTED_DAYS
 
 

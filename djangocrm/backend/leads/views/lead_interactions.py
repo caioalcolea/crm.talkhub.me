@@ -7,12 +7,12 @@ from rest_framework.views import APIView
 
 from common.models import APISettings, Attachments, Comment
 from common.permissions import HasOrgContext
-from common.serializer import LeadCommentSerializer
+from common.serializers import LeadCommentSerializer
 from contacts.models import Contact
 from leads import swagger_params
 from leads.forms import LeadListForm
 from leads.models import Lead
-from leads.serializer import (
+from leads.serializers import (
     CreateLeadFromSiteSwaggerSerializer,
     LeadCommentEditSwaggerSerializer,
     LeadUploadSwaggerSerializer,

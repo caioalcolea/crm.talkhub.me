@@ -19,14 +19,18 @@ const API_BASE_URL = env.PUBLIC_DJANGO_API_URL
   : 'http://localhost:8000/api';
 
 /**
- * Storage keys for tokens and org
+ * Storage keys for non-sensitive data only
  */
 const STORAGE_KEYS = {
-  ACCESS_TOKEN: 'access_token',
-  REFRESH_TOKEN: 'refresh_token',
   ORG_ID: 'org_id',
   USER: 'user'
 };
+
+/**
+ * In-memory token storage (not persisted to localStorage to avoid XSS exposure)
+ */
+let _accessToken = null;
+let _refreshToken = null;
 
 /**
  * Get token from localStorage (client-side) or return null (server-side)
@@ -60,11 +64,11 @@ function removeFromStorage(key) {
 }
 
 /**
- * Clear all auth data from storage
+ * Clear all auth data from storage and memory
  */
 export function clearAuthData() {
-  removeFromStorage(STORAGE_KEYS.ACCESS_TOKEN);
-  removeFromStorage(STORAGE_KEYS.REFRESH_TOKEN);
+  _accessToken = null;
+  _refreshToken = null;
   removeFromStorage(STORAGE_KEYS.ORG_ID);
   removeFromStorage(STORAGE_KEYS.USER);
 }
@@ -74,7 +78,7 @@ export function clearAuthData() {
  * @returns {string|null}
  */
 export function getAccessToken() {
-  return getFromStorage(STORAGE_KEYS.ACCESS_TOKEN);
+  return _accessToken;
 }
 
 /**
@@ -82,7 +86,7 @@ export function getAccessToken() {
  * @returns {string|null}
  */
 export function getRefreshToken() {
-  return getFromStorage(STORAGE_KEYS.REFRESH_TOKEN);
+  return _refreshToken;
 }
 
 /**
@@ -103,12 +107,12 @@ export function setOrgId(orgId) {
 
 /**
  * Initialize client-side auth from server-provided token.
- * Called by the root layout to bridge httpOnly cookies → localStorage.
+ * Called by the root layout to bridge httpOnly cookies → in-memory storage.
  * @param {string|null} accessToken - JWT access token from server layout data
  */
 export function initClientAuth(accessToken) {
   if (accessToken) {
-    setInStorage(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+    _accessToken = accessToken;
   }
 }
 
@@ -142,7 +146,7 @@ async function refreshAccessToken() {
 
     if (response.ok) {
       const data = await response.json();
-      setInStorage(STORAGE_KEYS.ACCESS_TOKEN, data.access);
+      _accessToken = data.access;
       return data.access;
     }
 
@@ -264,9 +268,9 @@ export const auth = {
       body: { org_id: orgId }
     });
 
-    // Update tokens with new org context
-    setInStorage(STORAGE_KEYS.ACCESS_TOKEN, data.access_token);
-    setInStorage(STORAGE_KEYS.REFRESH_TOKEN, data.refresh_token);
+    // Update tokens in memory (not localStorage) and org context
+    _accessToken = data.access_token;
+    _refreshToken = data.refresh_token;
     setInStorage(STORAGE_KEYS.ORG_ID, data.current_org.id);
 
     return data;

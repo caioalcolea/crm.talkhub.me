@@ -23,7 +23,7 @@ from rest_framework.views import APIView
 
 from common.models import Org, PendingInvitation, Profile, User
 from common.permissions import HasOrgContext, IsOrgAdmin
-from common.serializer import (
+from common.serializers import (
     PendingInvitationCreateSerializer,
     PendingInvitationSerializer,
 )

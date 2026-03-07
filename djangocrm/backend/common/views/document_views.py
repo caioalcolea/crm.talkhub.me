@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from common import swagger_params
 from common.models import Document, Profile, Teams
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     DocumentCreateSerializer,
     DocumentCreateSwaggerSerializer,
     DocumentEditSwaggerSerializer,

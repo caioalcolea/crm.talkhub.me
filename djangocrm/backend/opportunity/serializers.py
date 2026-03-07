@@ -5,16 +5,16 @@ from django.db.models.functions import Coalesce
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from accounts.serializer import AccountSerializer
-from common.serializer import (
+from accounts.serializers import AccountSerializer
+from common.serializers import (
     OrganizationSerializer,
     ProfileSerializer,
     TagsSerializer,
     TeamsSerializer,
     UserSerializer,
 )
-from contacts.serializer import ContactSerializer
-from invoices.serializer import ProductSerializer
+from contacts.serializers import ContactSerializer
+from invoices.serializers import ProductSerializer
 from opportunity.models import (
     GoalBreakdown,
     Opportunity,

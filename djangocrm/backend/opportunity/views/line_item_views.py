@@ -6,9 +6,9 @@ from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
 from invoices.models import Product
-from invoices.serializer import ProductSerializer
+from invoices.serializers import ProductSerializer
 from opportunity.models import Opportunity, OpportunityLineItem
-from opportunity.serializer import (
+from opportunity.serializers import (
     OpportunityLineItemCreateSerializer,
     OpportunityLineItemSerializer,
 )

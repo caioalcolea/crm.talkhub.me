@@ -6,7 +6,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from cases.models import Solution
-from common.serializer import OrganizationSerializer
+from common.serializers import OrganizationSerializer
 
 
 class SolutionSerializer(serializers.ModelSerializer):
@@ -92,6 +92,6 @@ class SolutionDetailSerializer(serializers.ModelSerializer):
     @extend_schema_field(list)
     def get_linked_cases(self, obj):
         """Get cases that use this solution"""
-        from cases.serializer import CaseSerializer
+        from cases.serializers import CaseSerializer
 
         return CaseSerializer(obj.cases.all()[:10], many=True).data

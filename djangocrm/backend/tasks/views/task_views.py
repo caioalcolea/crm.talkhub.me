@@ -11,10 +11,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import Account
-from accounts.serializer import AccountSerializer
+from accounts.serializers import AccountSerializer
 from common.models import Attachments, Comment, Profile, Tags, Teams
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     CommentSerializer,
     ProfileSerializer,
@@ -22,12 +22,12 @@ from common.serializer import (
 )
 from contacts.models import Contact
 from cases.models import Case
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 from leads.models import Lead
 from opportunity.models import Opportunity
 from tasks import swagger_params
 from tasks.models import Task
-from tasks.serializer import (
+from tasks.serializers import (
     TaskCommentEditSwaggerSerializer,
     TaskCreateSerializer,
     TaskCreateSwaggerSerializer,
@@ -43,7 +43,11 @@ class TaskListView(APIView, LimitOffsetPagination):
 
     def get_context_data(self, **kwargs):
         params = self.request.query_params
-        queryset = self.model.objects.filter(org=self.request.profile.org).order_by(
+        queryset = self.model.objects.filter(org=self.request.profile.org).select_related(
+            "account", "org", "opportunity", "case", "lead"
+        ).prefetch_related(
+            "contacts", "assigned_to", "teams", "tags"
+        ).order_by(
             "-id"
         )
         accounts = Account.objects.filter(org=self.request.profile.org)

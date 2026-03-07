@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from common.models import Attachments, Comment, Profile, Tags, Teams, User
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     LeadCommentSerializer,
     ProfileSerializer,
@@ -23,7 +23,7 @@ from common.utils import COUNTRIES, INDCHOICES, LEAD_SOURCE, LEAD_STATUS
 from contacts.models import Contact
 from leads import swagger_params
 from leads.models import Lead
-from leads.serializer import (
+from leads.serializers import (
     LeadCreateSerializer,
     LeadCreateSwaggerSerializer,
     LeadDetailEditSwaggerSerializer,
@@ -46,6 +46,7 @@ class LeadListView(APIView, LimitOffsetPagination):
             .prefetch_related(
                 "tags",
                 "assigned_to",
+                "contacts",
             )
         ).order_by("-id")
         if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:

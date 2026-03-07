@@ -11,7 +11,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from common.serializer import ContactFormSubmissionSerializer
+from common.serializers import ContactFormSubmissionSerializer
 from common.tasks import send_contact_form_email
 
 logger = logging.getLogger(__name__)

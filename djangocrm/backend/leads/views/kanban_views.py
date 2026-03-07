@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 from common.permissions import HasOrgContext
 from common.utils import LEAD_STATUS
 from leads.models import Lead, LeadPipeline, LeadStage
-from leads.serializer import (
+from leads.serializers import (
     LeadKanbanCardSerializer,
     LeadMoveSerializer,
     LeadPipelineSerializer,

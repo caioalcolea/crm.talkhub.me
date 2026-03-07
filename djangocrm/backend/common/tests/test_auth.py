@@ -15,7 +15,7 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
 from common.models import Org, Profile, User
-from common.serializer import OrgAwareRefreshToken
+from common.serializers import OrgAwareRefreshToken
 
 
 @pytest.mark.django_db

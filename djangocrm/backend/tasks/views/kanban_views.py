@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
 from tasks.models import Task, TaskPipeline, TaskStage
-from tasks.serializer import (
+from tasks.serializers import (
     TaskKanbanCardSerializer,
     TaskMoveSerializer,
     TaskPipelineSerializer,

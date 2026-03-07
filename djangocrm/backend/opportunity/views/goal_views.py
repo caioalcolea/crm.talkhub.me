@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from common.models import Profile
 from common.permissions import HasOrgContext
 from opportunity.models import GoalBreakdown, SalesGoal
-from opportunity.serializer import (
+from opportunity.serializers import (
     GoalBreakdownSerializer,
     SalesGoalCreateSerializer,
     SalesGoalSerializer,

@@ -16,18 +16,18 @@ from common.permissions import HasOrgContext
 from rest_framework.views import APIView
 
 from common.models import Attachments, Comment, Profile, Tags, Teams
-from common.serializer import AttachmentsSerializer, CommentSerializer
+from common.serializers import AttachmentsSerializer, CommentSerializer
 from common.utils import COUNTRIES
 from contacts import swagger_params
 from contacts.models import Contact
-from contacts.serializer import (
+from contacts.serializers import (
     ContactCommentEditSwaggerSerializer,
     ContactDetailEditSwaggerSerializer,
     ContactSerializer,
     CreateContactSerializer,
 )
 from contacts.tasks import send_email_to_assigned_user
-from tasks.serializer import TaskSerializer
+from tasks.serializers import TaskSerializer
 
 
 class ContactsListView(APIView, LimitOffsetPagination):

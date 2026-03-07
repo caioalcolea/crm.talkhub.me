@@ -1,16 +1,16 @@
 from rest_framework import serializers
 
-from accounts.serializer import AccountSerializer
+from accounts.serializers import AccountSerializer
 from cases.models import Case, CasePipeline, CaseStage
 from common.utils import STATUS_CHOICE
-from common.serializer import (
+from common.serializers import (
     OrganizationSerializer,
     ProfileSerializer,
     TagsSerializer,
     TeamsSerializer,
     UserSerializer,
 )
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 
 
 # Note: Removed unused serializer property:

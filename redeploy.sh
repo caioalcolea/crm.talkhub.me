@@ -16,6 +16,18 @@ COMPOSE_FILE="docker/djangocrm.yaml"
 BACKEND_IMAGE="talkhub/djangocrm-backend:latest"
 FRONTEND_IMAGE="talkhub/djangocrm-frontend:latest"
 API_URL="${PUBLIC_DJANGO_API_URL:-https://crm.talkhub.me}"
+
+# Source environment variables
+ENV_FILE="docker/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+    ok "Environment loaded from $ENV_FILE"
+else
+    fail "Environment file not found: $ENV_FILE — copy docker/.env.example to docker/.env and fill in values"
+fi
+
 SLEEP_SECONDS=15
 
 RED='\033[0;31m'

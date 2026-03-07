@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from common import swagger_params
 from common.models import Tags
 from common.permissions import HasOrgContext
-from common.serializer import TagsSerializer
+from common.serializers import TagsSerializer
 
 
 class TagsListView(APIView, LimitOffsetPagination):

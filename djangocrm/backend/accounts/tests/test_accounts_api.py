@@ -943,7 +943,7 @@ class TestAccountSerializerValidation:
 
     def test_email_serializer_validate_message_body_valid(self):
         """EmailSerializer.validate_message_body with balanced brackets."""
-        from accounts.serializer import EmailSerializer
+        from accounts.serializers import EmailSerializer
 
         serializer = EmailSerializer()
         result = serializer.validate_message_body("Hello {name}, welcome!")
@@ -951,7 +951,7 @@ class TestAccountSerializerValidation:
 
     def test_email_serializer_validate_message_body_unbalanced_open(self):
         """EmailSerializer.validate_message_body with unbalanced open bracket."""
-        from accounts.serializer import EmailSerializer
+        from accounts.serializers import EmailSerializer
         from rest_framework import serializers as drf_serializers
 
         serializer = EmailSerializer()
@@ -960,7 +960,7 @@ class TestAccountSerializerValidation:
 
     def test_email_serializer_validate_message_body_unbalanced_close(self):
         """EmailSerializer.validate_message_body with close bracket before open."""
-        from accounts.serializer import EmailSerializer
+        from accounts.serializers import EmailSerializer
         from rest_framework import serializers as drf_serializers
 
         serializer = EmailSerializer()
@@ -969,7 +969,7 @@ class TestAccountSerializerValidation:
 
     def test_account_create_serializer_default_currency(self, admin_client, org_a):
         """AccountCreateSerializer.create() should default currency from org when annual_revenue is set."""
-        from accounts.serializer import AccountCreateSerializer
+        from accounts.serializers import AccountCreateSerializer
 
         # The serializer create method checks for currency default - test via API
         # We need annual_revenue but no currency
@@ -991,7 +991,7 @@ class TestAccountSerializerMethods:
 
     def test_country_display(self, org_a):
         """AccountSerializer.get_country_display returns display name."""
-        from accounts.serializer import AccountSerializer
+        from accounts.serializers import AccountSerializer
 
         account = Account.objects.create(
             name="Country Acct", org=org_a, country="US"
@@ -1001,7 +1001,7 @@ class TestAccountSerializerMethods:
 
     def test_country_display_none(self, org_a):
         """AccountSerializer.get_country_display returns None when no country."""
-        from accounts.serializer import AccountSerializer
+        from accounts.serializers import AccountSerializer
 
         account = Account.objects.create(name="No Country Acct", org=org_a)
         serializer = AccountSerializer(account)
@@ -1009,7 +1009,7 @@ class TestAccountSerializerMethods:
 
     def test_get_cases(self, org_a):
         """AccountSerializer.get_cases returns case data."""
-        from accounts.serializer import AccountSerializer
+        from accounts.serializers import AccountSerializer
 
         account = Account.objects.create(name="Cases Acct", org=org_a)
         serializer = AccountSerializer(account)
@@ -1017,7 +1017,7 @@ class TestAccountSerializerMethods:
 
     def test_get_tasks(self, org_a):
         """AccountSerializer.get_tasks returns task data."""
-        from accounts.serializer import AccountSerializer
+        from accounts.serializers import AccountSerializer
 
         account = Account.objects.create(name="Tasks Acct", org=org_a)
         serializer = AccountSerializer(account)
@@ -1025,7 +1025,7 @@ class TestAccountSerializerMethods:
 
     def test_get_opportunities(self, org_a):
         """AccountSerializer.get_opportunities returns opportunity data."""
-        from accounts.serializer import AccountSerializer
+        from accounts.serializers import AccountSerializer
 
         account = Account.objects.create(name="Opps Acct", org=org_a)
         serializer = AccountSerializer(account)

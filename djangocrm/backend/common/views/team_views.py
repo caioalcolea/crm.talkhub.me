@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from common import swagger_params
 from common.models import Profile, Teams
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     TeamCreateSerializer,
     TeamsSerializer,
     TeamswaggerCreateSerializer,
