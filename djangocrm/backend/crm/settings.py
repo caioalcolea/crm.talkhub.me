@@ -20,7 +20,7 @@ if not SECRET_KEY or SECRET_KEY.startswith("django-insecure"):
 DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
 # Security: Restrict allowed hosts - set ALLOWED_HOSTS env var in production
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
 INSTALLED_APPS = [
     "django.contrib.auth",
@@ -56,16 +56,16 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # Must be before CommonMiddleware
     "django.middleware.common.CommonMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",  # CSRF protection
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "crum.CurrentRequestUserMiddleware",
     "common.middleware.get_company.GetProfileAndOrg",
-    "common.middleware.rls_context.SetOrgContext",  # RLS: Set PostgreSQL session variable (permissive — views handle auth)
+    "common.middleware.rls_context.SetOrgContext",  # RLS: Set PostgreSQL session variable
 ]
 
 ROOT_URLCONF = "crm.urls"
@@ -219,11 +219,11 @@ LOGGING = {
         },
         "logfile": {
             "class": "logging.FileHandler",
-            "filename": "server.log",
+            "filename": os.path.join(BASE_DIR, "server.log"),
         },
         "security_audit": {
             "class": "logging.FileHandler",
-            "filename": "security_audit.log",
+            "filename": os.path.join(BASE_DIR, "security_audit.log"),
             "formatter": "security",
         },
     },
@@ -331,10 +331,7 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-# STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
-
-# Django 5.x STORAGES dict (forward-compatible)
+# Django 5.x STORAGES dict (replaces deprecated STATICFILES_STORAGE)
 STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",

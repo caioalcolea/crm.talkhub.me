@@ -36,8 +36,19 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
     ok "Environment loaded from $ENV_FILE"
 else
-    fail "Environment file not found: $ENV_FILE — copy docker/.env.example to docker/.env and fill in values"
+    warn "Environment file not found: $ENV_FILE"
+    log "Creating from template..."
+    cp docker/.env.example "$ENV_FILE"
+    fail "Created $ENV_FILE from template — edit it with real credentials before rerunning"
 fi
+
+# Validate required variables have real values (not placeholders)
+for var in CRM_POSTGRES_PASSWORD CRM_SECRET_KEY CRM_DB_PASSWORD CRM_ADMIN_PASSWORD; do
+    val="${!var:-}"
+    if [[ -z "$val" || "$val" == CHANGE_ME* ]]; then
+        fail "Required variable $var is not set or still has placeholder value in $ENV_FILE"
+    fi
+done
 
 SLEEP_SECONDS=15
 

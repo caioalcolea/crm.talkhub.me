@@ -30,9 +30,7 @@ AWS_S3_OBJECT_PARAMETERS = {
     "CacheControl": "max-age=86400",
 }
 
-DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-
-# Django 5.x STORAGES override for media files
+# Django 5.x STORAGES override for media files (replaces deprecated DEFAULT_FILE_STORAGE)
 STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",

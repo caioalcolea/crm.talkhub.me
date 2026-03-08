@@ -63,7 +63,7 @@ fi
 if $UPLOAD; then
     if command -v aws &>/dev/null; then
         S3_BUCKET="${CRM_S3_BUCKET:-talkhub-crm}"
-        S3_ENDPOINT="${CRM_S3_ENDPOINT:-https://s3.talkhub.me}"
+        S3_ENDPOINT="${CRM_S3_ENDPOINT:-https://bucketss3.talkhub.me}"
         log "Uploading to s3://${S3_BUCKET}/backups/..."
         aws s3 cp "$BACKUP_FILE" "s3://${S3_BUCKET}/backups/" \
             --endpoint-url "$S3_ENDPOINT" \

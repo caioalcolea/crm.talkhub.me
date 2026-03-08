@@ -126,6 +126,7 @@ services:
   ## ---- Celery Worker ---- ##
   crm_worker:
     image: talkhub/djangocrm-backend:latest
+    entrypoint: /entrypoint-prod.sh
     environment:
       - SERVICE_ROLE=worker
       - SECRET_KEY=${CRM_SECRET_KEY:?CRM_SECRET_KEY must be set}
@@ -178,6 +179,7 @@ services:
   ## ---- Celery Beat (scheduler) ---- ##
   crm_beat:
     image: talkhub/djangocrm-backend:latest
+    entrypoint: /entrypoint-prod.sh
     environment:
       - SERVICE_ROLE=beat
       - SECRET_KEY=${CRM_SECRET_KEY:?CRM_SECRET_KEY must be set}

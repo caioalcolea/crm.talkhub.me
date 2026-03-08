@@ -30,7 +30,9 @@ RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app
 # Copiar apenas o build output e dependências de produção
 COPY --from=build /app/build ./build
 COPY --from=build /app/package.json .
+# Only copy production node_modules (adapter-node needs them at runtime)
 COPY --from=build /app/node_modules ./node_modules
+# TODO: Consider using `pnpm prune --prod` in build stage to reduce image size
 
 ENV NODE_ENV=production
 ENV PORT=3000
