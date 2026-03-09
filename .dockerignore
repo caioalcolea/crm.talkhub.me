@@ -1,0 +1,43 @@
+.git
+.github
+.vscode
+.idea
+.kiro
+.playwright-mcp
+
+# Python bytecode
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.coverage
+htmlcov
+
+# Node
+**/node_modules/
+djangocrm/frontend/.svelte-kit/
+djangocrm/frontend/build/
+
+# Mobile app
+djangocrm/mobile/
+
+# Env files (injected at runtime)
+.env
+.env.*
+docker/.env
+docker/.env.*
+djangocrm/backend/.env
+djangocrm/backend/.env.*
+
+# Test files
+**/tests/
+**/test_*.py
+**/*_test.py
+**/conftest.py
+**/.hypothesis/
+
+# Misc
+*.md
+*.log
+.DS_Store
+Thumbs.db

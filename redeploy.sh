@@ -187,7 +187,7 @@ docker build \
     -t "$FRONTEND_IMAGE" \
     -f docker/Dockerfile.frontend \
     --build-arg PUBLIC_DJANGO_API_URL="$API_URL" \
-    djangocrm/frontend/ \
+    . \
     || fail "Falha no build do frontend"
 ok "Frontend build concluído"
 

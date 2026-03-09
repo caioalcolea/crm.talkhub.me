@@ -1,6 +1,9 @@
 ## ============================================================
 ## SvelteKit Frontend — Production Multi-Stage Build
 ## Usa adapter-node → gera servidor Node.js standalone (porta 3000)
+##
+## Build context: repo root (.)
+##   docker build -f docker/Dockerfile.frontend .
 ## ============================================================
 
 # Stage 1: Build
@@ -11,11 +14,11 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 WORKDIR /app
 
 # Instalar dependências (cache de camada)
-COPY package.json pnpm-lock.yaml* ./
+COPY djangocrm/frontend/package.json djangocrm/frontend/pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile || pnpm install
 
 # Copiar código-fonte e buildar
-COPY . .
+COPY djangocrm/frontend/ .
 ARG PUBLIC_DJANGO_API_URL=https://crm.talkhub.me
 ENV PUBLIC_DJANGO_API_URL=${PUBLIC_DJANGO_API_URL}
 RUN pnpm build
@@ -32,7 +35,6 @@ COPY --from=build /app/build ./build
 COPY --from=build /app/package.json .
 # Only copy production node_modules (adapter-node needs them at runtime)
 COPY --from=build /app/node_modules ./node_modules
-# TODO: Consider using `pnpm prune --prod` in build stage to reduce image size
 
 ENV NODE_ENV=production
 ENV PORT=3000
