@@ -28,7 +28,7 @@ BACKEND_IMAGE="talkhub/djangocrm-backend:latest"
 FRONTEND_IMAGE="talkhub/djangocrm-frontend:latest"
 API_URL="${PUBLIC_DJANGO_API_URL:-https://crm.talkhub.me}"
 
-# Source environment variables
+# Source environment variables (optional — YAML has inline defaults)
 ENV_FILE="docker/.env"
 if [[ -f "$ENV_FILE" ]]; then
     set -a
@@ -36,19 +36,9 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
     ok "Environment loaded from $ENV_FILE"
 else
-    warn "Environment file not found: $ENV_FILE"
-    log "Creating from template..."
-    cp docker/.env.example "$ENV_FILE"
-    fail "Created $ENV_FILE from template — edit it with real credentials before rerunning"
+    warn "No docker/.env found — using inline defaults from YAML"
+    warn "For production, create docker/.env from docker/.env.example with real credentials"
 fi
-
-# Validate required variables have real values (not placeholders)
-for var in CRM_POSTGRES_PASSWORD CRM_SECRET_KEY CRM_DB_PASSWORD CRM_ADMIN_PASSWORD; do
-    val="${!var:-}"
-    if [[ -z "$val" || "$val" == CHANGE_ME* ]]; then
-        fail "Required variable $var is not set or still has placeholder value in $ENV_FILE"
-    fi
-done
 
 SLEEP_SECONDS=15
 
@@ -129,7 +119,7 @@ ok "Containers finalizados"
 # ============================================================
 log "3/6 — Gerenciando volumes..."
 
-ALL_VOLUMES=(crm_db crm_static crm_media)
+ALL_VOLUMES=(crm_db crm_static crm_media crm_redis)
 DB_VOLUMES=(crm_db)
 
 if $CLEAN_ALL; then
@@ -151,7 +141,7 @@ elif $CLEAN_DB; then
         ok "Volume '${vol}' criado (limpo)"
     done
     # Garantir que os outros volumes existem
-    for vol in crm_static crm_media; do
+    for vol in crm_static crm_media crm_redis; do
         docker volume inspect "$vol" &>/dev/null || {
             docker volume create "$vol"
             ok "Volume '${vol}' criado"

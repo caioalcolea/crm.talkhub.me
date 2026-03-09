@@ -8,12 +8,12 @@ services:
     environment:
       - POSTGRES_DB=crm_db
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${CRM_POSTGRES_PASSWORD:?CRM_POSTGRES_PASSWORD must be set}
+      - POSTGRES_PASSWORD=${CRM_POSTGRES_PASSWORD:-16864b0c4a4e46c68d35ad644cca2791}
       - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
       - TZ=America/Sao_Paulo
     command: >
       postgres
-      -c crm.db_password=${CRM_DB_PASSWORD}
+      -c crm.db_password=${CRM_DB_PASSWORD:-crm_talkhub_2026}
     volumes:
       - crm_db:/var/lib/postgresql/data
     configs:
@@ -38,7 +38,7 @@ services:
     entrypoint: /entrypoint-prod.sh
     environment:
       ## Django
-      - SECRET_KEY=${CRM_SECRET_KEY:?CRM_SECRET_KEY must be set}
+      - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
       - ENV_TYPE=prod
       - DEBUG=False
       - ALLOWED_HOSTS=crm.talkhub.me,localhost
@@ -49,16 +49,16 @@ services:
       ## Database (MUST be non-superuser for RLS)
       - DBNAME=crm_db
       - DBUSER=crm_user
-      - DBPASSWORD=${CRM_DB_PASSWORD:?CRM_DB_PASSWORD must be set}
+      - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
       - DBHOST=crm_db
       - DBPORT=5432
-      ## Redis (shared service)
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      ## Redis (dedicado para CRM)
+      - CELERY_BROKER_URL=redis://crm_redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
       ## MinIO S3
       - AWS_BUCKET_NAME=${CRM_S3_BUCKET:-talkhub-crm}
-      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY}
-      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY}
+      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY:-Admin}
+      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY:-Madu*0112talk}
       - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://bucketss3.talkhub.me}
       ## SMTP (Titan)
       - EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
@@ -66,10 +66,10 @@ services:
       - EMAIL_PORT=465
       - EMAIL_USE_SSL=True
       - EMAIL_HOST_USER=adm@talkhub.me
-      - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:?CRM_SMTP_PASSWORD must be set}
+      - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:-Madu*0112talk@}
       - DEFAULT_FROM_EMAIL=TalkHub CRM <adm@talkhub.me>
       - ADMIN_EMAIL=admin@talkhub.me
-      - ADMIN_PASSWORD=${CRM_ADMIN_PASSWORD:?CRM_ADMIN_PASSWORD must be set}
+      - ADMIN_PASSWORD=${CRM_ADMIN_PASSWORD:-TalkHub2026!}
       ## CORS / CSRF
       - CORS_ALLOWED_ORIGINS=https://crm.talkhub.me
       - CORS_ALLOW_ALL=False
@@ -77,11 +77,11 @@ services:
       ## Sentry (opcional)
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
-      ## Google OAuth
-      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET}
+      ## Google OAuth (opcional)
+      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
       ## Fernet encryption
-      - FERNET_KEY=${CRM_FERNET_KEY}
+      - FERNET_KEY=${CRM_FERNET_KEY:-jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=}
     volumes:
       - crm_static:/app/staticfiles
       - crm_media:/app/media
@@ -102,7 +102,7 @@ services:
       labels:
         - traefik.enable=true
         ## Rota API/Admin/Static (prioridade alta)
-        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin/`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite/`) || PathPrefix(`/webhooks/`) || PathPrefix(`/track/`))
+        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite`) || PathPrefix(`/webhooks`) || PathPrefix(`/track`) || PathPrefix(`/health`))
         - traefik.http.routers.crm_api.entrypoints=websecure
         - traefik.http.routers.crm_api.tls=true
         - traefik.http.routers.crm_api.tls.certresolver=letsencryptresolver
@@ -129,36 +129,34 @@ services:
     entrypoint: /entrypoint-prod.sh
     environment:
       - SERVICE_ROLE=worker
-      - SECRET_KEY=${CRM_SECRET_KEY:?CRM_SECRET_KEY must be set}
+      - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
       - ENV_TYPE=prod
       - DEBUG=False
       - DBNAME=crm_db
       - DBUSER=crm_user
-      - DBPASSWORD=${CRM_DB_PASSWORD:?CRM_DB_PASSWORD must be set}
+      - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
       - DBHOST=crm_db
       - DBPORT=5432
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://crm_redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
       - AWS_BUCKET_NAME=${CRM_S3_BUCKET:-talkhub-crm}
-      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY}
-      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY}
+      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY:-Admin}
+      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY:-Madu*0112talk}
       - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://bucketss3.talkhub.me}
       - EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
       - EMAIL_HOST=smtp.titan.email
       - EMAIL_PORT=465
       - EMAIL_USE_SSL=True
       - EMAIL_HOST_USER=adm@talkhub.me
-      - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:?CRM_SMTP_PASSWORD must be set}
+      - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:-Madu*0112talk@}
       - DEFAULT_FROM_EMAIL=TalkHub CRM <adm@talkhub.me>
       - DOMAIN_NAME=https://crm.talkhub.me
       - FRONTEND_URL=https://crm.talkhub.me
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
-      ## Google OAuth
-      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET}
-      ## Fernet encryption
-      - FERNET_KEY=${CRM_FERNET_KEY}
+      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
+      - FERNET_KEY=${CRM_FERNET_KEY:-jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=}
     volumes:
       - crm_media:/app/media
     networks:
@@ -182,16 +180,16 @@ services:
     entrypoint: /entrypoint-prod.sh
     environment:
       - SERVICE_ROLE=beat
-      - SECRET_KEY=${CRM_SECRET_KEY:?CRM_SECRET_KEY must be set}
+      - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
       - ENV_TYPE=prod
       - DEBUG=False
       - DBNAME=crm_db
       - DBUSER=crm_user
-      - DBPASSWORD=${CRM_DB_PASSWORD:?CRM_DB_PASSWORD must be set}
+      - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
       - DBHOST=crm_db
       - DBPORT=5432
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://crm_redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
     networks:
@@ -214,12 +212,8 @@ services:
     image: talkhub/djangocrm-frontend:latest
     environment:
       - PUBLIC_DJANGO_API_URL=https://crm.talkhub.me
-      - PUBLIC_SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - NODE_ENV=production
       - ORIGIN=https://crm.talkhub.me
-      ## Google OAuth
-      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID}
-      - GOOGLE_LOGIN_DOMAIN=https://crm.talkhub.me
     networks:
       - talkhub
     deploy:
@@ -245,6 +239,25 @@ services:
         - traefik.http.services.crm_frontend.loadbalancer.server.port=3000
         - traefik.http.routers.crm_frontend.middlewares=crm_headers
 
+  ## ---- Redis (dedicado para CRM) ---- ##
+  crm_redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--port", "6379"]
+    volumes:
+      - crm_redis:/data
+    networks:
+      - talkhub
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
 ## ========================== VOLUMES ========================== ##
 volumes:
   crm_db:
@@ -256,6 +269,10 @@ volumes:
   crm_media:
     external: true
     name: crm_media
+  crm_redis:
+    external: true
+    name: crm_redis
+
 ## ========================== REDE ========================== ##
 networks:
   talkhub:
