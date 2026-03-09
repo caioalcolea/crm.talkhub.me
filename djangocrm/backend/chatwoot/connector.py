@@ -180,7 +180,7 @@ class ChatwootConnector(BaseConnector):
         """Import conversations from Chatwoot into the CRM."""
         conn = _get_connection(org)
         if not conn:
-            return {"status": "FAILED", "total_records": 0, "imported_count": 0,
+            return {"status": "FAILED", "total": 0, "imported": 0, "updated": 0, "skipped": 0, "errors": 0,
                     "message": "Chatwoot não está conectado."}
 
         config = _decrypt_config(conn.config_json or {})
@@ -222,14 +222,15 @@ class ChatwootConnector(BaseConnector):
             logger.info("Chatwoot sync complete for org %s: %d/%d conversations imported", org.id, total_imported, total_records)
             return {
                 "status": "COMPLETED",
-                "total_records": total_records,
-                "imported_count": total_imported,
+                "total": total_records, "imported": total_imported,
+                "updated": 0, "skipped": total_records - total_imported, "errors": 0,
                 "message": f"{total_imported} conversas importadas de {total_records} encontradas.",
             }
 
         except Exception as exc:
             logger.error("Chatwoot sync failed for org %s: %s", org.id, exc)
-            return {"status": "FAILED", "total_records": total_records, "imported_count": total_imported,
+            return {"status": "FAILED", "total": total_records, "imported": total_imported,
+                    "updated": 0, "skipped": 0, "errors": 1,
                     "message": f"Erro ao sincronizar: {exc}"}
 
     def _import_conversation(self, org, config, cw_conv):

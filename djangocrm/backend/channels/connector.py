@@ -81,8 +81,7 @@ class SMTPConnector(BaseConnector):
         if not conn:
             return {
                 "status": "FAILED",
-                "total_records": 0,
-                "imported_count": 0,
+                "total": 0, "imported": 0, "updated": 0, "skipped": 0, "errors": 0,
                 "message": "SMTP não está conectado.",
             }
 
@@ -91,8 +90,7 @@ class SMTPConnector(BaseConnector):
         if not imap_config:
             return {
                 "status": "FAILED",
-                "total_records": 0,
-                "imported_count": 0,
+                "total": 0, "imported": 0, "updated": 0, "skipped": 0, "errors": 0,
                 "message": "IMAP não configurado. Preencha host e porta IMAP.",
             }
 
@@ -100,16 +98,14 @@ class SMTPConnector(BaseConnector):
             count = _poll_org_emails(org, config, imap_config)
             return {
                 "status": "COMPLETED",
-                "total_records": count,
-                "imported_count": count,
+                "total": count, "imported": count, "updated": 0, "skipped": 0, "errors": 0,
                 "message": f"{count} emails importados." if count else "Nenhum email novo encontrado.",
             }
         except Exception as exc:
             logger.error("SMTP sync failed for org %s: %s", org.id, exc)
             return {
                 "status": "FAILED",
-                "total_records": 0,
-                "imported_count": 0,
+                "total": 0, "imported": 0, "updated": 0, "skipped": 0, "errors": 1,
                 "message": f"Erro ao buscar emails: {exc}",
             }
 
