@@ -250,12 +250,19 @@ class ChatwootConnector(BaseConnector):
                     break
                 page += 1
 
-            logger.info("Chatwoot sync complete for org %s: %d/%d conversations imported", org.id, total_imported, total_records)
+            # Also sync contacts from Chatwoot
+            contacts_imported = self._sync_contacts(org, config)
+
+            logger.info(
+                "Chatwoot sync complete for org %s: %d/%d conversations, %d contacts imported",
+                org.id, total_imported, total_records, contacts_imported,
+            )
             return {
                 "status": "COMPLETED",
                 "total": total_records, "imported": total_imported,
                 "updated": 0, "skipped": total_records - total_imported, "errors": 0,
-                "message": f"{total_imported} conversas importadas de {total_records} encontradas.",
+                "contacts_imported": contacts_imported,
+                "message": f"{total_imported} conversas importadas de {total_records}. {contacts_imported} contatos sincronizados.",
             }
 
         except Exception as exc:
@@ -263,6 +270,56 @@ class ChatwootConnector(BaseConnector):
             return {"status": "FAILED", "total": total_records, "imported": total_imported,
                     "updated": 0, "skipped": 0, "errors": 1,
                     "message": f"Erro ao sincronizar: {exc}"}
+
+    def _sync_contacts(self, org, config):
+        """Import contacts from Chatwoot GET /contacts API (paginated)."""
+        imported = 0
+        page = 1
+        max_pages = 50  # Safety limit
+
+        while page <= max_pages:
+            try:
+                resp = _api_request(config, "GET", "/contacts", params={"page": page})
+                if resp.status_code != 200:
+                    logger.warning("Chatwoot contacts sync: page %d returned %s", page, resp.status_code)
+                    break
+
+                data = resp.json()
+                # Chatwoot returns {payload: [...], meta: {}}
+                contacts_list = data.get("payload", data) if isinstance(data, dict) else data
+                if isinstance(contacts_list, dict):
+                    contacts_list = contacts_list.get("data", [])
+                if not contacts_list:
+                    break
+
+                for cw_contact in contacts_list:
+                    try:
+                        if not cw_contact.get("name") and not cw_contact.get("email") and not cw_contact.get("phone_number"):
+                            continue
+                        contact = self._get_or_create_contact(org, cw_contact, update_existing=True)
+                        if contact:
+                            imported += 1
+                    except Exception as exc:
+                        logger.warning("Chatwoot contacts sync: error importing contact %s: %s", cw_contact.get("id"), exc)
+
+                # Check pagination
+                meta = data.get("meta", {}) if isinstance(data, dict) else {}
+                total_pages = 1
+                if meta.get("pages"):
+                    total_pages = meta["pages"]
+                elif meta.get("all_count") and meta.get("per_page"):
+                    total_pages = (meta["all_count"] + meta["per_page"] - 1) // meta["per_page"]
+
+                if page >= total_pages:
+                    break
+                page += 1
+
+            except Exception as exc:
+                logger.error("Chatwoot contacts sync failed at page %d: %s", page, exc)
+                break
+
+        logger.info("Chatwoot contacts sync: %d contacts imported for org %s", imported, org.id)
+        return imported
 
     def _import_conversation(self, org, config, cw_conv):
         """Import a single Chatwoot conversation into the CRM."""
@@ -273,10 +330,13 @@ class ChatwootConnector(BaseConnector):
         if not cw_conv_id:
             return False
 
-        # Detect group conversations
+        # Detect group conversations (multiple heuristics)
+        additional_attrs = cw_conv.get("additional_attributes", {}) or {}
         is_group = (
             cw_conv.get("conversation_type") == "group"
-            or cw_conv.get("additional_attributes", {}).get("type") == "group"
+            or additional_attrs.get("type") == "group"
+            or bool(additional_attrs.get("chat_name_or_title"))
+            or bool(additional_attrs.get("group_name"))
         )
 
         # Get or create contact (individual or group)
@@ -284,7 +344,8 @@ class ChatwootConnector(BaseConnector):
 
         if is_group or not cw_contact or not (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
             group_name = (
-                cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
+                additional_attrs.get("chat_name_or_title")
+                or additional_attrs.get("group_name")
                 or cw_conv.get("meta", {}).get("sender", {}).get("name")
                 or (cw_contact.get("name") if cw_contact else None)
                 or f"Grupo #{cw_conv_id}"
@@ -566,18 +627,26 @@ class ChatwootConnector(BaseConnector):
         """Extract contact info from webhook payload, handling both individual and group conversations."""
         sender = data.get("sender", {}) or {}
         cw_conv = data.get("conversation", {}) or data
+        additional_attrs = (
+            cw_conv.get("additional_attributes", {})
+            or data.get("additional_attributes", {})
+            or {}
+        )
 
-        # Check if this is a group conversation
+        # Check if this is a group conversation (multiple heuristics)
         is_group = (
             cw_conv.get("conversation_type") == "group"
-            or cw_conv.get("additional_attributes", {}).get("type") == "group"
-            or (not sender.get("email") and not sender.get("phone_number") and not sender.get("name"))
+            or data.get("conversation_type") == "group"
+            or additional_attrs.get("type") == "group"
+            or bool(additional_attrs.get("chat_name_or_title"))
+            or bool(additional_attrs.get("group_name"))
         )
 
         if is_group or not sender or not (sender.get("name") or sender.get("email") or sender.get("phone_number")):
             # Try multiple sources for group name
             group_name = (
-                cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
+                additional_attrs.get("chat_name_or_title")
+                or additional_attrs.get("group_name")
                 or cw_conv.get("meta", {}).get("sender", {}).get("name")
                 or cw_conv.get("meta", {}).get("channel")
                 or (sender.get("name") if sender else None)
@@ -616,6 +685,13 @@ class ChatwootConnector(BaseConnector):
         if not conv:
             # Extract contact info (handles individuals and groups)
             contact_info, is_group = self._extract_contact_info(data, cw_conv_id)
+            logger.info(
+                "Chatwoot new conversation %s: is_group=%s, conv_type=%s, additional_attrs=%s",
+                cw_conv_id, is_group,
+                cw_conv.get("conversation_type"),
+                {k: v for k, v in (cw_conv.get("additional_attributes") or {}).items()
+                 if k in ("type", "chat_name_or_title", "group_name")},
+            )
 
             contact = self._get_or_create_contact(org, contact_info)
             if not contact:
