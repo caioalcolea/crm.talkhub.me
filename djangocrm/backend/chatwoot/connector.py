@@ -337,16 +337,16 @@ class ChatwootConnector(BaseConnector):
 
         return True
 
-    def _get_or_create_contact(self, org, cw_contact):
-        """Get or create a CRM contact from Chatwoot contact data."""
+    def _get_or_create_contact(self, org, cw_contact, update_existing=True):
+        """Get or create a CRM contact from Chatwoot contact data. Optionally update missing fields."""
         from contacts.models import Contact
 
         if not cw_contact:
             return None
 
-        email = cw_contact.get("email", "")
-        phone = cw_contact.get("phone_number", "")
-        name = cw_contact.get("name", "") or ""
+        email = (cw_contact.get("email") or "").strip()
+        phone = (cw_contact.get("phone_number") or "").strip()
+        name = (cw_contact.get("name") or "").strip()
 
         # Try to find existing contact by email or phone
         contact = None
@@ -355,20 +355,40 @@ class ChatwootConnector(BaseConnector):
         if not contact and phone:
             contact = Contact.objects.filter(org=org, phone=phone).first()
 
-        if not contact:
-            # Split name into first/last
-            parts = name.split(" ", 1) if name else ["Desconhecido"]
-            first_name = parts[0] or "Desconhecido"
-            last_name = parts[1] if len(parts) > 1 else ""
+        if contact:
+            if update_existing:
+                # Fill in missing fields from Chatwoot data
+                updated_fields = []
+                if email and not contact.email:
+                    contact.email = email
+                    updated_fields.append("email")
+                if phone and not contact.phone:
+                    contact.phone = phone
+                    updated_fields.append("phone")
+                if name and contact.first_name == "Desconhecido":
+                    parts = name.split(" ", 1)
+                    contact.first_name = parts[0]
+                    contact.last_name = parts[1] if len(parts) > 1 else ""
+                    updated_fields.extend(["first_name", "last_name"])
+                if updated_fields:
+                    updated_fields.append("updated_at")
+                    contact.save(update_fields=updated_fields)
+                    logger.info("Updated contact %s with Chatwoot data: %s", contact.id, updated_fields)
+            return contact
 
-            contact = Contact.objects.create(
-                org=org,
-                first_name=first_name,
-                last_name=last_name,
-                email=email or None,
-                phone=phone or None,
-            )
-            logger.info("Created contact %s for Chatwoot contact (org=%s)", contact.id, org.id)
+        # Split name into first/last
+        parts = name.split(" ", 1) if name else ["Desconhecido"]
+        first_name = parts[0] or "Desconhecido"
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        contact = Contact.objects.create(
+            org=org,
+            first_name=first_name,
+            last_name=last_name,
+            email=email or None,
+            phone=phone or None,
+        )
+        logger.info("Created contact %s for Chatwoot contact (org=%s)", contact.id, org.id)
 
         return contact
 
@@ -726,6 +746,21 @@ class ChatwootConnector(BaseConnector):
         self._notify_new_message(org, conv)
         return {"status": "processed", "event": "conversation_created"}
 
+    def _should_skip_status_sync(self, conv):
+        """Check if a recent local status change should take precedence over Chatwoot."""
+        meta = conv.metadata_json or {}
+        local_changed = meta.get("status_changed_locally_at")
+        if not local_changed:
+            return False
+        try:
+            from django.utils.dateparse import parse_datetime
+            changed_at = parse_datetime(local_changed)
+            if changed_at and (timezone.now() - changed_at).total_seconds() < 30:
+                return True
+        except (ValueError, TypeError):
+            pass
+        return False
+
     def _handle_conversation_updated(self, org, payload):
         """Handle conversation_updated webhook event — sync assignee, labels, etc."""
         from conversations.models import Conversation
@@ -746,12 +781,13 @@ class ChatwootConnector(BaseConnector):
 
         updated_fields = []
 
-        # Sync status
+        # Sync status — but respect local overrides (30s grace period)
         status_map = {"open": "open", "pending": "pending", "resolved": "resolved", "snoozed": "pending"}
         new_status = data.get("status", "")
         if new_status in status_map and conv.status != status_map[new_status]:
-            conv.status = status_map[new_status]
-            updated_fields.append("status")
+            if not self._should_skip_status_sync(conv):
+                conv.status = status_map[new_status]
+                updated_fields.append("status")
 
         # Sync assignee from Chatwoot
         cw_assignee = data.get("meta", {}).get("assignee") or data.get("assignee")
@@ -798,6 +834,11 @@ class ChatwootConnector(BaseConnector):
 
         if not conv:
             return {"status": "skipped", "reason": "conversation_not_found"}
+
+        # Respect local status overrides (30s grace period)
+        if self._should_skip_status_sync(conv):
+            self._notify_new_message(org, conv)
+            return {"status": "skipped", "reason": "local_status_override"}
 
         status_map = {"open": "open", "pending": "pending", "resolved": "resolved", "snoozed": "pending"}
         new_status = data.get("status", "")

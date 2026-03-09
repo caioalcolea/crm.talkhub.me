@@ -148,6 +148,45 @@ def run_connector_sync(connector_slug: str, org_id: str, sync_type: str, job_id:
         raise
 
 
+@shared_task(name="integrations.tasks.sync_conversation_status_to_chatwoot", max_retries=2, default_retry_delay=5)
+def sync_conversation_status_to_chatwoot(org_id: str, chatwoot_conversation_id: int, new_status: str):
+    """
+    Sync a CRM status change to Chatwoot (fire-and-forget).
+
+    Called when user changes conversation status in the CRM UI.
+    Maps CRM status → Chatwoot status and calls the Chatwoot API.
+    """
+    set_rls_context(org_id)
+
+    from integrations.models import IntegrationConnection
+
+    conn = IntegrationConnection.objects.filter(
+        org_id=org_id, connector_slug="chatwoot", is_active=True, is_connected=True,
+    ).first()
+    if not conn:
+        return
+
+    from chatwoot.connector import _api_request, _decrypt_config
+    config = _decrypt_config(conn.config_json or {})
+
+    # Map CRM status → Chatwoot status
+    crm_to_chatwoot = {"open": "open", "pending": "pending", "resolved": "resolved"}
+    cw_status = crm_to_chatwoot.get(new_status)
+    if not cw_status:
+        return
+
+    try:
+        resp = _api_request(config, "POST", f"/conversations/{chatwoot_conversation_id}/toggle_status", json={
+            "status": cw_status,
+        })
+        if resp.status_code in (200, 201):
+            logger.info("Synced status '%s' to Chatwoot conversation %s", cw_status, chatwoot_conversation_id)
+        else:
+            logger.warning("Failed to sync status to Chatwoot: %s %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        logger.warning("Error syncing status to Chatwoot: %s", exc)
+
+
 @shared_task(name="integrations.tasks.cleanup_old_logs")
 def cleanup_old_logs():
     """

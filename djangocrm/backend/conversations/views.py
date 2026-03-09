@@ -96,13 +96,36 @@ class ConversationDetailView(APIView):
 
     def patch(self, request, pk):
         try:
-            conversation = Conversation.objects.get(id=pk, org=request.org)
+            conversation = Conversation.objects.select_related(
+                "contact", "assigned_to__user"
+            ).get(id=pk, org=request.org)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        old_status = conversation.status
         serializer = ConversationUpdateSerializer(conversation, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        # Mark that status was changed locally so webhooks don't revert it
+        new_status = request.data.get("status")
+        if new_status and new_status != old_status:
+            meta = conversation.metadata_json or {}
+            meta["status_changed_locally_at"] = timezone.now().isoformat()
+            conversation.metadata_json = meta
+            conversation.save(update_fields=["metadata_json"])
+
+            # Sync status to Chatwoot async (fire-and-forget)
+            cw_conv_id = meta.get("chatwoot_conversation_id")
+            if cw_conv_id and conversation.channel == "chatwoot":
+                try:
+                    from integrations.tasks import sync_conversation_status_to_chatwoot
+                    sync_conversation_status_to_chatwoot.delay(
+                        str(request.org.id), cw_conv_id, new_status
+                    )
+                except Exception:
+                    pass  # Non-critical
+
         return Response(ConversationDetailSerializer(conversation).data)
 
 
@@ -220,7 +243,9 @@ class ConversationAssignView(APIView):
 
     def post(self, request, pk, action):
         try:
-            conversation = Conversation.objects.get(id=pk, org=request.org)
+            conversation = Conversation.objects.select_related(
+                "contact", "assigned_to"
+            ).get(id=pk, org=request.org)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -231,13 +256,31 @@ class ConversationAssignView(APIView):
                     {"error": "profile_id is required"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            conversation.assigned_to_id = profile_id
+            # Validate profile exists
+            from common.models import Profile
+            try:
+                profile = Profile.objects.select_related("user").get(
+                    id=profile_id, org=request.org
+                )
+            except Profile.DoesNotExist:
+                return Response(
+                    {"error": "Profile not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            conversation.assigned_to = profile
         elif action == "unassign":
             conversation.assigned_to = None
         else:
             return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
 
         conversation.save(update_fields=["assigned_to", "updated_at"])
+
+        # Refresh related objects for the serializer
+        conversation.refresh_from_db()
+        conversation = Conversation.objects.select_related(
+            "contact", "assigned_to__user"
+        ).get(id=pk)
+
         return Response(ConversationDetailSerializer(conversation).data)
 
 
