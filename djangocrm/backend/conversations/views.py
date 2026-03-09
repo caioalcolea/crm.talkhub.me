@@ -12,7 +12,7 @@ Views do app conversations.
 
 import logging
 
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.pagination import CursorPagination
@@ -74,6 +74,15 @@ class ConversationListView(APIView):
                 | Q(contact__last_name__icontains=search)
                 | Q(contact__email__icontains=search)
             )
+
+        # Prefetch latest message to avoid N+1 queries
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=Message.objects.order_by("-timestamp")[:1],
+                to_attr="_latest_messages",
+            )
+        )
 
         serializer = ConversationListSerializer(queryset[:100], many=True)
         return Response(serializer.data)
@@ -184,8 +193,12 @@ class MessageCreateView(APIView):
             if not channel_config:
                 from integrations.models import IntegrationConnection
 
+                # Map channel_type to connector_slug (they may differ)
+                _channel_to_slug = {"smtp_native": "smtp"}
+                slug = _channel_to_slug.get(channel_type, channel_type)
+
                 int_conn = IntegrationConnection.objects.filter(
-                    org=request.org, connector_slug=channel_type,
+                    org=request.org, connector_slug=slug,
                     is_active=True, is_connected=True,
                 ).first()
                 if int_conn:
@@ -215,12 +228,34 @@ class MessageCreateView(APIView):
         if hasattr(request, "profile") and request.profile and request.profile.user:
             sender_name = request.profile.user.get_full_name() or request.profile.user.email
 
+        # Enrich metadata for email channels
+        extra_meta = serializer.validated_data.get("metadata_json") or {}
+        if channel_type in ("smtp_native", "email"):
+            contact_email = getattr(conversation.contact, "email", "") if conversation.contact else ""
+            subject = request.data.get("subject", "") or conversation.metadata_json.get("email_subject", "")
+            from_email = ""
+            try:
+                from channels.providers.smtp_native import _get_smtp_config
+                smtp_cfg = _get_smtp_config(request.org)
+                if smtp_cfg:
+                    from_email = smtp_cfg.get("from_email", "")
+            except Exception:
+                pass
+            extra_meta.update({
+                "email_subject": subject,
+                "email_from": from_email,
+                "email_from_name": sender_name,
+                "email_to": contact_email,
+                "content_type": "text",
+            })
+
         try:
             message = serializer.save(
                 org=request.org,
                 conversation=conversation,
                 sender_name=sender_name,
                 sender_id=str(request.user.id) if request.user else "",
+                metadata_json=extra_meta,
             )
         except Exception as e:
             logger.error("Failed to save message for conversation %s: %s", conversation_id, e)
@@ -362,7 +397,13 @@ class ConversationUpdatesView(APIView):
         updated_convs = Conversation.objects.filter(
             org=request.org,
             updated_at__gt=since_dt,
-        ).select_related("contact", "assigned_to").order_by("-updated_at")[:20]
+        ).select_related("contact", "assigned_to").prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=Message.objects.order_by("-timestamp")[:1],
+                to_attr="_latest_messages",
+            )
+        ).order_by("-updated_at")[:20]
 
         conv_data = ConversationListSerializer(updated_convs, many=True).data
 

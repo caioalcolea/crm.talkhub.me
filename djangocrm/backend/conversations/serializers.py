@@ -2,6 +2,8 @@
 Serializers do app conversations.
 """
 
+import re
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -76,10 +78,19 @@ class ConversationListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_last_message(self, obj):
-        msg = obj.messages.order_by("-timestamp").first()
+        # Use prefetched messages if available (avoids N+1)
+        if hasattr(obj, "_latest_messages") and obj._latest_messages:
+            msg = obj._latest_messages[0]
+        else:
+            msg = obj.messages.order_by("-timestamp").first()
         if msg:
+            content = msg.content[:200] if msg.content else ""
+            # Strip HTML tags for preview
+            if msg.metadata_json and msg.metadata_json.get("content_type") == "html":
+                content = re.sub(r"<[^>]+>", "", content)
+                content = content.replace("&nbsp;", " ").strip()
             return {
-                "content": msg.content[:100],
+                "content": content[:100],
                 "direction": msg.direction,
                 "msg_type": msg.msg_type,
                 "timestamp": msg.timestamp,

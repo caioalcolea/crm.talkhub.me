@@ -141,83 +141,93 @@ def poll_imap_emails():
     The organization table has no RLS, so we iterate through all orgs
     and set RLS context for each before querying IntegrationConnection.
     """
+    from django.core.cache import cache
     from django.db import connection as db_conn
 
     from integrations.models import IntegrationConnection
 
-    # Get all org IDs from organization table (no RLS on this table)
-    with db_conn.cursor() as cursor:
-        cursor.execute("SELECT id FROM organization")
-        org_ids = [row[0] for row in cursor.fetchall()]
-
-    if not org_ids:
-        logger.info("IMAP poll: no organizations found")
+    # Prevent concurrent executions (lock for 5 minutes max)
+    lock_key = "lock:poll_imap_emails"
+    if not cache.add(lock_key, "1", timeout=300):
+        logger.info("IMAP poll: skipping, another instance is running")
         return
 
-    total_new = 0
-    orgs_with_smtp = 0
+    try:
+        # Get all org IDs from organization table (no RLS on this table)
+        with db_conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM organization")
+            org_ids = [row[0] for row in cursor.fetchall()]
 
-    for org_id in org_ids:
-        conn = None
-        try:
-            set_rls_context(str(org_id))
+        if not org_ids:
+            logger.info("IMAP poll: no organizations found")
+            return
 
-            conn = IntegrationConnection.objects.filter(
-                connector_slug="smtp", is_active=True, is_connected=True
-            ).select_related("org").first()
+        total_new = 0
+        orgs_with_smtp = 0
 
-            if not conn:
-                continue
-
-            orgs_with_smtp += 1
-            config = _decrypt_smtp_config(conn.config_json or {})
-            imap_config = _get_imap_config(config)
-
-            if not imap_config:
-                logger.warning("IMAP poll: no IMAP config for org %s, skipping", org_id)
-                conn.last_error = "IMAP não configurado (host ausente)"
-                conn.error_count = (conn.error_count or 0) + 1
-                conn.save(update_fields=["last_error", "error_count", "updated_at"])
-                continue
-
-            if not imap_config.get("user") or not imap_config.get("password"):
-                logger.warning("IMAP poll: missing credentials for org %s (user=%s, pass_len=%d)",
-                               org_id, imap_config.get("user", ""), len(imap_config.get("password", "")))
-                conn.last_error = "Credenciais IMAP ausentes (usuário ou senha vazia após decriptação)"
-                conn.error_count = (conn.error_count or 0) + 1
-                conn.save(update_fields=["last_error", "error_count", "updated_at"])
-                continue
-
-            logger.info("IMAP poll: connecting to %s:%s for org %s",
-                        imap_config["host"], imap_config["port"], org_id)
-            count = _poll_org_emails(conn.org, config, imap_config)
-            total_new += count
-
-            # Update connection status on success
-            conn.last_sync_at = timezone.now()
-            conn.error_count = 0
-            conn.last_error = ""
-            conn.health_status = "healthy"
-            conn.save(update_fields=["last_sync_at", "error_count", "last_error", "health_status", "updated_at"])
-
-            if count:
-                logger.info("IMAP poll: org %s — %d new email(s)", org_id, count)
-
-        except Exception as exc:
-            logger.error(
-                "IMAP poll failed for org %s: %s", org_id, exc, exc_info=True
-            )
-            # Update connection error status
+        for org_id in org_ids:
+            conn = None
             try:
-                if conn:
-                    conn.error_count = (conn.error_count or 0) + 1
-                    conn.last_error = str(exc)[:500]
-                    conn.health_status = "degraded" if (conn.error_count or 0) <= 5 else "down"
-                    conn.save(update_fields=["error_count", "last_error", "health_status", "updated_at"])
-            except Exception:
-                pass
+                set_rls_context(str(org_id))
 
-    logger.info("IMAP poll complete: %d org(s) with SMTP, %d new email(s)", orgs_with_smtp, total_new)
+                conn = IntegrationConnection.objects.filter(
+                    connector_slug="smtp", is_active=True, is_connected=True
+                ).select_related("org").first()
+
+                if not conn:
+                    continue
+
+                orgs_with_smtp += 1
+                config = _decrypt_smtp_config(conn.config_json or {})
+                imap_config = _get_imap_config(config)
+
+                if not imap_config:
+                    logger.warning("IMAP poll: no IMAP config for org %s, skipping", org_id)
+                    conn.last_error = "IMAP não configurado (host ausente)"
+                    conn.error_count = (conn.error_count or 0) + 1
+                    conn.save(update_fields=["last_error", "error_count", "updated_at"])
+                    continue
+
+                if not imap_config.get("user") or not imap_config.get("password"):
+                    logger.warning("IMAP poll: missing credentials for org %s (user=%s, pass_len=%d)",
+                                   org_id, imap_config.get("user", ""), len(imap_config.get("password", "")))
+                    conn.last_error = "Credenciais IMAP ausentes (usuário ou senha vazia após decriptação)"
+                    conn.error_count = (conn.error_count or 0) + 1
+                    conn.save(update_fields=["last_error", "error_count", "updated_at"])
+                    continue
+
+                logger.info("IMAP poll: connecting to %s:%s for org %s",
+                            imap_config["host"], imap_config["port"], org_id)
+                count = _poll_org_emails(conn.org, config, imap_config)
+                total_new += count
+
+                # Update connection status on success
+                conn.last_sync_at = timezone.now()
+                conn.error_count = 0
+                conn.last_error = ""
+                conn.health_status = "healthy"
+                conn.save(update_fields=["last_sync_at", "error_count", "last_error", "health_status", "updated_at"])
+
+                if count:
+                    logger.info("IMAP poll: org %s — %d new email(s)", org_id, count)
+
+            except Exception as exc:
+                logger.error(
+                    "IMAP poll failed for org %s: %s", org_id, exc, exc_info=True
+                )
+                # Update connection error status
+                try:
+                    if conn:
+                        conn.error_count = (conn.error_count or 0) + 1
+                        conn.last_error = str(exc)[:500]
+                        conn.health_status = "degraded" if (conn.error_count or 0) <= 5 else "down"
+                        conn.save(update_fields=["error_count", "last_error", "health_status", "updated_at"])
+                except Exception:
+                    pass
+
+        logger.info("IMAP poll complete: %d org(s) with SMTP, %d new email(s)", orgs_with_smtp, total_new)
+    finally:
+        cache.delete(lock_key)
 
 
 def _poll_org_emails(org, smtp_config, imap_config):

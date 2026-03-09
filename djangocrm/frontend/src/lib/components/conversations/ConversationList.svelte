@@ -31,6 +31,12 @@
     pending: 'bg-amber-500',
     resolved: 'bg-gray-400'
   };
+
+  /** Strip HTML tags for preview text */
+  function stripHtml(text) {
+    if (!text) return '';
+    return text.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  }
 </script>
 
 {#if conversations.length === 0}
@@ -60,12 +66,18 @@
             </span>
           </div>
 
+          {#if conv.metadata_json?.email_subject}
+            <p class="mt-0.5 truncate text-xs text-muted-foreground/60 italic">
+              {conv.metadata_json.email_subject}
+            </p>
+          {/if}
+
           {#if conv.last_message}
             <p class="mt-0.5 truncate text-xs text-muted-foreground">
               {#if conv.last_message.direction === 'out'}
                 <span class="text-muted-foreground/60">Você: </span>
               {/if}
-              {conv.last_message.content}
+              {stripHtml(conv.last_message.content)}
             </p>
           {/if}
 
