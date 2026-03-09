@@ -193,6 +193,14 @@ def webhook_receiver(request, connector_slug):
     if not org_id:
         return Response({"error": "Organization not identified"}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Set RLS context for this org (webhook endpoints bypass middleware)
+    from django.db import connection as db_conn
+
+    with db_conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT set_config('app.current_org', %s, false)", [str(org_id)]
+        )
+
     connection = IntegrationConnection.objects.filter(
         connector_slug=connector_slug, org_id=org_id, is_active=True
     ).first()

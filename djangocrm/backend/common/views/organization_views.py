@@ -3,6 +3,7 @@ import secrets
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 
+from django.db import connection
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -40,6 +41,13 @@ class OrgProfileCreateView(APIView):
         serializer = self.serializer_class(data=data)
         if serializer.is_valid():
             org_obj = serializer.save()
+
+            # Set RLS context to the new org so the profile INSERT is allowed
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT set_config('app.current_org', %s, false)",
+                    [str(org_obj.id)],
+                )
 
             # now creating the profile
             profile_obj = self.model2.objects.create(user=request.user, org=org_obj)
