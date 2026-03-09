@@ -35,7 +35,11 @@ class SMTPConnector(BaseConnector):
             raise ValueError("Host SMTP e usuário são obrigatórios.")
 
         try:
-            use_ssl = config.get("smtp_use_ssl", port == 465)
+            use_ssl = port == 465
+            logger.info(
+                "SMTP connect attempt for org %s: host=%s port=%d ssl=%s user=%s pass_len=%d",
+                org.id, host, port, use_ssl, user, len(password) if password else 0,
+            )
             if use_ssl:
                 with smtplib.SMTP_SSL(host, port, timeout=15) as server:
                     server.ehlo()
@@ -49,13 +53,17 @@ class SMTPConnector(BaseConnector):
                         server.ehlo()
                     if user and password:
                         server.login(user, password)
+            logger.info("SMTP connect SUCCESS for org %s", org.id)
             return True
         except smtplib.SMTPAuthenticationError:
             raise ValueError("Falha na autenticação SMTP. Verifique usuário e senha.")
         except smtplib.SMTPConnectError:
             raise ValueError(f"Não foi possível conectar ao servidor {host}:{port}.")
         except Exception as exc:
-            logger.error("SMTP connect failed for org %s: %s", org.id, exc)
+            logger.error(
+                "SMTP connect failed for org %s: %s (type=%s, host=%s, port=%d, ssl=%s)",
+                org.id, exc, type(exc).__name__, host, port, use_ssl,
+            )
             raise ValueError(f"Erro ao conectar: {exc}")
 
     def disconnect(self, org) -> bool:
