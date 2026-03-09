@@ -67,9 +67,9 @@ services:
       - EMAIL_HOST=smtp.titan.email
       - EMAIL_PORT=465
       - EMAIL_USE_SSL=True
-      - EMAIL_HOST_USER=adm@talkhub.me
+      - EMAIL_HOST_USER=talkhub@talkhub.me
       - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:-Madu*0112talk@}
-      - DEFAULT_FROM_EMAIL=TalkHub CRM <adm@talkhub.me>
+      - DEFAULT_FROM_EMAIL=talkhub@talkhub.me
       - ADMIN_EMAIL=admin@talkhub.me
       - ADMIN_PASSWORD=${CRM_ADMIN_PASSWORD:-TalkHub2026!}
       ## CORS / CSRF
@@ -141,9 +141,9 @@ services:
       - EMAIL_HOST=smtp.titan.email
       - EMAIL_PORT=465
       - EMAIL_USE_SSL=True
-      - EMAIL_HOST_USER=adm@talkhub.me
+      - EMAIL_HOST_USER=talkhub@talkhub.me
       - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:-Madu*0112talk@}
-      - DEFAULT_FROM_EMAIL=TalkHub CRM <adm@talkhub.me>
+      - DEFAULT_FROM_EMAIL=talkhub@talkhub.me
       - DOMAIN_NAME=https://crm.talkhub.me
       - FRONTEND_URL=https://crm.talkhub.me
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
