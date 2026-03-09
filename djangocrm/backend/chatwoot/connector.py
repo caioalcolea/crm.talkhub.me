@@ -219,36 +219,44 @@ class ChatwootConnector(BaseConnector):
         total_records = 0
 
         try:
-            # Fetch conversations (paginated)
-            page = 1
-            while True:
-                resp = _api_request(config, "GET", "/conversations", params={"page": page})
-                if resp.status_code != 200:
-                    logger.error("Chatwoot sync: failed to fetch conversations page %d: %s", page, resp.status_code)
-                    break
+            # Fetch conversations for ALL statuses (Chatwoot defaults to 'open' only)
+            for conv_status in ("open", "pending", "resolved", "snoozed"):
+                page = 1
+                max_pages = 50  # Safety limit
+                while page <= max_pages:
+                    resp = _api_request(config, "GET", "/conversations", params={
+                        "page": page, "status": conv_status,
+                    })
+                    if resp.status_code != 200:
+                        logger.error("Chatwoot sync: failed to fetch %s conversations page %d: %s",
+                                     conv_status, page, resp.status_code)
+                        break
 
-                data = resp.json().get("data", resp.json())
-                payload = data.get("payload", data) if isinstance(data, dict) else data
-                conversations = payload if isinstance(payload, list) else payload.get("data", []) if isinstance(payload, dict) else []
+                    data = resp.json().get("data", resp.json())
+                    payload = data.get("payload", data) if isinstance(data, dict) else data
+                    conversations = payload if isinstance(payload, list) else payload.get("data", []) if isinstance(payload, dict) else []
 
-                if not conversations:
-                    break
+                    if not conversations:
+                        break
 
-                total_records += len(conversations)
+                    total_records += len(conversations)
+                    logger.info("Chatwoot sync: page %d status=%s returned %d conversations",
+                                page, conv_status, len(conversations))
 
-                for cw_conv in conversations:
-                    try:
-                        imported = self._import_conversation(org, config, cw_conv)
-                        if imported:
-                            total_imported += 1
-                    except Exception as exc:
-                        logger.error("Chatwoot sync: error importing conversation %s: %s", cw_conv.get("id"), exc)
+                    for cw_conv in conversations:
+                        try:
+                            imported = self._import_conversation(org, config, cw_conv)
+                            if imported:
+                                total_imported += 1
+                        except Exception as exc:
+                            logger.error("Chatwoot sync: error importing conversation %s: %s", cw_conv.get("id"), exc)
 
-                # Check if there are more pages
-                meta = data.get("meta", {}) if isinstance(data, dict) else {}
-                if not meta or page >= meta.get("all_count", 0) // max(meta.get("page_size", 25), 1) + 1:
-                    break
-                page += 1
+                    # Check if there are more pages
+                    meta = data.get("meta", {}) if isinstance(data, dict) else {}
+                    all_count = meta.get("all_count", 0)
+                    if not all_count or len(conversations) < 25:
+                        break
+                    page += 1
 
             # Also sync contacts from Chatwoot
             contacts_imported = self._sync_contacts(org, config)
@@ -332,25 +340,34 @@ class ChatwootConnector(BaseConnector):
 
         # Detect group conversations (multiple heuristics)
         additional_attrs = cw_conv.get("additional_attributes", {}) or {}
+        cw_contact = cw_conv.get("meta", {}).get("sender") or cw_conv.get("contact", {})
+        contact_name = (cw_contact.get("name") or "") if cw_contact else ""
+
         is_group = (
             cw_conv.get("conversation_type") == "group"
             or additional_attrs.get("type") == "group"
             or bool(additional_attrs.get("chat_name_or_title"))
             or bool(additional_attrs.get("group_name"))
+            or "(GROUP)" in contact_name.upper()  # Chatwoot appends (GROUP) to group names
         )
 
-        # Get or create contact (individual or group)
-        cw_contact = cw_conv.get("meta", {}).get("sender") or cw_conv.get("contact", {})
+        # Preserve Chatwoot contact ID for dedup
+        cw_contact_id = cw_contact.get("id") if cw_contact else None
 
-        if is_group or not cw_contact or not (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
+        if is_group or not cw_contact or not (contact_name or cw_contact.get("email") or cw_contact.get("phone_number")):
             group_name = (
                 additional_attrs.get("chat_name_or_title")
                 or additional_attrs.get("group_name")
                 or cw_conv.get("meta", {}).get("sender", {}).get("name")
-                or (cw_contact.get("name") if cw_contact else None)
+                or contact_name
                 or f"Grupo #{cw_conv_id}"
             )
-            cw_contact = {"name": group_name, "phone_number": cw_contact.get("phone_number", "") if cw_contact else "", "email": cw_contact.get("email", "") if cw_contact else ""}
+            cw_contact = {
+                "id": cw_contact_id,
+                "name": group_name,
+                "phone_number": cw_contact.get("phone_number", "") if cw_contact else "",
+                "email": cw_contact.get("email", "") if cw_contact else "",
+            }
 
         contact = self._get_or_create_contact(org, cw_contact)
         if not contact:
@@ -408,13 +425,32 @@ class ChatwootConnector(BaseConnector):
         email = (cw_contact.get("email") or "").strip()
         phone = (cw_contact.get("phone_number") or "").strip()
         name = (cw_contact.get("name") or "").strip()
+        cw_id = cw_contact.get("id")  # Chatwoot contact ID
 
-        # Try to find existing contact by email or phone
+        # 1) Try to find by Chatwoot contact ID (most reliable for dedup)
         contact = None
-        if email:
+        if cw_id:
+            contact = Contact.objects.filter(
+                org=org, description__contains=f"chatwoot_id:{cw_id}"
+            ).first()
+
+        # 2) Try by email
+        if not contact and email:
             contact = Contact.objects.filter(org=org, email=email).first()
+
+        # 3) Try by phone
         if not contact and phone:
             contact = Contact.objects.filter(org=org, phone=phone).first()
+
+        # 4) For contacts without email/phone (groups), try by exact name
+        if not contact and name and not email and not phone:
+            parts = name.split(" ", 1)
+            first_name = parts[0] or "Desconhecido"
+            last_name = parts[1] if len(parts) > 1 else ""
+            contact = Contact.objects.filter(
+                org=org, first_name=first_name, last_name=last_name,
+                email__isnull=True, phone__isnull=True,
+            ).first()
 
         if contact:
             if update_existing:
@@ -431,6 +467,11 @@ class ChatwootConnector(BaseConnector):
                     contact.first_name = parts[0]
                     contact.last_name = parts[1] if len(parts) > 1 else ""
                     updated_fields.extend(["first_name", "last_name"])
+                # Store chatwoot_id reference if not already present
+                if cw_id and (not contact.description or f"chatwoot_id:{cw_id}" not in contact.description):
+                    contact.description = (contact.description or "") + f"\nchatwoot_id:{cw_id}".strip()
+                    if "description" not in updated_fields:
+                        updated_fields.append("description")
                 if updated_fields:
                     updated_fields.append("updated_at")
                     contact.save(update_fields=updated_fields)
@@ -442,14 +483,18 @@ class ChatwootConnector(BaseConnector):
         first_name = parts[0] or "Desconhecido"
         last_name = parts[1] if len(parts) > 1 else ""
 
+        # Store chatwoot_id in description for future dedup
+        description = f"chatwoot_id:{cw_id}" if cw_id else ""
+
         contact = Contact.objects.create(
             org=org,
             first_name=first_name,
             last_name=last_name,
             email=email or None,
             phone=phone or None,
+            description=description,
         )
-        logger.info("Created contact %s for Chatwoot contact (org=%s)", contact.id, org.id)
+        logger.info("Created contact %s for Chatwoot contact (org=%s, cw_id=%s)", contact.id, org.id, cw_id)
 
         return contact
 
@@ -633,6 +678,14 @@ class ChatwootConnector(BaseConnector):
             or {}
         )
 
+        # Get Chatwoot contact ID for dedup
+        contact_id = (
+            sender.get("id")
+            or cw_conv.get("meta", {}).get("sender", {}).get("id")
+            or (data.get("contact", {}).get("id") if isinstance(data.get("contact"), dict) else None)
+        )
+        sender_name = sender.get("name", "") if sender else ""
+
         # Check if this is a group conversation (multiple heuristics)
         is_group = (
             cw_conv.get("conversation_type") == "group"
@@ -640,6 +693,7 @@ class ChatwootConnector(BaseConnector):
             or additional_attrs.get("type") == "group"
             or bool(additional_attrs.get("chat_name_or_title"))
             or bool(additional_attrs.get("group_name"))
+            or "(GROUP)" in sender_name.upper()
         )
 
         if is_group or not sender or not (sender.get("name") or sender.get("email") or sender.get("phone_number")):
@@ -652,8 +706,17 @@ class ChatwootConnector(BaseConnector):
                 or (sender.get("name") if sender else None)
                 or f"Grupo #{cw_conv_id or cw_conv.get('id', '?')}"
             )
-            return {"name": group_name, "phone_number": sender.get("phone_number", ""), "email": sender.get("email", "")}, True
+            return {
+                "id": contact_id,
+                "name": group_name,
+                "phone_number": sender.get("phone_number", ""),
+                "email": sender.get("email", ""),
+            }, True
 
+        # Ensure sender dict has the ID for dedup
+        if contact_id and "id" not in sender:
+            sender = dict(sender)
+            sender["id"] = contact_id
         return sender, False
 
     def _handle_message_created(self, org, payload):
