@@ -675,6 +675,7 @@
   // ContactAutocomplete state for create mode
   /** @type {any} */
   let selectedContact = $state(null);
+  let contactIdFromUrl = $state('');
 
   /**
    * Handle contact selection from autocomplete — fills form fields
@@ -749,9 +750,23 @@
     const action = $page.url.searchParams.get('action');
 
     if (action === 'create') {
+      const contactIdParam = $page.url.searchParams.get('contactId');
+      if (contactIdParam) {
+        contactIdFromUrl = contactIdParam;
+      }
       drawerData = null;
       drawerMode = 'create';
       drawerOpen = true;
+      // Pre-fill contact from URL — fetch contact details and fill form
+      if (contactIdFromUrl) {
+        createFormData = { ...createFormData, contacts: [contactIdFromUrl] };
+        apiRequest(`/contacts/${contactIdFromUrl}/`).then((contact) => {
+          if (contact && !contact.error) {
+            selectedContact = contact;
+            handleContactSelected(contact);
+          }
+        }).catch(() => {});
+      }
       // Lazy load form options when drawer opens via URL
       loadFormOptions();
     } else if (viewId && leads.length > 0) {
@@ -946,7 +961,7 @@
       description: '',
       assignedTo: [],
       teams: [],
-      contacts: [],
+      contacts: contactIdFromUrl ? [contactIdFromUrl] : [],
       tags: []
     };
     drawerData = null;
