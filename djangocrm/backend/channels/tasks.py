@@ -123,7 +123,10 @@ def _decrypt_smtp_config(config):
                 try:
                     config[field] = f.decrypt(value.encode()).decode()
                 except (InvalidToken, Exception):
-                    pass
+                    logger.error(
+                        "Failed to decrypt %s — FERNET_KEY may be wrong or value corrupted", field
+                    )
+                    config[field] = ""  # Clear so credential check catches it
     return config
 
 
@@ -323,6 +326,9 @@ def _poll_org_emails(org, smtp_config, imap_config):
                     )
 
                 # Find existing conversation by threading or contact
+                # Use atomic block to prevent race condition on creation
+                from django.db import transaction
+
                 conversation = None
                 if in_reply_to or references:
                     # Try to match by email thread
@@ -346,19 +352,20 @@ def _poll_org_emails(org, smtp_config, imap_config):
                     ).order_by("-last_message_at").first()
 
                 if not conversation:
-                    conversation = Conversation.objects.create(
-                        org=org,
-                        contact=contact,
-                        channel="smtp_native",
-                        status="open",
-                        metadata_json={"email_subject": subject},
-                    )
+                    # Atomic get_or_create to prevent duplicate conversations
+                    with transaction.atomic():
+                        conversation, _ = Conversation.objects.get_or_create(
+                            org=org,
+                            contact=contact,
+                            channel="smtp_native",
+                            status="open",
+                            defaults={"metadata_json": {"email_subject": subject}},
+                        )
 
-                # Check for duplicate message
+                # Check for duplicate message (dedup by message_id)
                 if message_id:
                     exists = Message.objects.filter(
                         org=org,
-                        conversation=conversation,
                         metadata_json__email_message_id=message_id,
                     ).exists()
                     if exists:
