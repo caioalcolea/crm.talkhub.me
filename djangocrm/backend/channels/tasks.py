@@ -35,7 +35,7 @@ def _decode_header(value):
 
 
 def _get_email_body(msg):
-    """Extract plain text body from email message."""
+    """Extract email body, preserving HTML when available."""
     if msg.is_multipart():
         text_body = ""
         html_body = ""
@@ -56,22 +56,21 @@ def _get_email_body(msg):
                     html_body = decoded
             except Exception:
                 continue
-        # Prefer plain text, fallback to HTML stripped of tags
-        if text_body:
-            return text_body.strip()
-        if html_body:
-            clean = re.sub(r"<[^>]+>", "", html_body)
-            return re.sub(r"\s+", " ", clean).strip()
-        return ""
+        # Return both: prefer HTML for rich rendering, text as fallback
+        return {"text": text_body.strip(), "html": html_body.strip()}
     else:
         try:
             payload = msg.get_payload(decode=True)
             if payload is None:
-                return ""
+                return {"text": "", "html": ""}
             charset = msg.get_content_charset() or "utf-8"
-            return payload.decode(charset, errors="replace").strip()
+            decoded = payload.decode(charset, errors="replace").strip()
+            content_type = msg.get_content_type()
+            if content_type == "text/html":
+                return {"text": "", "html": decoded}
+            return {"text": decoded, "html": ""}
         except Exception:
-            return ""
+            return {"text": "", "html": ""}
 
 
 def _extract_email_address(header_value):
@@ -159,6 +158,7 @@ def poll_imap_emails():
     orgs_with_smtp = 0
 
     for org_id in org_ids:
+        conn = None
         try:
             set_rls_context(str(org_id))
 
@@ -172,20 +172,50 @@ def poll_imap_emails():
             orgs_with_smtp += 1
             config = _decrypt_smtp_config(conn.config_json or {})
             imap_config = _get_imap_config(config)
+
             if not imap_config:
                 logger.warning("IMAP poll: no IMAP config for org %s, skipping", org_id)
+                conn.last_error = "IMAP não configurado (host ausente)"
+                conn.error_count = (conn.error_count or 0) + 1
+                conn.save(update_fields=["last_error", "error_count", "updated_at"])
+                continue
+
+            if not imap_config.get("user") or not imap_config.get("password"):
+                logger.warning("IMAP poll: missing credentials for org %s (user=%s, pass_len=%d)",
+                               org_id, imap_config.get("user", ""), len(imap_config.get("password", "")))
+                conn.last_error = "Credenciais IMAP ausentes (usuário ou senha vazia após decriptação)"
+                conn.error_count = (conn.error_count or 0) + 1
+                conn.save(update_fields=["last_error", "error_count", "updated_at"])
                 continue
 
             logger.info("IMAP poll: connecting to %s:%s for org %s",
                         imap_config["host"], imap_config["port"], org_id)
             count = _poll_org_emails(conn.org, config, imap_config)
+            total_new += count
+
+            # Update connection status on success
+            conn.last_sync_at = timezone.now()
+            conn.error_count = 0
+            conn.last_error = ""
+            conn.health_status = "healthy"
+            conn.save(update_fields=["last_sync_at", "error_count", "last_error", "health_status", "updated_at"])
+
             if count:
                 logger.info("IMAP poll: org %s — %d new email(s)", org_id, count)
-            total_new += count
+
         except Exception as exc:
             logger.error(
                 "IMAP poll failed for org %s: %s", org_id, exc, exc_info=True
             )
+            # Update connection error status
+            try:
+                if conn:
+                    conn.error_count = (conn.error_count or 0) + 1
+                    conn.last_error = str(exc)[:500]
+                    conn.health_status = "degraded" if (conn.error_count or 0) <= 5 else "down"
+                    conn.save(update_fields=["error_count", "last_error", "health_status", "updated_at"])
+            except Exception:
+                pass
 
     logger.info("IMAP poll complete: %d org(s) with SMTP, %d new email(s)", orgs_with_smtp, total_new)
 
@@ -217,9 +247,9 @@ def _poll_org_emails(org, smtp_config, imap_config):
         imap.login(user, password)
         imap.select("INBOX")
 
-        # Search for UNSEEN emails from the last 3 days (safety window)
+        # Search for emails from the last 3 days
         since_date = (datetime.now() - timedelta(days=3)).strftime("%d-%b-%Y")
-        _, msg_nums = imap.search(None, f'(UNSEEN SINCE {since_date})')
+        _, msg_nums = imap.search(None, f'(SINCE {since_date})')
 
         if not msg_nums or not msg_nums[0]:
             return 0
@@ -227,9 +257,10 @@ def _poll_org_emails(org, smtp_config, imap_config):
         msg_ids = msg_nums[0].split()
         count = 0
 
-        for msg_id in msg_ids[:50]:  # Process max 50 per poll
+        for msg_id in msg_ids[-50:]:  # Process the most recent 50
             try:
-                _, msg_data = imap.fetch(msg_id, "(RFC822)")
+                # Use BODY.PEEK[] to avoid marking messages as \Seen
+                _, msg_data = imap.fetch(msg_id, "(BODY.PEEK[])")
                 if not msg_data or not msg_data[0]:
                     continue
 
@@ -237,20 +268,35 @@ def _poll_org_emails(org, smtp_config, imap_config):
                 msg = email.message_from_bytes(raw_email)
 
                 from_header = _decode_header(msg.get("From", ""))
+                to_header = _decode_header(msg.get("To", ""))
+                cc_header = _decode_header(msg.get("Cc", ""))
+                date_header = msg.get("Date", "")
                 from_email = _extract_email_address(from_header)
                 from_name = _extract_name(from_header) or from_email.split("@")[0]
                 subject = _decode_header(msg.get("Subject", ""))
                 message_id = msg.get("Message-ID", "")
                 in_reply_to = msg.get("In-Reply-To", "")
                 references = msg.get("References", "")
-                body = _get_email_body(msg)
+                body_parts = _get_email_body(msg)
+                text_body = body_parts.get("text", "")
+                html_body = body_parts.get("html", "")
+
+                # Parse email date
+                email_date = None
+                if date_header:
+                    try:
+                        parsed = email.utils.parsedate_to_datetime(date_header)
+                        if parsed:
+                            email_date = parsed
+                    except Exception:
+                        pass
 
                 # Skip emails from ourselves
                 if from_email == our_email:
                     continue
 
                 # Skip empty emails
-                if not body and not subject:
+                if not text_body and not html_body and not subject:
                     continue
 
                 # Find or create contact
@@ -308,11 +354,13 @@ def _poll_org_emails(org, smtp_config, imap_config):
                     if exists:
                         continue
 
-                # Create message
-                now = timezone.now()
-                msg_content = body
-                if subject:
-                    msg_content = f"**{subject}**\n\n{body}"
+                # Create message with HTML body preserved
+                timestamp = email_date if email_date and timezone.is_aware(email_date) else (
+                    timezone.make_aware(email_date) if email_date else timezone.now()
+                )
+
+                # Content: prefer HTML for rich rendering, fallback to text
+                msg_content = html_body if html_body else text_body
 
                 Message.objects.create(
                     org=org,
@@ -322,17 +370,22 @@ def _poll_org_emails(org, smtp_config, imap_config):
                     content=msg_content,
                     sender_name=from_name,
                     sender_id=from_email,
-                    timestamp=now,
+                    timestamp=timestamp,
                     metadata_json={
                         "email_subject": subject,
                         "email_from": from_email,
+                        "email_from_name": from_name,
+                        "email_to": to_header,
+                        "email_cc": cc_header,
+                        "email_date": date_header,
                         "email_message_id": message_id,
                         "email_in_reply_to": in_reply_to,
                         "email_references": references,
+                        "content_type": "html" if html_body else "text",
                     },
                 )
 
-                conversation.last_message_at = now
+                conversation.last_message_at = timestamp
                 conversation.status = "open"
                 conversation.save(update_fields=["last_message_at", "status", "updated_at"])
 
