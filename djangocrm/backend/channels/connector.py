@@ -71,13 +71,47 @@ class SMTPConnector(BaseConnector):
         return True
 
     def sync(self, org, sync_type: str, job_id: str) -> dict:
-        """SMTP não possui sincronização bidirecional."""
-        return {
-            "status": "COMPLETED",
-            "total_records": 0,
-            "imported_count": 0,
-            "message": "SMTP não requer sincronização.",
-        }
+        """Fetch new emails via IMAP immediately."""
+        from channels.tasks import _decrypt_smtp_config, _get_imap_config, _poll_org_emails
+        from integrations.models import IntegrationConnection
+
+        conn = IntegrationConnection.objects.filter(
+            org=org, connector_slug=self.slug, is_active=True, is_connected=True,
+        ).first()
+        if not conn:
+            return {
+                "status": "FAILED",
+                "total_records": 0,
+                "imported_count": 0,
+                "message": "SMTP não está conectado.",
+            }
+
+        config = _decrypt_smtp_config(conn.config_json or {})
+        imap_config = _get_imap_config(config)
+        if not imap_config:
+            return {
+                "status": "FAILED",
+                "total_records": 0,
+                "imported_count": 0,
+                "message": "IMAP não configurado. Preencha host e porta IMAP.",
+            }
+
+        try:
+            count = _poll_org_emails(org, config, imap_config)
+            return {
+                "status": "COMPLETED",
+                "total_records": count,
+                "imported_count": count,
+                "message": f"{count} emails importados." if count else "Nenhum email novo encontrado.",
+            }
+        except Exception as exc:
+            logger.error("SMTP sync failed for org %s: %s", org.id, exc)
+            return {
+                "status": "FAILED",
+                "total_records": 0,
+                "imported_count": 0,
+                "message": f"Erro ao buscar emails: {exc}",
+            }
 
     def get_status(self, org) -> dict:
         from integrations.models import IntegrationConnection
@@ -215,5 +249,5 @@ class SMTPConnector(BaseConnector):
         return {"status": "ignored", "message": "SMTP does not handle webhooks."}
 
     def get_sync_types(self) -> list[str]:
-        """SMTP não possui tipos de sync."""
-        return []
+        """SMTP supports IMAP email import."""
+        return ["full"]
