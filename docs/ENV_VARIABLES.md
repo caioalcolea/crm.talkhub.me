@@ -89,9 +89,17 @@
 
 | Variável | Onde usada | Padrão | Obrigatória | No Compose | Status |
 |----------|-----------|--------|-------------|------------|--------|
-| `GOOGLE_CLIENT_ID` | `settings.py` | `""` | Não (opcional) | ❌ | ⚠️ Faltando no deploy |
-| `GOOGLE_CLIENT_SECRET` | `settings.py` | `""` | Não (opcional) | ❌ | ⚠️ Faltando no deploy |
-| `GOOGLE_REDIRECT_URI` | `settings.py` | `""` | Não (opcional) | ❌ | ⚠️ Faltando no deploy |
+| `GOOGLE_CLIENT_ID` | `settings.py` | `""` | Não (opcional) | ✅ | ✅ OK |
+| `GOOGLE_CLIENT_SECRET` | `settings.py` | `""` | Não (opcional) | ✅ | ✅ OK |
+| `GOOGLE_REDIRECT_URI` | `settings.py` | `""` | Não (opcional) | ❌ | ⚠️ Faltando (opcional) |
+
+## Criptografia
+
+| Variável | Onde usada | Padrão | Obrigatória | No Compose | Status |
+|----------|-----------|--------|-------------|------------|--------|
+| `FERNET_KEY` | `settings.py`, `integrations/views.py`, `channels/tasks.py`, `financeiro/` | `""` | ✅ Sim (prod) | ✅ | ✅ OK |
+
+> **Nota**: Fernet key deve ser 32 bytes url-safe base64 (44 chars). No YAML, NÃO usar `${VAR:-default}` pois o `=` final é consumido pela interpolação Docker. Definir diretamente: `FERNET_KEY=chave_aqui`.
 
 ## Sentry
 
@@ -119,8 +127,8 @@
 
 ## Resumo
 
-- **Total de variáveis no código**: 35
-- **Presentes no Docker Compose**: 30
-- **⚠️ Faltando no deploy**: 4 (Google OAuth x3, AWS_S3_CUSTOM_DOMAIN)
+- **Total de variáveis no código**: 36
+- **Presentes no Docker Compose**: 32
+- **⚠️ Faltando no deploy**: 2 (GOOGLE_REDIRECT_URI, AWS_S3_CUSTOM_DOMAIN — ambos opcionais)
 - **🗑️ Deprecated/não usadas**: 2 (AWS SES — SMTP ativo em produção)
-- **Ação recomendada**: Adicionar Google OAuth vars ao compose quando OAuth for ativado. Remover referências SES se não houver plano de uso.
+- **Ação recomendada**: Remover referências SES se não houver plano de uso.

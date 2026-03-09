@@ -17,7 +17,7 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 | Task Queue | Celery 5.6 + Celery Beat |
 | Auth | JWT (SimpleJWT) + Google OAuth + Magic Link (passwordless) |
 | Storage | MinIO S3 (s3.talkhub.me) |
-| Email | SMTP Titan (adm@talkhub.me) |
+| Email | SMTP (talkhub@talkhub.me) |
 | PDF | WeasyPrint |
 | HTTP Client | httpx 0.28 (para integrações externas) |
 | Deploy | Docker Swarm + Traefik (HTTPS Let's Encrypt) |

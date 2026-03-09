@@ -336,11 +336,8 @@ def save(self, *args, **kwargs):
 **Risco**: Dados inconsistentes, confusao na sincronizacao
 **Correcao**: Consolidar em um unico campo, criar migration de dados
 
-#### [A7] Health Checks Ausentes
-**Local**: `docker/Dockerfile.backend`, `docker/Dockerfile.frontend`
-**Problema**: Nenhum HEALTHCHECK nos Dockerfiles nem no compose
-**Risco**: Servicos podem ficar em estado inconsistente sem deteccao
-**Correcao**: Adicionar endpoint /health/ e HEALTHCHECK instruction
+#### ~~[A7] Health Checks Ausentes~~ — CORRIGIDO
+**Status**: Resolvido. Health checks adicionados em ambos Dockerfiles (`/health/` backend, `/` frontend) com interval 30s, timeout 5s e start_period 60s.
 
 ### 5.3 MEDIOS (Melhorar Qualidade)
 
@@ -372,18 +369,15 @@ def save(self, *args, **kwargs):
 **Problema**: Encriptacao baseada em property (getter/setter) pode ser bypassed por operacoes bulk do ORM
 **Correcao**: Usar pgcrypto ou campo com encriptacao transparente
 
-#### [M7] Containers Rodando como Root
-**Local**: `docker/Dockerfile.backend`, `docker/Dockerfile.frontend`
-**Problema**: Nenhum USER non-root definido nos Dockerfiles
-**Correcao**: Criar usuario `app` e usar `USER app`
+#### ~~[M7] Containers Rodando como Root~~ — CORRIGIDO
+**Status**: Resolvido. Ambos Dockerfiles criam usuario `app` (non-root) e usam `USER app`.
 
 #### [M8] M2M Handling Verboso nas Views
 **Problema**: Cada view repete logica manual de parsing JSON + clear + add para M2M fields
 **Correcao**: Extrair para utility function ou usar serializer mixin
 
-#### [M9] Sem Backup Automatizado
-**Problema**: Nenhuma estrategia de backup documentada para volumes Docker
-**Correcao**: Implementar pg_dump automatizado + upload para S3
+#### ~~[M9] Sem Backup Automatizado~~ — CORRIGIDO
+**Status**: Resolvido. Script `docker/backup-db.sh` implementado com pg_dump comprimido, retencao de 30 dias e upload opcional para S3 (`--upload`).
 
 #### [M10] Sem Rate Limiting
 **Problema**: Nenhum rate limit em endpoints publicos ou de autenticacao
