@@ -18,6 +18,7 @@ from conversations.views import (
     ConversationBotView,
     ConversationDetailView,
     ConversationListView,
+    ConversationUpdatesView,
     MessageCreateView,
     MessageListView,
 )
@@ -26,6 +27,7 @@ app_name = "api_conversations"
 
 urlpatterns = [
     path("", ConversationListView.as_view(), name="conversation-list"),
+    path("updates/", ConversationUpdatesView.as_view(), name="conversation-updates"),
     path("<uuid:pk>/", ConversationDetailView.as_view(), name="conversation-detail"),
     path(
         "<uuid:conversation_id>/messages/",

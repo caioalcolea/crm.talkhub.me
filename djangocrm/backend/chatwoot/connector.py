@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 WEBHOOK_EVENTS = [
     "message_created",
+    "message_updated",
     "conversation_created",
+    "conversation_updated",
     "conversation_status_changed",
     "contact_created",
     "contact_updated",
@@ -271,17 +273,23 @@ class ChatwootConnector(BaseConnector):
         if not cw_conv_id:
             return False
 
+        # Detect group conversations
+        is_group = (
+            cw_conv.get("conversation_type") == "group"
+            or cw_conv.get("additional_attributes", {}).get("type") == "group"
+        )
+
         # Get or create contact (individual or group)
         cw_contact = cw_conv.get("meta", {}).get("sender") or cw_conv.get("contact", {})
 
-        # Fallback for groups: use conversation name or "Grupo #ID"
-        if not cw_contact or not (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
+        if is_group or not cw_contact or not (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
             group_name = (
-                cw_conv.get("meta", {}).get("sender", {}).get("name")
-                or cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
+                cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
+                or cw_conv.get("meta", {}).get("sender", {}).get("name")
+                or (cw_contact.get("name") if cw_contact else None)
                 or f"Grupo #{cw_conv_id}"
             )
-            cw_contact = {"name": group_name, "phone_number": "", "email": ""}
+            cw_contact = {"name": group_name, "phone_number": cw_contact.get("phone_number", "") if cw_contact else "", "email": cw_contact.get("email", "") if cw_contact else ""}
 
         contact = self._get_or_create_contact(org, cw_contact)
         if not contact:
@@ -304,6 +312,8 @@ class ChatwootConnector(BaseConnector):
                     "chatwoot_conversation_id": cw_conv_id,
                     "chatwoot_inbox_id": cw_conv.get("inbox_id"),
                     "chatwoot_account_id": config.get("account_id"),
+                    "is_group": is_group,
+                    "conversation_type": cw_conv.get("conversation_type", ""),
                 },
             },
         )
@@ -518,8 +528,12 @@ class ChatwootConnector(BaseConnector):
 
         if event == "message_created":
             return self._handle_message_created(org, payload)
+        elif event == "message_updated":
+            return self._handle_message_updated(org, payload)
         elif event == "conversation_created":
             return self._handle_conversation_created(org, payload)
+        elif event == "conversation_updated":
+            return self._handle_conversation_updated(org, payload)
         elif event == "conversation_status_changed":
             return self._handle_conversation_status_changed(org, payload)
         elif event in ("contact_created", "contact_updated"):
@@ -527,6 +541,31 @@ class ChatwootConnector(BaseConnector):
         else:
             logger.info("Chatwoot webhook: unhandled event %s", event)
             return {"status": "ignored", "event": event}
+
+    def _extract_contact_info(self, data, cw_conv_id=None):
+        """Extract contact info from webhook payload, handling both individual and group conversations."""
+        sender = data.get("sender", {}) or {}
+        cw_conv = data.get("conversation", {}) or data
+
+        # Check if this is a group conversation
+        is_group = (
+            cw_conv.get("conversation_type") == "group"
+            or cw_conv.get("additional_attributes", {}).get("type") == "group"
+            or (not sender.get("email") and not sender.get("phone_number") and not sender.get("name"))
+        )
+
+        if is_group or not sender or not (sender.get("name") or sender.get("email") or sender.get("phone_number")):
+            # Try multiple sources for group name
+            group_name = (
+                cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
+                or cw_conv.get("meta", {}).get("sender", {}).get("name")
+                or cw_conv.get("meta", {}).get("channel")
+                or (sender.get("name") if sender else None)
+                or f"Grupo #{cw_conv_id or cw_conv.get('id', '?')}"
+            )
+            return {"name": group_name, "phone_number": sender.get("phone_number", ""), "email": sender.get("email", "")}, True
+
+        return sender, False
 
     def _handle_message_created(self, org, payload):
         """Handle message_created webhook event."""
@@ -537,7 +576,7 @@ class ChatwootConnector(BaseConnector):
 
         # Skip outgoing messages sent by us (echo prevention)
         if msg_type_num == 1:
-            content_attrs = data.get("content_attributes", {})
+            content_attrs = data.get("content_attributes", {}) or {}
             if content_attrs.get("external_created"):
                 return {"status": "skipped", "reason": "echo"}
 
@@ -555,19 +594,10 @@ class ChatwootConnector(BaseConnector):
         ).first()
 
         if not conv:
-            # Need to create conversation + contact
-            sender = data.get("sender", {}) or {}
+            # Extract contact info (handles individuals and groups)
+            contact_info, is_group = self._extract_contact_info(data, cw_conv_id)
 
-            # Fallback for groups: use conversation name or "Grupo #ID"
-            if not sender or not (sender.get("name") or sender.get("email") or sender.get("phone_number")):
-                group_name = (
-                    cw_conv.get("meta", {}).get("sender", {}).get("name")
-                    or cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
-                    or f"Grupo #{cw_conv_id}"
-                )
-                sender = {"name": group_name, "phone_number": "", "email": ""}
-
-            contact = self._get_or_create_contact(org, sender)
+            contact = self._get_or_create_contact(org, contact_info)
             if not contact:
                 return {"status": "error", "message": "Could not identify contact"}
 
@@ -581,6 +611,8 @@ class ChatwootConnector(BaseConnector):
                     "chatwoot_conversation_id": cw_conv_id,
                     "chatwoot_inbox_id": cw_conv.get("inbox_id"),
                     "chatwoot_account_id": account_id,
+                    "is_group": is_group,
+                    "conversation_type": cw_conv.get("conversation_type", ""),
                 },
             )
 
@@ -591,7 +623,56 @@ class ChatwootConnector(BaseConnector):
         conv.last_message_at = timezone.now()
         conv.save(update_fields=["last_message_at"])
 
+        # Notify frontend via cache flag
+        self._notify_new_message(org, conv)
+
         return {"status": "processed", "event": "message_created", "conversation_id": str(conv.id)}
+
+    def _handle_message_updated(self, org, payload):
+        """Handle message_updated webhook event — update content of existing message."""
+        from conversations.models import Message
+
+        data = payload
+        cw_msg_id = data.get("id")
+        if not cw_msg_id:
+            return {"status": "error", "message": "No message id"}
+
+        cw_conv = data.get("conversation", {})
+        cw_conv_id = cw_conv.get("id") or data.get("conversation_id")
+
+        msg = Message.objects.filter(
+            org=org,
+            metadata_json__chatwoot_message_id=cw_msg_id,
+        ).first()
+
+        if not msg:
+            # Message not found — might be a new message, treat as created
+            if cw_conv_id:
+                return self._handle_message_created(org, payload)
+            return {"status": "skipped", "reason": "message_not_found"}
+
+        # Update content and attachments
+        new_content = data.get("content")
+        updated_fields = []
+
+        if new_content is not None and new_content != msg.content:
+            msg.content = new_content
+            updated_fields.append("content")
+
+        # Update attachments if changed
+        attachments = data.get("attachments", [])
+        if attachments:
+            first_att = attachments[0]
+            new_media_url = first_att.get("data_url", "")
+            if new_media_url and new_media_url != msg.media_url:
+                msg.media_url = new_media_url
+                updated_fields.append("media_url")
+
+        if updated_fields:
+            updated_fields.append("updated_at")
+            msg.save(update_fields=updated_fields)
+
+        return {"status": "processed", "event": "message_updated"}
 
     def _handle_conversation_created(self, org, payload):
         """Handle conversation_created webhook event."""
@@ -612,26 +693,22 @@ class ChatwootConnector(BaseConnector):
         if existing:
             return {"status": "skipped", "reason": "already_exists"}
 
-        # Get contact (individual or group)
-        cw_contact = data.get("meta", {}).get("sender") or data.get("contact", {})
+        # Extract contact info (handles individuals and groups)
+        contact_info, is_group = self._extract_contact_info(data, cw_conv_id)
 
-        # Fallback for groups
-        if not cw_contact or not (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
-            cw_conv_id_local = cw_conv_id
-            group_name = (
-                data.get("meta", {}).get("sender", {}).get("name")
-                or data.get("additional_attributes", {}).get("chat_name_or_title")
-                or f"Grupo #{cw_conv_id_local}"
-            )
-            cw_contact = {"name": group_name, "phone_number": "", "email": ""}
+        # Also try meta.sender and contact fields for individual conversations
+        if not is_group:
+            cw_contact = data.get("meta", {}).get("sender") or data.get("contact", {})
+            if cw_contact and (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
+                contact_info = cw_contact
 
-        contact = self._get_or_create_contact(org, cw_contact)
+        contact = self._get_or_create_contact(org, contact_info)
         if not contact:
             return {"status": "error", "message": "Could not identify contact"}
 
         status_map = {"open": "open", "pending": "pending", "resolved": "resolved", "snoozed": "pending"}
 
-        Conversation.objects.create(
+        conv = Conversation.objects.create(
             org=org,
             contact=contact,
             channel="chatwoot",
@@ -641,10 +718,69 @@ class ChatwootConnector(BaseConnector):
                 "chatwoot_conversation_id": cw_conv_id,
                 "chatwoot_inbox_id": data.get("inbox_id"),
                 "chatwoot_account_id": account_id,
+                "is_group": is_group,
+                "conversation_type": data.get("conversation_type", ""),
             },
         )
 
+        self._notify_new_message(org, conv)
         return {"status": "processed", "event": "conversation_created"}
+
+    def _handle_conversation_updated(self, org, payload):
+        """Handle conversation_updated webhook event — sync assignee, labels, etc."""
+        from conversations.models import Conversation
+
+        data = payload
+        cw_conv_id = data.get("id") or data.get("conversation", {}).get("id")
+        if not cw_conv_id:
+            return {"status": "error", "message": "No conversation id"}
+
+        conv = Conversation.objects.filter(
+            org=org, channel="chatwoot",
+            metadata_json__chatwoot_conversation_id=cw_conv_id,
+        ).first()
+
+        if not conv:
+            # Conversation doesn't exist yet — create it
+            return self._handle_conversation_created(org, payload)
+
+        updated_fields = []
+
+        # Sync status
+        status_map = {"open": "open", "pending": "pending", "resolved": "resolved", "snoozed": "pending"}
+        new_status = data.get("status", "")
+        if new_status in status_map and conv.status != status_map[new_status]:
+            conv.status = status_map[new_status]
+            updated_fields.append("status")
+
+        # Sync assignee from Chatwoot
+        cw_assignee = data.get("meta", {}).get("assignee") or data.get("assignee")
+        if cw_assignee:
+            # Store Chatwoot assignee info in metadata for reference
+            meta = conv.metadata_json or {}
+            meta["chatwoot_assignee"] = {
+                "id": cw_assignee.get("id"),
+                "name": cw_assignee.get("name", ""),
+                "email": cw_assignee.get("email", ""),
+            }
+            conv.metadata_json = meta
+            updated_fields.append("metadata_json")
+
+        # Sync labels from Chatwoot
+        cw_labels = data.get("labels", [])
+        if cw_labels:
+            meta = conv.metadata_json or {}
+            meta["chatwoot_labels"] = cw_labels
+            conv.metadata_json = meta
+            if "metadata_json" not in updated_fields:
+                updated_fields.append("metadata_json")
+
+        if updated_fields:
+            updated_fields.append("updated_at")
+            conv.save(update_fields=updated_fields)
+
+        self._notify_new_message(org, conv)
+        return {"status": "processed", "event": "conversation_updated"}
 
     def _handle_conversation_status_changed(self, org, payload):
         """Handle conversation_status_changed webhook event."""
@@ -669,6 +805,7 @@ class ChatwootConnector(BaseConnector):
             conv.status = status_map[new_status]
             conv.save(update_fields=["status", "updated_at"])
 
+        self._notify_new_message(org, conv)
         return {"status": "processed", "event": "conversation_status_changed"}
 
     def _handle_contact_event(self, org, payload):
@@ -677,6 +814,19 @@ class ChatwootConnector(BaseConnector):
         cw_contact = data if data.get("name") or data.get("email") else data.get("contact", data)
         self._get_or_create_contact(org, cw_contact)
         return {"status": "processed", "event": payload.get("event")}
+
+    def _notify_new_message(self, org, conversation):
+        """Set a cache flag to notify the frontend of new messages."""
+        try:
+            from django.core.cache import cache
+            # Set a per-org notification flag that expires after 60 seconds
+            cache_key = f"conv_updates:{org.id}"
+            cache.set(cache_key, {
+                "conversation_id": str(conversation.id),
+                "timestamp": timezone.now().isoformat(),
+            }, timeout=60)
+        except Exception:
+            pass  # Non-critical — frontend will still poll
 
     def validate_webhook(self, payload: bytes, headers: dict, secret: str) -> bool:
         """Validate Chatwoot webhook via HMAC-SHA256 if secret is configured."""

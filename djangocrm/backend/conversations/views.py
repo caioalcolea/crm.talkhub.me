@@ -285,3 +285,56 @@ class ContactConversationsView(APIView):
 
         serializer = ConversationListSerializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class ConversationUpdatesView(APIView):
+    """
+    GET /api/conversations/updates/?since=<iso_timestamp>
+
+    Lightweight poll endpoint for real-time updates.
+    Returns conversations updated since the given timestamp.
+    Much lighter than re-fetching the full list.
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request):
+        since = request.query_params.get("since")
+        conversation_id = request.query_params.get("conversation_id")
+
+        if not since:
+            return Response({"conversations": [], "messages": []})
+
+        try:
+            from django.utils.dateparse import parse_datetime
+            since_dt = parse_datetime(since)
+            if not since_dt:
+                return Response({"error": "Invalid timestamp"}, status=status.HTTP_400_BAD_REQUEST)
+            if not timezone.is_aware(since_dt):
+                since_dt = timezone.make_aware(since_dt)
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid timestamp"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get conversations updated since timestamp
+        updated_convs = Conversation.objects.filter(
+            org=request.org,
+            updated_at__gt=since_dt,
+        ).select_related("contact", "assigned_to").order_by("-updated_at")[:20]
+
+        conv_data = ConversationListSerializer(updated_convs, many=True).data
+
+        # If a specific conversation is being watched, return new messages
+        new_messages = []
+        if conversation_id:
+            msgs = Message.objects.filter(
+                org=request.org,
+                conversation_id=conversation_id,
+                timestamp__gt=since_dt,
+            ).order_by("timestamp")[:50]
+            new_messages = MessageSerializer(msgs, many=True).data
+
+        return Response({
+            "conversations": conv_data,
+            "messages": new_messages,
+            "server_time": timezone.now().isoformat(),
+        })

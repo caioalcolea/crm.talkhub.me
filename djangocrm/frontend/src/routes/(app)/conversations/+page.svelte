@@ -30,6 +30,7 @@
   let loadingMessages = $state(false);
   let searchQuery = $state('');
   let refreshing = $state(false);
+  let lastPollTime = $state(new Date().toISOString());
 
   // Sync conversations when data changes (e.g. from server-side navigation)
   $effect(() => {
@@ -44,12 +45,82 @@
     if (data.filters?.search) searchQuery = data.filters.search;
   });
 
-  // Auto-refresh conversations every 30 seconds
-  const refreshInterval = setInterval(async () => {
-    await refreshConversations(true);
-  }, 30000);
+  // Fast poll for real-time updates (every 5s)
+  const pollInterval = setInterval(async () => {
+    await pollUpdates();
+  }, 5000);
 
-  onDestroy(() => clearInterval(refreshInterval));
+  // Full refresh every 60s as fallback
+  const fullRefreshInterval = setInterval(async () => {
+    await refreshConversations(true);
+  }, 60000);
+
+  onDestroy(() => {
+    clearInterval(pollInterval);
+    clearInterval(fullRefreshInterval);
+  });
+
+  /**
+   * Lightweight poll — only fetches conversations/messages updated since last poll.
+   */
+  async function pollUpdates() {
+    try {
+      const params = new URLSearchParams({ since: lastPollTime });
+      if (selectedConversation) params.set('conversation_id', selectedConversation.id);
+
+      const updates = await apiRequest(`/conversations/updates/?${params.toString()}`);
+      if (!updates || updates.error) return;
+
+      // Update server time for next poll
+      if (updates.server_time) lastPollTime = updates.server_time;
+
+      // Merge updated conversations into the list
+      if (updates.conversations?.length > 0) {
+        const updatedMap = new Map(updates.conversations.map(c => [c.id, c]));
+        let changed = false;
+
+        conversations = conversations.map(c => {
+          if (updatedMap.has(c.id)) {
+            changed = true;
+            const updated = updatedMap.get(c.id);
+            updatedMap.delete(c.id);
+            return updated;
+          }
+          return c;
+        });
+
+        // Add new conversations not yet in the list
+        if (updatedMap.size > 0) {
+          conversations = [...updatedMap.values(), ...conversations];
+          changed = true;
+        }
+
+        // Re-sort by last_message_at
+        if (changed) {
+          conversations = [...conversations].sort((a, b) =>
+            new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime()
+          );
+        }
+
+        // Update selected conversation if it was updated
+        if (selectedConversation) {
+          const updatedSelected = updates.conversations.find(c => c.id === selectedConversation.id);
+          if (updatedSelected) selectedConversation = updatedSelected;
+        }
+      }
+
+      // Append new messages for the active conversation
+      if (updates.messages?.length > 0 && selectedConversation) {
+        const existingIds = new Set(messages.map(m => m.id));
+        const newMsgs = updates.messages.filter(m => !existingIds.has(m.id));
+        if (newMsgs.length > 0) {
+          messages = [...messages, ...newMsgs];
+        }
+      }
+    } catch {
+      // Silent fail — full refresh will catch up
+    }
+  }
 
   /**
    * Refresh conversation list and active conversation messages.
@@ -77,6 +148,8 @@
         const updated = conversations.find(c => c.id === selectedConversation.id);
         if (updated) selectedConversation = updated;
       }
+
+      lastPollTime = new Date().toISOString();
     } catch (e) {
       if (!silent) console.error('Erro ao atualizar conversas:', e);
     } finally {
