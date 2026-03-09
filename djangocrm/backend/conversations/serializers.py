@@ -70,6 +70,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "contact",
             "contact_name",
             "last_message",
+            "metadata_json",
             "created_at",
         )
         read_only_fields = fields

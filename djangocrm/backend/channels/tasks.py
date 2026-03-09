@@ -135,41 +135,59 @@ def poll_imap_emails():
 
     Creates Conversation + Message records from incoming emails.
     Runs every 2 minutes via Celery Beat.
+
+    IMPORTANT: Uses raw SQL to discover org IDs because the
+    integration_connection table has FORCE ROW LEVEL SECURITY.
+    Without explicit org context, ORM queries return 0 rows.
+    The organization table has no RLS, so we iterate through all orgs
+    and set RLS context for each before querying IntegrationConnection.
     """
+    from django.db import connection as db_conn
+
     from integrations.models import IntegrationConnection
 
-    connections = list(
-        IntegrationConnection.objects.filter(
-            connector_slug="smtp", is_active=True, is_connected=True
-        )
-    )
+    # Get all org IDs from organization table (no RLS on this table)
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT id FROM organization")
+        org_ids = [row[0] for row in cursor.fetchall()]
 
-    logger.info("IMAP poll: found %d active SMTP connection(s)", len(connections))
-
-    if not connections:
+    if not org_ids:
+        logger.info("IMAP poll: no organizations found")
         return
 
     total_new = 0
-    for conn in connections:
+    orgs_with_smtp = 0
+
+    for org_id in org_ids:
         try:
-            set_rls_context(str(conn.org_id))
+            set_rls_context(str(org_id))
+
+            conn = IntegrationConnection.objects.filter(
+                connector_slug="smtp", is_active=True, is_connected=True
+            ).select_related("org").first()
+
+            if not conn:
+                continue
+
+            orgs_with_smtp += 1
             config = _decrypt_smtp_config(conn.config_json or {})
             imap_config = _get_imap_config(config)
             if not imap_config:
-                logger.warning("IMAP poll: no IMAP config for org %s, skipping", conn.org_id)
+                logger.warning("IMAP poll: no IMAP config for org %s, skipping", org_id)
                 continue
 
             logger.info("IMAP poll: connecting to %s:%s for org %s",
-                        imap_config["host"], imap_config["port"], conn.org_id)
+                        imap_config["host"], imap_config["port"], org_id)
             count = _poll_org_emails(conn.org, config, imap_config)
-            logger.info("IMAP poll: org %s — %d new email(s)", conn.org_id, count)
+            if count:
+                logger.info("IMAP poll: org %s — %d new email(s)", org_id, count)
             total_new += count
         except Exception as exc:
             logger.error(
-                "IMAP poll failed for org %s: %s", conn.org_id, exc, exc_info=True
+                "IMAP poll failed for org %s: %s", org_id, exc, exc_info=True
             )
 
-    logger.info("IMAP poll complete: %d new email(s) total", total_new)
+    logger.info("IMAP poll complete: %d org(s) with SMTP, %d new email(s)", orgs_with_smtp, total_new)
 
 
 def _poll_org_emails(org, smtp_config, imap_config):

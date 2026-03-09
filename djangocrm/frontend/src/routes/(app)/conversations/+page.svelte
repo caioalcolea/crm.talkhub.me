@@ -1,12 +1,13 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { onDestroy } from 'svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import { PageHeader } from '$lib/components/layout';
-  import { MessageSquare, Search, Filter } from '@lucide/svelte';
+  import { MessageSquare, Search, Filter, RefreshCw } from '@lucide/svelte';
   import ConversationList from '$lib/components/conversations/ConversationList.svelte';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
@@ -16,7 +17,7 @@
   /** @type {{ data: any }} */
   let { data } = $props();
 
-  let conversations = $derived(data.conversations || []);
+  let conversations = $state(data.conversations || []);
   let channels = $derived(data.channels || []);
   let filters = $derived(data.filters || {});
 
@@ -26,6 +27,12 @@
   let messages = $state([]);
   let loadingMessages = $state(false);
   let searchQuery = $state('');
+  let refreshing = $state(false);
+
+  // Sync conversations when data changes (e.g. from server-side navigation)
+  $effect(() => {
+    conversations = data.conversations || [];
+  });
 
   $effect(() => {
     if (data.error) toast.error(data.error);
@@ -34,6 +41,46 @@
   $effect(() => {
     if (data.filters?.search) searchQuery = data.filters.search;
   });
+
+  // Auto-refresh conversations every 30 seconds
+  const refreshInterval = setInterval(async () => {
+    await refreshConversations(true);
+  }, 30000);
+
+  onDestroy(() => clearInterval(refreshInterval));
+
+  /**
+   * Refresh conversation list and active conversation messages.
+   * @param {boolean} [silent] - If true, don't show loading indicator.
+   */
+  async function refreshConversations(silent = false) {
+    if (!silent) refreshing = true;
+    try {
+      const params = new URLSearchParams();
+      if (filters.channel) params.set('channel', filters.channel);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.assigned_to) params.set('assigned_to', filters.assigned_to);
+      if (filters.search) params.set('search', filters.search);
+      const qs = params.toString();
+
+      const freshConversations = await apiRequest(`/conversations/${qs ? '?' + qs : ''}`);
+      conversations = freshConversations?.results || freshConversations || [];
+
+      // Also refresh messages for the selected conversation
+      if (selectedConversation) {
+        const freshMessages = await apiRequest(`/conversations/${selectedConversation.id}/messages/`);
+        messages = freshMessages?.results || freshMessages || [];
+
+        // Update selected conversation data (e.g. status, last_message_at)
+        const updated = conversations.find(c => c.id === selectedConversation.id);
+        if (updated) selectedConversation = updated;
+      }
+    } catch (e) {
+      if (!silent) console.error('Erro ao atualizar conversas:', e);
+    } finally {
+      refreshing = false;
+    }
+  }
 
   /** @param {any} conversation */
   async function selectConversation(conversation) {
@@ -126,10 +173,22 @@
       </Select.Root>
     {/if}
 
-    <Badge variant="outline" class="ml-auto gap-1.5 px-3 py-1">
-      <MessageSquare class="size-3.5" />
-      {conversations.length} conversa{conversations.length !== 1 ? 's' : ''}
-    </Badge>
+    <div class="ml-auto flex items-center gap-2">
+      <Button
+        variant="ghost"
+        size="icon"
+        class="size-8"
+        onclick={() => refreshConversations(false)}
+        disabled={refreshing}
+        title="Atualizar conversas"
+      >
+        <RefreshCw class="size-3.5 {refreshing ? 'animate-spin' : ''}" />
+      </Button>
+      <Badge variant="outline" class="gap-1.5 px-3 py-1">
+        <MessageSquare class="size-3.5" />
+        {conversations.length} conversa{conversations.length !== 1 ? 's' : ''}
+      </Badge>
+    </div>
   </div>
 
   <!-- Main content: list + timeline -->

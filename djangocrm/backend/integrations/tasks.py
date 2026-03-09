@@ -179,54 +179,62 @@ def check_pending_syncs():
     sync_interval_minutes configurado, verifica se o tempo desde o último
     sync excede o intervalo e dispara run_connector_sync.
     """
+    from django.db import connection as db_conn
+
     from integrations.models import IntegrationConnection, SyncJob
 
     now = timezone.now()
-    connections = IntegrationConnection.objects.filter(
-        is_active=True, is_connected=True
-    )
+
+    # Get all org IDs (organization table has no RLS)
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT id FROM organization")
+        org_ids = [row[0] for row in cursor.fetchall()]
 
     queued = 0
-    for conn in connections:
-        set_rls_context(str(conn.org_id))
+    for org_id in org_ids:
+        set_rls_context(str(org_id))
 
-        interval = conn.sync_interval_minutes or 60
-        if interval < 5:
-            interval = 5
+        connections = IntegrationConnection.objects.filter(
+            is_active=True, is_connected=True
+        )
+        for conn in connections:
+            interval = conn.sync_interval_minutes or 60
+            if interval < 5:
+                interval = 5
 
-        # Verificar se o último sync foi há mais tempo que o intervalo
-        if conn.last_sync_at:
-            elapsed = (now - conn.last_sync_at).total_seconds() / 60
-            if elapsed < interval:
+            # Verificar se o último sync foi há mais tempo que o intervalo
+            if conn.last_sync_at:
+                elapsed = (now - conn.last_sync_at).total_seconds() / 60
+                if elapsed < interval:
+                    continue
+
+            # Verificar se já existe um sync em andamento
+            running = SyncJob.objects.filter(
+                org_id=conn.org_id,
+                connector_slug=conn.connector_slug,
+                status__in=["PENDING", "IN_PROGRESS"],
+            ).exists()
+            if running:
                 continue
 
-        # Verificar se já existe um sync em andamento
-        running = SyncJob.objects.filter(
-            org_id=conn.org_id,
-            connector_slug=conn.connector_slug,
-            status__in=["PENDING", "IN_PROGRESS"],
-        ).exists()
-        if running:
-            continue
+            # Criar SyncJob e disparar task
+            job = SyncJob.objects.create(
+                org_id=conn.org_id,
+                connector_slug=conn.connector_slug,
+                sync_type="all",
+                status="PENDING",
+            )
+            run_connector_sync.delay(
+                conn.connector_slug, str(conn.org_id), "all", str(job.id)
+            )
+            queued += 1
 
-        # Criar SyncJob e disparar task
-        job = SyncJob.objects.create(
-            org_id=conn.org_id,
-            connector_slug=conn.connector_slug,
-            sync_type="all",
-            status="PENDING",
-        )
-        run_connector_sync.delay(
-            conn.connector_slug, str(conn.org_id), "all", str(job.id)
-        )
-        queued += 1
-
-        logger.info(
-            "Queued scheduled sync: %s (org=%s, interval=%dmin)",
-            conn.connector_slug,
-            conn.org_id,
-            interval,
-        )
+            logger.info(
+                "Queued scheduled sync: %s (org=%s, interval=%dmin)",
+                conn.connector_slug,
+                conn.org_id,
+                interval,
+            )
 
     logger.info("check_pending_syncs: queued %d syncs", queued)
 
@@ -246,57 +254,65 @@ def check_integration_health():
     """
     from django.conf import settings
     from django.core.mail import send_mail
+    from django.db import connection as db_conn
 
     from integrations.models import IntegrationConnection
 
-    connections = IntegrationConnection.objects.filter(is_active=True)
+    # Get all org IDs (organization table has no RLS)
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT id FROM organization")
+        org_ids = [row[0] for row in cursor.fetchall()]
 
-    for conn in connections:
-        set_rls_context(str(conn.org_id))
+    checked = 0
+    for org_id in org_ids:
+        set_rls_context(str(org_id))
 
-        old_status = conn.health_status
+        connections = IntegrationConnection.objects.filter(is_active=True)
+        for conn in connections:
+            checked += 1
+            old_status = conn.health_status
 
-        if conn.error_count > 15:
-            new_status = "down"
-        elif conn.error_count > 5:
-            new_status = "degraded"
-        else:
-            new_status = "healthy"
+            if conn.error_count > 15:
+                new_status = "down"
+            elif conn.error_count > 5:
+                new_status = "degraded"
+            else:
+                new_status = "healthy"
 
-        if new_status != old_status:
-            conn.health_status = new_status
-            conn.save(update_fields=["health_status", "updated_at"])
+            if new_status != old_status:
+                conn.health_status = new_status
+                conn.save(update_fields=["health_status", "updated_at"])
 
-            logger.info(
-                "Health status changed: %s (%s) %s → %s",
-                conn.connector_slug,
-                conn.org_id,
-                old_status,
-                new_status,
-            )
+                logger.info(
+                    "Health status changed: %s (%s) %s → %s",
+                    conn.connector_slug,
+                    conn.org_id,
+                    old_status,
+                    new_status,
+                )
 
-            # Enviar email ao admin quando status muda para "down"
-            if new_status == "down":
-                try:
-                    admin_email = getattr(settings, "DEFAULT_FROM_EMAIL", "adm@talkhub.me")
-                    send_mail(
-                        subject=f"[TalkHub CRM] Integração {conn.display_name} fora do ar",
-                        message=(
-                            f"A integração {conn.display_name} ({conn.connector_slug}) "
-                            f"está fora do ar.\n\n"
-                            f"Erros consecutivos: {conn.error_count}\n"
-                            f"Último erro: {conn.last_error or 'N/A'}\n"
-                            f"Último sync: {conn.last_sync_at or 'Nunca'}\n\n"
-                            f"Verifique o painel de integrações para mais detalhes."
-                        ),
-                        from_email=admin_email,
-                        recipient_list=[admin_email],
-                        fail_silently=True,
-                    )
-                except Exception as exc:
-                    logger.error("Failed to send health alert email: %s", exc)
+                # Enviar email ao admin quando status muda para "down"
+                if new_status == "down":
+                    try:
+                        admin_email = getattr(settings, "DEFAULT_FROM_EMAIL", "adm@talkhub.me")
+                        send_mail(
+                            subject=f"[TalkHub CRM] Integração {conn.display_name} fora do ar",
+                            message=(
+                                f"A integração {conn.display_name} ({conn.connector_slug}) "
+                                f"está fora do ar.\n\n"
+                                f"Erros consecutivos: {conn.error_count}\n"
+                                f"Último erro: {conn.last_error or 'N/A'}\n"
+                                f"Último sync: {conn.last_sync_at or 'Nunca'}\n\n"
+                                f"Verifique o painel de integrações para mais detalhes."
+                            ),
+                            from_email=admin_email,
+                            recipient_list=[admin_email],
+                            fail_silently=True,
+                        )
+                    except Exception as exc:
+                        logger.error("Failed to send health alert email: %s", exc)
 
-    logger.info("Health check completed for %d active connections", connections.count())
+    logger.info("Health check completed for %d active connections", checked)
 
 
 @shared_task(name="integrations.tasks.run_integration_review")

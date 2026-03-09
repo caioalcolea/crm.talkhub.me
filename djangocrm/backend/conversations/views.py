@@ -12,6 +12,7 @@ Views do app conversations.
 
 import logging
 
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.pagination import CursorPagination
@@ -69,8 +70,10 @@ class ConversationListView(APIView):
         search = request.query_params.get("search")
         if search:
             queryset = queryset.filter(
-                contact__first_name__icontains=search
-            ) | queryset.filter(contact__last_name__icontains=search)
+                Q(contact__first_name__icontains=search)
+                | Q(contact__last_name__icontains=search)
+                | Q(contact__email__icontains=search)
+            )
 
         serializer = ConversationListSerializer(queryset[:100], many=True)
         return Response(serializer.data)
