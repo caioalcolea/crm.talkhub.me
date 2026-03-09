@@ -111,6 +111,21 @@ class ChatwootConnector(BaseConnector):
 
         logger.info("Chatwoot connect SUCCESS for org %s (account_id=%s)", org.id, account_id)
 
+        # Auto-create ChannelConfig for the conversations system
+        from channels.models import ChannelConfig
+        ChannelConfig.objects.update_or_create(
+            org=org,
+            channel_type="chatwoot",
+            defaults={
+                "provider": "chatwoot",
+                "display_name": "Chatwoot",
+                "is_active": True,
+                "config_json": {"account_id": config.get("account_id")},
+                "capabilities_json": ["text", "image", "file"],
+            },
+        )
+        logger.info("ChannelConfig for chatwoot created/updated for org %s", org.id)
+
         # Auto-register webhook in Chatwoot
         self._register_webhook(config, org)
 
@@ -242,8 +257,18 @@ class ChatwootConnector(BaseConnector):
         if not cw_conv_id:
             return False
 
-        # Get or create contact
+        # Get or create contact (individual or group)
         cw_contact = cw_conv.get("meta", {}).get("sender") or cw_conv.get("contact", {})
+
+        # Fallback for groups: use conversation name or "Grupo #ID"
+        if not cw_contact or not (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
+            group_name = (
+                cw_conv.get("meta", {}).get("sender", {}).get("name")
+                or cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
+                or f"Grupo #{cw_conv_id}"
+            )
+            cw_contact = {"name": group_name, "phone_number": "", "email": ""}
+
         contact = self._get_or_create_contact(org, cw_contact)
         if not contact:
             return False
@@ -518,6 +543,16 @@ class ChatwootConnector(BaseConnector):
         if not conv:
             # Need to create conversation + contact
             sender = data.get("sender", {}) or {}
+
+            # Fallback for groups: use conversation name or "Grupo #ID"
+            if not sender or not (sender.get("name") or sender.get("email") or sender.get("phone_number")):
+                group_name = (
+                    cw_conv.get("meta", {}).get("sender", {}).get("name")
+                    or cw_conv.get("additional_attributes", {}).get("chat_name_or_title")
+                    or f"Grupo #{cw_conv_id}"
+                )
+                sender = {"name": group_name, "phone_number": "", "email": ""}
+
             contact = self._get_or_create_contact(org, sender)
             if not contact:
                 return {"status": "error", "message": "Could not identify contact"}
@@ -563,8 +598,19 @@ class ChatwootConnector(BaseConnector):
         if existing:
             return {"status": "skipped", "reason": "already_exists"}
 
-        # Get contact
+        # Get contact (individual or group)
         cw_contact = data.get("meta", {}).get("sender") or data.get("contact", {})
+
+        # Fallback for groups
+        if not cw_contact or not (cw_contact.get("name") or cw_contact.get("email") or cw_contact.get("phone_number")):
+            cw_conv_id_local = cw_conv_id
+            group_name = (
+                data.get("meta", {}).get("sender", {}).get("name")
+                or data.get("additional_attributes", {}).get("chat_name_or_title")
+                or f"Grupo #{cw_conv_id_local}"
+            )
+            cw_contact = {"name": group_name, "phone_number": "", "email": ""}
+
         contact = self._get_or_create_contact(org, cw_contact)
         if not contact:
             return {"status": "error", "message": "Could not identify contact"}

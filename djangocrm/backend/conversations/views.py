@@ -150,7 +150,6 @@ class MessageCreateView(APIView):
 
         # Enviar via ChannelProvider se disponível
         provider_cls = ChannelRegistry.get(channel_type)
-        send_result = {}
         if provider_cls:
             from channels.models import ChannelConfig
 
@@ -158,13 +157,27 @@ class MessageCreateView(APIView):
                 org=request.org, channel_type=channel_type, is_active=True
             ).first()
 
+            # Fallback: if no ChannelConfig, try IntegrationConnection
+            if not channel_config:
+                from integrations.models import IntegrationConnection
+
+                int_conn = IntegrationConnection.objects.filter(
+                    org=request.org, connector_slug=channel_type,
+                    is_active=True, is_connected=True,
+                ).first()
+                if int_conn:
+                    channel_config = type(
+                        "ProxyConfig", (),
+                        {"org": request.org, "config_json": int_conn.config_json},
+                    )()
+
             if channel_config:
                 try:
                     provider = provider_cls()
                     # Enrich message_data with conversation context
                     message_data = dict(request.data)
                     message_data["conversation_id"] = str(conversation.id)
-                    send_result = provider.send_message(
+                    provider.send_message(
                         channel_config, conversation.contact, message_data
                     )
                 except Exception as e:
@@ -179,12 +192,19 @@ class MessageCreateView(APIView):
         if hasattr(request, "profile") and request.profile and request.profile.user:
             sender_name = request.profile.user.get_full_name() or request.profile.user.email
 
-        message = serializer.save(
-            org=request.org,
-            conversation=conversation,
-            sender_name=sender_name,
-            sender_id=str(request.user.id) if request.user else "",
-        )
+        try:
+            message = serializer.save(
+                org=request.org,
+                conversation=conversation,
+                sender_name=sender_name,
+                sender_id=str(request.user.id) if request.user else "",
+            )
+        except Exception as e:
+            logger.error("Failed to save message for conversation %s: %s", conversation_id, e)
+            return Response(
+                {"error": f"Erro ao salvar mensagem: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         # Atualizar last_message_at
         conversation.last_message_at = message.timestamp

@@ -23,7 +23,8 @@
     MessageCircle,
     Send,
     Video,
-    Sparkles
+    Sparkles,
+    Target
   } from '@lucide/svelte';
   import { PageHeader } from '$lib/components/layout';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
@@ -977,10 +978,18 @@
         <Button
           variant="outline"
           size="sm"
+          onclick={() => goto(`/leads?action=create&contactId=${selectedContact.id}`)}
+        >
+          <Target class="mr-1 h-4 w-4" />
+          Criar Oportunidade
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onclick={() => goto(`/opportunities?action=create&contactId=${selectedContact.id}`)}
         >
           <Sparkles class="mr-1 h-4 w-4" />
-          Criar Oportunidade
+          Criar Negócio
         </Button>
       </div>
     {/if}
