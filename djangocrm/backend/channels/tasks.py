@@ -379,6 +379,22 @@ def _poll_org_emails(org, smtp_config, imap_config):
                 # Content: prefer HTML for rich rendering, fallback to text
                 msg_content = html_body if html_body else text_body
 
+                meta = {
+                    "email_subject": subject,
+                    "email_from": from_email,
+                    "email_from_name": from_name,
+                    "email_to": to_header,
+                    "email_cc": cc_header,
+                    "email_date": date_header,
+                    "email_message_id": message_id,
+                    "email_in_reply_to": in_reply_to,
+                    "email_references": references,
+                    "content_type": "html" if html_body else "text",
+                }
+                # Store text_body separately so frontend can toggle HTML/text
+                if html_body and text_body:
+                    meta["text_body"] = text_body
+
                 Message.objects.create(
                     org=org,
                     conversation=conversation,
@@ -388,18 +404,7 @@ def _poll_org_emails(org, smtp_config, imap_config):
                     sender_name=from_name,
                     sender_id=from_email,
                     timestamp=timestamp,
-                    metadata_json={
-                        "email_subject": subject,
-                        "email_from": from_email,
-                        "email_from_name": from_name,
-                        "email_to": to_header,
-                        "email_cc": cc_header,
-                        "email_date": date_header,
-                        "email_message_id": message_id,
-                        "email_in_reply_to": in_reply_to,
-                        "email_references": references,
-                        "content_type": "html" if html_body else "text",
-                    },
+                    metadata_json=meta,
                 )
 
                 conversation.last_message_at = timestamp
