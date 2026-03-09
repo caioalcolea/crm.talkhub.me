@@ -30,7 +30,8 @@ Backend multi-tenant do TalkHub CRM. Django 5.2 + DRF 3.16 + PostgreSQL 16 RLS +
 | `financeiro` | Lançamentos, pagar/receber, plano de contas, formas de pagamento, relatórios |
 | `integrations` | Hub genérico: conexões, sync jobs, logs, webhooks, field mapping, conflict resolution |
 | `channels` | Abstração de canais de comunicação (TalkHub Omni, SMTP, Chatwoot, etc.) |
-| `conversations` | Inbox omnichannel: conversas e mensagens genéricas |
+| `conversations` | Inbox omnichannel: conversas e mensagens genéricas, real-time via fast polling |
+| `chatwoot` | Conector Chatwoot: webhook bidirerecional (7 eventos), sync conversas/contatos/grupos, channel provider |
 | `talkhub_omni` | Conector TalkHub Omni: sync contatos/tickets/tags/team/stats, webhook handler, channel provider |
 | `salesforce` | Conector Salesforce (stub) |
 
@@ -83,11 +84,38 @@ def minha_task(data_id, org_id):
 
 Arquitetura plugável:
 ```
-ConnectorRegistry → registra conectores (talkhub_omni, salesforce, etc.)
-ChannelRegistry   → registra providers de canal (TalkHubOmniProvider, SmtpNativeProvider)
+ConnectorRegistry → registra conectores (chatwoot, talkhub_omni, salesforce, etc.)
+ChannelRegistry   → registra providers de canal (ChatwootProvider, TalkHubOmniProvider, SmtpNativeProvider)
 VariableRegistry  → resolve_to_crm_field() para mapeamento externo→CRM
 DataUnifier       → normaliza dados de diferentes fontes
 ConflictResolver  → estratégias: last_write_wins, crm_wins, external_wins
+```
+
+### Chatwoot Connector
+
+```
+chatwoot/
+├── connector.py   # ChatwootConnector (BaseConnector) — webhook handlers, sync, group detection
+├── provider.py    # ChatwootProvider (ChannelProvider) — send/receive messages
+└── apps.py        # Auto-register connector + channel provider
+```
+
+**Webhook Events**: `message_created`, `message_updated`, `conversation_created`, `conversation_updated`, `conversation_status_changed`, `contact_created`, `contact_updated`
+
+**Key features**:
+- Auto-register webhook no Chatwoot ao conectar
+- Detecção automática de grupos (`conversation_type=group`)
+- Contact sync: atualiza email/telefone/nome faltantes em contatos existentes
+- Status bidirecional com grace period de 30s (CRM→Chatwoot via Celery async)
+- Echo prevention para mensagens enviadas pelo CRM
+
+### Conversations Real-Time
+
+```
+Frontend (5s poll) → GET /conversations/updates/?since=<ISO>&conversation_id=<UUID>
+  → Retorna apenas conversas e mensagens atualizadas desde o último poll
+  → Merge incremental no frontend (dedup por ID)
+  → Full refresh a cada 60s como fallback
 ```
 
 ## Migrations
@@ -132,7 +160,8 @@ backend/
 ├── financeiro/
 ├── integrations/           # Hub genérico de integrações
 ├── channels/               # Abstração de canais
-├── conversations/          # Inbox omnichannel
+├── conversations/          # Inbox omnichannel (real-time via fast polling)
+├── chatwoot/               # Conector Chatwoot (webhook + sync + channel provider)
 ├── talkhub_omni/           # Conector TalkHub Omni (4 migrations)
 ├── salesforce/             # Conector Salesforce (stub, sem models)
 ├── templates/              # Email templates (todos em pt-BR)

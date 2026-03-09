@@ -91,15 +91,15 @@ Registrar no `ready()`:
 ChannelRegistry.register(MeuChannelProvider)
 ```
 
-## Conectores Planejados
+## Conectores
 
-| Conector       | Status      | Tipo           |
-|----------------|-------------|----------------|
-| TalkHub Omni   | Implementado | Connector + Channel |
-| Salesforce     | Stub        | Connector      |
-| Chatwoot       | Planejado   | Connector + Channel |
-| Evolution API  | Planejado   | Connector + Channel |
-| HubSpot        | Planejado   | Connector      |
+| Conector       | Status      | Tipo           | Descrição |
+|----------------|-------------|----------------|-----------|
+| Chatwoot       | Implementado | Connector + Channel | Webhook bidirerecional (7 eventos), sync conversas/contatos/grupos, status bidirecional |
+| TalkHub Omni   | Implementado | Connector + Channel | Sync de contatos, tickets, tags, team members, estatísticas |
+| Salesforce     | Stub        | Connector      | Conector bidirecional (estrutura criada) |
+| Evolution API  | Planejado   | Connector + Channel | WhatsApp via Evolution API |
+| HubSpot        | Planejado   | Connector      | CRM sync |
 
 ## Checklist
 

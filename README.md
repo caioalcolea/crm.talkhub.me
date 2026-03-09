@@ -48,10 +48,11 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 - **Formas de Pagamento** — Cadastro de meios de pagamento
 - **Relatórios** — DRE, fluxo de caixa, por período
 
-### Integrations Hub (novo)
+### Integrations Hub
 - **integrations** — Hub genérico de integrações: conexões, sync jobs, logs, webhooks, field mapping, conflict resolution
 - **channels** — Abstração de canais de comunicação (TalkHub Omni, SMTP nativo, Chatwoot, Evolution API, etc.)
-- **conversations** — Inbox omnichannel: conversas e mensagens genéricas, independentes de integração
+- **conversations** — Inbox omnichannel: conversas e mensagens genéricas, real-time via fast polling (5s incremental)
+- **chatwoot** — Conector Chatwoot: webhook bidirerecional (7 eventos), sync de conversas/contatos/grupos, envio de mensagens
 - **talkhub_omni** — Conector TalkHub Omni: sync de contatos, tickets, tags, team members, estatísticas, canais por org
 
 ### Metas (Goals)
@@ -138,7 +139,8 @@ crmtalkhub/
 │   │   ├── financeiro/               # Módulo financeiro completo
 │   │   ├── integrations/             # Hub de integrações genérico
 │   │   ├── channels/                 # Abstração de canais de comunicação
-│   │   ├── conversations/            # Inbox omnichannel (conversas + mensagens)
+│   │   ├── conversations/            # Inbox omnichannel (conversas + mensagens + real-time)
+│   │   ├── chatwoot/                 # Conector Chatwoot (webhook + sync + channel provider)
 │   │   ├── talkhub_omni/             # Conector TalkHub Omni
 │   │   ├── salesforce/               # Conector Salesforce (stub)
 │   │   ├── templates/                # Templates de email (pt-BR)
@@ -385,11 +387,32 @@ export const actions = {
 | Conector | Módulo | Descrição |
 |----------|--------|-----------|
 | TalkHub Omni | `talkhub_omni` | Sync de contatos, tickets, tags, team members, estatísticas |
+| Chatwoot | `chatwoot` | Webhook bidirerecional (7 eventos), sync conversas/contatos/grupos, envio de mensagens, status sync |
+
+### Chatwoot — Detalhes
+
+**Webhook**: `POST /api/integrations/webhooks/chatwoot/` (AllowAny, HMAC-SHA256)
+
+Eventos suportados:
+- `message_created` / `message_updated` — mensagens em tempo real + edição
+- `conversation_created` / `conversation_updated` / `conversation_status_changed` — conversas e status
+- `contact_created` / `contact_updated` — sync de contatos (atualiza email/telefone/nome faltantes)
+
+Funcionalidades:
+- **Grupos**: Detecção automática (`conversation_type=group`), nome extraído de `additional_attributes.chat_name_or_title`
+- **Status bidirecional**: CRM→Chatwoot via Celery async (`toggle_status` API), com grace period de 30s para não reverter
+- **Deduplicação**: Mensagens e conversas dedup por `chatwoot_message_id` / `chatwoot_conversation_id` no `metadata_json`
+- **Echo prevention**: Mensagens `outgoing` com `external_created=True` são ignoradas
+- **Auto-registro**: Webhook é registrado automaticamente no Chatwoot ao conectar
+
+**Frontend Real-Time**:
+- Fast poll 5s via `GET /conversations/updates/?since=<ISO>&conversation_id=<UUID>` (somente deltas)
+- Full refresh 60s como fallback
+- Merge incremental de conversas e mensagens (dedup por ID)
 
 ### Planejadas
 | Serviço | URL | Integração |
 |---------|-----|-----------|
-| Chatwoot | chat.talkhub.me | Webhook receiver para chat |
 | Evolution API | api.talkhub.me | WhatsApp integration |
 | EvoAI | ia.talkhub.me | AI features |
 | Salesforce | — | Conector bidirecional (stub em `salesforce/`) |

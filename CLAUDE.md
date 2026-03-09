@@ -19,7 +19,7 @@ Production: https://crm.talkhub.me
 ```
 crm.talkhub.me/
 ├── djangocrm/
-│   ├── backend/              # Django REST API (15 apps)
+│   ├── backend/              # Django REST API (16 apps)
 │   │   ├── crm/              # Settings, URLs, Celery, WSGI
 │   │   ├── common/           # Auth, RLS, middleware, permissions, admin panel
 │   │   ├── accounts/         # Companies
@@ -33,7 +33,8 @@ crm.talkhub.me/
 │   │   ├── financeiro/       # Financial module (P&L, cash flow, PIX)
 │   │   ├── integrations/     # Generic integration hub
 │   │   ├── channels/         # Communication channels (SMTP, TalkHub, etc.)
-│   │   ├── conversations/    # Omnichannel inbox
+│   │   ├── conversations/    # Omnichannel inbox (real-time via fast polling)
+│   │   ├── chatwoot/         # Chatwoot connector + channel provider
 │   │   ├── talkhub_omni/     # TalkHub Omni connector
 │   │   ├── automations/      # Workflow automations
 │   │   ├── campaigns/        # Marketing campaigns
@@ -140,6 +141,8 @@ docker stack services djangocrm
 4. **RLS bypass**: If DBUSER is `postgres` (superuser), RLS is silently disabled
 5. **Docker build context**: Backend Dockerfile expects to be built from repo root (not from `docker/`)
 6. **IMAP polling**: Emails are fetched via Celery Beat every 2 minutes (`poll_imap_emails` task) AND on manual sync via the SMTP connector
+7. **Chatwoot status sync**: CRM status changes are synced to Chatwoot async via Celery. A 30s grace period prevents Chatwoot webhooks from reverting local status changes (`status_changed_locally_at` in metadata)
+8. **Conversation updates**: Frontend uses fast polling (5s incremental via `/conversations/updates/`, 60s full refresh). Do NOT use bare 30s full refresh — it's too heavy
 
 ## Services (Docker Swarm)
 
@@ -164,11 +167,48 @@ docker stack services djangocrm
 | Add new API endpoint | `backend/<app>/views.py`, `backend/<app>/urls.py`, `backend/crm/urls.py` |
 | Add new frontend page | `frontend/src/routes/(app)/<name>/+page.svelte`, `+page.server.js` |
 | Add Celery task | `backend/<app>/tasks.py`, `backend/crm/celery.py` (for periodic) |
-| Add integration connector | `backend/channels/connector.py` (ConnectorRegistry) |
+| Add integration connector | `backend/<app>/connector.py` (ConnectorRegistry auto-discovers via AppConfig) |
 | Modify deploy config | `docker/djangocrm.yaml`, `docker/entrypoint-prod.sh` |
 | Email templates | `backend/templates/` (all in pt-BR) |
 | UI components | `frontend/src/lib/components/` |
 | Constants (currencies, countries) | `frontend/src/lib/constants/` |
+| Chatwoot connector | `backend/chatwoot/connector.py` (webhook handlers, sync, group detection) |
+| Chatwoot channel provider | `backend/chatwoot/provider.py` (send/receive messages) |
+| Conversation real-time | `backend/conversations/views.py` (`ConversationUpdatesView`) |
+| Webhook routing | `backend/integrations/views.py` (`webhook_receiver`), `backend/integrations/tasks.py` |
+
+## Chatwoot Integration
+
+### Architecture
+```
+Chatwoot → POST /api/integrations/webhooks/chatwoot/ (AllowAny)
+  → Identify org by account_id match
+  → Validate HMAC-SHA256 signature
+  → Enqueue process_webhook.delay() (Celery)
+  → ChatwootConnector.handle_webhook() routes by event type
+```
+
+### Webhook Events Handled
+| Event | Handler | Description |
+|-------|---------|-------------|
+| `message_created` | `_handle_message_created` | Import incoming messages, create conversation if needed |
+| `message_updated` | `_handle_message_updated` | Update edited messages |
+| `conversation_created` | `_handle_conversation_created` | Create new conversation + contact |
+| `conversation_updated` | `_handle_conversation_updated` | Sync assignee, labels, status |
+| `conversation_status_changed` | `_handle_conversation_status_changed` | Sync status (with 30s local override grace) |
+| `contact_created` / `contact_updated` | `_handle_contact_event` | Create/update CRM contacts |
+
+### Key Patterns
+- **Echo prevention**: Outgoing messages with `content_attributes.external_created=True` are skipped
+- **Group detection**: Checks `conversation_type=="group"`, `additional_attributes.type=="group"`, and fallback name chain
+- **Contact sync**: `_get_or_create_contact` updates existing contacts with missing email/phone/name from Chatwoot
+- **Status precedence**: Local CRM status changes set `status_changed_locally_at` → webhooks skip status sync for 30s
+- **Async status sync**: `sync_conversation_status_to_chatwoot` Celery task syncs CRM→Chatwoot via `toggle_status` API
+
+### Frontend Real-Time
+- **Fast poll** (5s): `GET /conversations/updates/?since=<ISO>&conversation_id=<UUID>` — returns only deltas
+- **Full refresh** (60s): Fallback full list + messages reload
+- Messages and conversations merge incrementally (dedup by ID)
 
 ## Credentials (Development)
 
