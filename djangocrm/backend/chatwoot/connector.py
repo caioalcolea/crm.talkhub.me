@@ -219,6 +219,11 @@ class ChatwootConnector(BaseConnector):
         total_records = 0
 
         try:
+            # Step 0: Deduplicate existing contacts (cleanup from previous sync bugs)
+            deduped = self._dedup_contacts(org)
+            if deduped:
+                logger.info("Chatwoot sync: merged %d duplicate contacts for org %s", deduped, org.id)
+
             # Fetch conversations for ALL statuses (Chatwoot defaults to 'open' only)
             for conv_status in ("open", "pending", "resolved", "snoozed"):
                 page = 1
@@ -262,15 +267,16 @@ class ChatwootConnector(BaseConnector):
             contacts_imported = self._sync_contacts(org, config)
 
             logger.info(
-                "Chatwoot sync complete for org %s: %d/%d conversations, %d contacts imported",
-                org.id, total_imported, total_records, contacts_imported,
+                "Chatwoot sync complete for org %s: %d/%d conversations, %d contacts imported, %d duplicates merged",
+                org.id, total_imported, total_records, contacts_imported, deduped,
             )
+            dedup_msg = f" {deduped} duplicatas removidas." if deduped else ""
             return {
                 "status": "COMPLETED",
                 "total": total_records, "imported": total_imported,
                 "updated": 0, "skipped": total_records - total_imported, "errors": 0,
-                "contacts_imported": contacts_imported,
-                "message": f"{total_imported} conversas importadas de {total_records}. {contacts_imported} contatos sincronizados.",
+                "contacts_imported": contacts_imported, "deduped": deduped,
+                "message": f"{total_imported} conversas importadas de {total_records}. {contacts_imported} contatos sincronizados.{dedup_msg}",
             }
 
         except Exception as exc:
@@ -415,6 +421,66 @@ class ChatwootConnector(BaseConnector):
 
         return True
 
+    def _dedup_contacts(self, org):
+        """Merge duplicate contacts that have no email and no phone (groups).
+
+        Keeps the oldest contact and reassigns conversations from duplicates.
+        Returns the number of duplicates removed.
+        """
+        from contacts.models import Contact
+        from conversations.models import Conversation
+        from django.db.models import Count, Min, Q
+
+        # Find contacts with no email and no phone that share the same name
+        dupes = (
+            Contact.objects.filter(org=org)
+            .filter(Q(email__isnull=True) | Q(email=""))
+            .filter(Q(phone__isnull=True) | Q(phone=""))
+            .values("first_name", "last_name")
+            .annotate(cnt=Count("id"), oldest=Min("created_at"))
+            .filter(cnt__gt=1)
+        )
+
+        total_removed = 0
+        for group in dupes:
+            contacts = list(
+                Contact.objects.filter(
+                    org=org,
+                    first_name=group["first_name"],
+                    last_name=group["last_name"],
+                ).filter(
+                    Q(email__isnull=True) | Q(email=""),
+                ).filter(
+                    Q(phone__isnull=True) | Q(phone=""),
+                ).order_by("created_at")
+            )
+
+            if len(contacts) <= 1:
+                continue
+
+            # Keep the first (oldest), merge the rest
+            keeper = contacts[0]
+            for dup in contacts[1:]:
+                # Reassign conversations from duplicate to keeper
+                Conversation.objects.filter(org=org, contact=dup).update(contact=keeper)
+                # Merge chatwoot_id references into keeper description
+                if dup.description and "chatwoot_id:" in (dup.description or ""):
+                    keeper_desc = keeper.description or ""
+                    for line in (dup.description or "").splitlines():
+                        if line.startswith("chatwoot_id:") and line not in keeper_desc:
+                            keeper_desc = f"{keeper_desc}\n{line}".strip()
+                    keeper.description = keeper_desc
+                    keeper.save(update_fields=["description", "updated_at"])
+                dup.delete()
+                total_removed += 1
+
+            logger.info(
+                "Dedup: merged %d duplicates of '%s %s' into contact %s",
+                len(contacts) - 1, group["first_name"], group["last_name"], keeper.id,
+            )
+
+        return total_removed
+
     def _get_or_create_contact(self, org, cw_contact, update_existing=True):
         """Get or create a CRM contact from Chatwoot contact data. Optionally update missing fields."""
         from contacts.models import Contact
@@ -426,6 +492,11 @@ class ChatwootConnector(BaseConnector):
         phone = (cw_contact.get("phone_number") or "").strip()
         name = (cw_contact.get("name") or "").strip()
         cw_id = cw_contact.get("id")  # Chatwoot contact ID
+
+        # Pre-compute name parts for lookups
+        parts = name.split(" ", 1) if name else ["Desconhecido"]
+        first_name = parts[0] or "Desconhecido"
+        last_name = parts[1] if len(parts) > 1 else ""
 
         # 1) Try to find by Chatwoot contact ID (most reliable for dedup)
         contact = None
@@ -443,13 +514,14 @@ class ChatwootConnector(BaseConnector):
             contact = Contact.objects.filter(org=org, phone=phone).first()
 
         # 4) For contacts without email/phone (groups), try by exact name
+        #    Check both NULL and empty-string variants for email/phone
         if not contact and name and not email and not phone:
-            parts = name.split(" ", 1)
-            first_name = parts[0] or "Desconhecido"
-            last_name = parts[1] if len(parts) > 1 else ""
             contact = Contact.objects.filter(
                 org=org, first_name=first_name, last_name=last_name,
-                email__isnull=True, phone__isnull=True,
+            ).filter(
+                Q(email__isnull=True) | Q(email=""),
+            ).filter(
+                Q(phone__isnull=True) | Q(phone=""),
             ).first()
 
         if contact:
@@ -463,13 +535,13 @@ class ChatwootConnector(BaseConnector):
                     contact.phone = phone
                     updated_fields.append("phone")
                 if name and contact.first_name == "Desconhecido":
-                    parts = name.split(" ", 1)
-                    contact.first_name = parts[0]
-                    contact.last_name = parts[1] if len(parts) > 1 else ""
+                    contact.first_name = first_name
+                    contact.last_name = last_name
                     updated_fields.extend(["first_name", "last_name"])
                 # Store chatwoot_id reference if not already present
-                if cw_id and (not contact.description or f"chatwoot_id:{cw_id}" not in contact.description):
-                    contact.description = (contact.description or "") + f"\nchatwoot_id:{cw_id}".strip()
+                if cw_id and (not contact.description or f"chatwoot_id:{cw_id}" not in (contact.description or "")):
+                    desc = (contact.description or "").strip()
+                    contact.description = f"{desc}\nchatwoot_id:{cw_id}".strip()
                     if "description" not in updated_fields:
                         updated_fields.append("description")
                 if updated_fields:
@@ -477,11 +549,6 @@ class ChatwootConnector(BaseConnector):
                     contact.save(update_fields=updated_fields)
                     logger.info("Updated contact %s with Chatwoot data: %s", contact.id, updated_fields)
             return contact
-
-        # Split name into first/last
-        parts = name.split(" ", 1) if name else ["Desconhecido"]
-        first_name = parts[0] or "Desconhecido"
-        last_name = parts[1] if len(parts) > 1 else ""
 
         # Store chatwoot_id in description for future dedup
         description = f"chatwoot_id:{cw_id}" if cw_id else ""

@@ -13,6 +13,7 @@ Views do app conversations.
 import logging
 
 from django.db.models import Prefetch, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.pagination import CursorPagination
@@ -74,6 +75,11 @@ class ConversationListView(APIView):
                 | Q(contact__last_name__icontains=search)
                 | Q(contact__email__icontains=search)
             )
+
+        # Order: conversations with messages first (by last_message_at), then by created_at
+        queryset = queryset.order_by(
+            Coalesce("last_message_at", "created_at").desc()
+        )
 
         # Prefetch latest message to avoid N+1 queries
         queryset = queryset.prefetch_related(
