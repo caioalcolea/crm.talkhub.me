@@ -261,18 +261,21 @@ class MessageCreateView(APIView):
                 sender_id=str(request.user.id) if request.user else "",
                 metadata_json=extra_meta,
             )
+
+            # Atualizar last_message_at
+            conversation.last_message_at = message.timestamp
+            conversation.save(update_fields=["last_message_at", "updated_at"])
+
+            return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
         except Exception as e:
-            logger.error("Failed to save message for conversation %s: %s", conversation_id, e)
+            logger.error(
+                "Failed to save/serialize message for conversation %s: %s",
+                conversation_id, e, exc_info=True,
+            )
             return Response(
                 {"error": f"Erro ao salvar mensagem: {e}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        # Atualizar last_message_at
-        conversation.last_message_at = message.timestamp
-        conversation.save(update_fields=["last_message_at", "updated_at"])
-
-        return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 
 class ConversationAssignView(APIView):
