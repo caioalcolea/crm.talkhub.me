@@ -35,13 +35,20 @@ class SMTPConnector(BaseConnector):
             raise ValueError("Host SMTP e usuário são obrigatórios.")
 
         try:
-            with smtplib.SMTP(host, port, timeout=10) as server:
-                server.ehlo()
-                if port != 25:
-                    server.starttls()
+            use_ssl = config.get("smtp_use_ssl", port == 465)
+            if use_ssl:
+                with smtplib.SMTP_SSL(host, port, timeout=15) as server:
                     server.ehlo()
-                if user and password:
-                    server.login(user, password)
+                    if user and password:
+                        server.login(user, password)
+            else:
+                with smtplib.SMTP(host, port, timeout=15) as server:
+                    server.ehlo()
+                    if port != 25:
+                        server.starttls()
+                        server.ehlo()
+                    if user and password:
+                        server.login(user, password)
             return True
         except smtplib.SMTPAuthenticationError:
             raise ValueError("Falha na autenticação SMTP. Verifique usuário e senha.")
@@ -94,8 +101,12 @@ class SMTPConnector(BaseConnector):
             return {"status": "down", "error_count": 1}
 
         try:
-            with smtplib.SMTP(host, port, timeout=5) as server:
-                server.ehlo()
+            if port == 465:
+                with smtplib.SMTP_SSL(host, port, timeout=5) as server:
+                    server.ehlo()
+            else:
+                with smtplib.SMTP(host, port, timeout=5) as server:
+                    server.ehlo()
             return {"status": "healthy", "error_count": 0}
         except Exception:
             return {"status": "degraded", "error_count": conn.error_count}
