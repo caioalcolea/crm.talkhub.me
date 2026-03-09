@@ -163,7 +163,7 @@ fi
 log "4/6 — Executando prune do Docker..."
 docker container prune -f 2>/dev/null || true
 docker image prune -f 2>/dev/null || true
-docker network prune -f 2>/dev/null || true
+# NOT pruning networks — talkhub is shared with other stacks (traefik, etc)
 docker builder prune -f 2>/dev/null || true
 ok "Prune concluído"
 

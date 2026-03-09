@@ -33,7 +33,9 @@ $$;
 GRANT ALL PRIVILEGES ON DATABASE crm_db TO crm_user;
 
 -- Configure public schema for the app user
-\connect crm_db;
+-- NOTE: No \connect needed — this script already runs in crm_db context
+-- (POSTGRES_DB=crm_db). Using \connect would trigger re-authentication
+-- which fails with scram-sha-256 when password isn't available.
 GRANT ALL ON SCHEMA public TO crm_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO crm_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO crm_user;

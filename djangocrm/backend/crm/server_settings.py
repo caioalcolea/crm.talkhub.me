@@ -61,18 +61,8 @@ AWS_S3_FILE_OVERWRITE = False
 # MinIO-specific: forçar path-style (em vez de virtual-hosted-style)
 AWS_S3_ADDRESSING_STYLE = "path"
 
-# ============================
-# Email — SMTP genérico (Titan, Gmail, etc.)
-# ============================
-EMAIL_BACKEND = os.environ.get(
-    "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
-)
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.titan.email")
-EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "465"))
-EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "True").lower() == "true"
-EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "False").lower() == "true"
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+# Email is configured in settings.py via env vars (EMAIL_BACKEND, EMAIL_HOST, etc.)
+# Do NOT redefine here — the star-import would override settings.py values.
 
 # ============================
 # Segurança (cookies)
