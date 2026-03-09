@@ -1,6 +1,7 @@
 <script>
   import { Button } from '$lib/components/ui/button/index.js';
   import { FileDown, ExternalLink } from '@lucide/svelte';
+  import DOMPurify from 'dompurify';
 
   /**
    * @typedef {Object} Props
@@ -8,12 +9,30 @@
    * @property {string} [content]
    * @property {string} [mediaUrl]
    * @property {any} [metadata]
+   * @property {string} [contentType]
    */
 
   /** @type {Props} */
-  let { msgType = 'text', content = '', mediaUrl = '', metadata = {} } = $props();
+  let { msgType = 'text', content = '', mediaUrl = '', metadata = {}, contentType = 'text' } = $props();
 
   let showLightbox = $state(false);
+
+  const PURIFY_CONFIG = {
+    ALLOWED_TAGS: ['p', 'br', 'div', 'span', 'a', 'b', 'strong', 'i', 'em', 'u',
+                   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
+                   'table', 'thead', 'tbody', 'tr', 'td', 'th', 'img', 'hr',
+                   'blockquote', 'pre', 'code', 'font', 'center', 'small', 'sub', 'sup'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'style', 'width', 'height',
+                   'align', 'valign', 'color', 'bgcolor', 'border', 'cellpadding',
+                   'cellspacing', 'target', 'rel'],
+    ADD_ATTR: ['target'],
+  };
+
+  let sanitizedHtml = $derived(
+    contentType === 'html' && content
+      ? DOMPurify.sanitize(content, PURIFY_CONFIG)
+      : ''
+  );
 
   /** @param {string} text */
   function escapeHtml(text) {
@@ -37,7 +56,13 @@
 </script>
 
 {#if msgType === 'text'}
-  <p class="text-sm whitespace-pre-wrap break-words">{@html linkify(content)}</p>
+  {#if contentType === 'html' && sanitizedHtml}
+    <div class="email-html text-sm break-words [&_a]:underline [&_a]:text-inherit [&_img]:max-w-full [&_img]:h-auto [&_table]:w-full [&_table]:border-collapse [&_td]:align-top [&_blockquote]:border-l-2 [&_blockquote]:border-current/20 [&_blockquote]:pl-3 [&_blockquote]:opacity-70 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_pre]:overflow-x-auto [&_pre]:text-xs [&_pre]:bg-black/5 [&_pre]:p-2 [&_pre]:rounded">
+      {@html sanitizedHtml}
+    </div>
+  {:else}
+    <p class="text-sm whitespace-pre-wrap break-words">{@html linkify(content)}</p>
+  {/if}
 
 {:else if msgType === 'image'}
   {#if mediaUrl}

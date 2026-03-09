@@ -1,6 +1,6 @@
 <script>
   import MediaRenderer from './MediaRenderer.svelte';
-  import { Bot, User, Lock, Info } from '@lucide/svelte';
+  import { Bot, User, Lock, Info, Mail } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Props
@@ -50,6 +50,7 @@
   };
 
   let config = $derived(directionConfig[message.direction] || directionConfig.in);
+  let isEmail = $derived(!!message.metadata_json?.email_from);
 </script>
 
 {#if message.direction === 'system'}
@@ -76,8 +77,25 @@
         {message.sender_name}
       </span>
     {/if}
-    <div class="max-w-[70%] rounded-2xl px-3 py-2 {config.bubble}">
-      <MediaRenderer msgType={message.msg_type} content={message.content} mediaUrl={message.media_url} metadata={message.metadata_json} />
+    <div class="{isEmail ? 'max-w-[85%]' : 'max-w-[70%]'} rounded-2xl px-3 py-2 {config.bubble}">
+      {#if isEmail}
+        <div class="text-xs space-y-0.5 mb-2 pb-2 border-b border-current/10">
+          <div class="flex items-center gap-1.5">
+            <Mail class="size-3 shrink-0 opacity-60" />
+            <span class="font-medium truncate">{message.metadata_json.email_from_name || message.metadata_json.email_from}</span>
+          </div>
+          {#if message.metadata_json.email_to}
+            <div class="opacity-60 truncate">Para: {message.metadata_json.email_to}</div>
+          {/if}
+          {#if message.metadata_json.email_cc}
+            <div class="opacity-60 truncate">Cc: {message.metadata_json.email_cc}</div>
+          {/if}
+          {#if message.metadata_json.email_subject}
+            <div class="font-medium">{message.metadata_json.email_subject}</div>
+          {/if}
+        </div>
+      {/if}
+      <MediaRenderer msgType={message.msg_type} content={message.content} mediaUrl={message.media_url} metadata={message.metadata_json} contentType={message.metadata_json?.content_type || 'text'} />
       <div class="flex items-center justify-end gap-1 mt-1">
         <span class="text-[10px] opacity-60">{formatTime(message.timestamp)}</span>
       </div>
