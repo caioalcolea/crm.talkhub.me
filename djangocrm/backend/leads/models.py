@@ -1,3 +1,4 @@
+from django.contrib.contenttypes.fields import GenericRelation
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -6,7 +7,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from common.base import AssignableMixin, BaseModel, OrgScopedMixin
-from common.models import Org, Profile, Tags, Teams
+from common.models import Comment, Org, Profile, Tags, Teams
 from common.utils import (
     COUNTRIES,
     CURRENCY_CODES,
@@ -139,6 +140,9 @@ class Lead(AssignableMixin, OrgScopedMixin, BaseModel):
         default=0,
         help_text="Order within the kanban column for drag-drop",
     )
+
+    # Comments (generic relation for LeadSerializer.lead_comments)
+    lead_comments = GenericRelation(Comment)
 
     # TalkHub Omni correlation
     omni_ticket_item_id = models.CharField(

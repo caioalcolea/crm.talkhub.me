@@ -4,6 +4,7 @@
  */
 
 import { format, formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { getOrgCurrency } from '$lib/stores/org.js';
 
 /**
@@ -29,7 +30,7 @@ export function formatDate(date, formatStr = 'MMM d, yyyy') {
 export function formatRelativeDate(date) {
   if (!date) return '-';
   try {
-    return formatDistanceToNow(new Date(date), { addSuffix: true });
+    return formatDistanceToNow(new Date(date), { addSuffix: true, locale: ptBR });
   } catch {
     return '-';
   }
