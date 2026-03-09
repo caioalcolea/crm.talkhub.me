@@ -52,6 +52,8 @@ services:
       - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
       - DBHOST=crm_db
       - DBPORT=5432
+      ## Superuser password (used by entrypoint to ensure crm_user exists)
+      - POSTGRES_PASSWORD=${CRM_POSTGRES_PASSWORD:-16864b0c4a4e46c68d35ad644cca2791}
       ## Redis (dedicado para CRM)
       - CELERY_BROKER_URL=redis://crm_redis:6379/0
       - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
