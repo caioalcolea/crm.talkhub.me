@@ -6,6 +6,7 @@
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import MessageBubble from './MessageBubble.svelte';
   import { toast } from 'svelte-sonner';
+  import { apiRequest } from '$lib/api.js';
   import { User, Bot, Pause, Play, UserPlus, UserMinus, Loader2, ChevronUp, Link, Unlink } from '@lucide/svelte';
 
   /**
@@ -47,7 +48,7 @@
 
   async function unassignAgent() {
     try {
-      await fetch(`/api/conversations/${conversation.id}/unassign/`, { method: 'POST' });
+      await apiRequest(`/conversations/${conversation.id}/unassign/`, { method: 'POST' });
     } catch (e) {
       console.error('Erro ao desatribuir agente:', e);
     }
@@ -56,7 +57,7 @@
   /** @param {'pause' | 'resume'} action */
   async function toggleBot(action) {
     try {
-      await fetch(`/api/conversations/${conversation.id}/bot/${action}/`, { method: 'POST' });
+      await apiRequest(`/conversations/${conversation.id}/bot/${action}/`, { method: 'POST' });
     } catch (e) {
       console.error(`Erro ao ${action} bot:`, e);
     }
@@ -65,10 +66,9 @@
   /** @param {string} newStatus */
   async function updateStatus(newStatus) {
     try {
-      await fetch(`/api/conversations/${conversation.id}/`, {
+      await apiRequest(`/conversations/${conversation.id}/`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: { status: newStatus }
       });
     } catch (e) {
       console.error('Erro ao atualizar status:', e);
@@ -79,7 +79,6 @@
   async function handleContactSelected(contact) {
     savingContact = true;
     try {
-      const { apiRequest } = await import('$lib/api.js');
       await apiRequest(`/conversations/${conversation.id}/`, {
         method: 'PATCH',
         body: { contact: contact.id }

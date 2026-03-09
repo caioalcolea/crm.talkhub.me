@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import ChannelSelector from '$lib/components/channels/ChannelSelector.svelte';
+  import { apiRequest } from '$lib/api.js';
   import { Send, Paperclip, Loader2, AlertTriangle } from '@lucide/svelte';
 
   /**
@@ -49,18 +50,10 @@
         body.subject = subject;
       }
 
-      const res = await fetch(`/api/conversations/${conversationId}/messages/create/`, {
+      const msg = await apiRequest(`/conversations/${conversationId}/messages/create/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Erro ao enviar mensagem');
-      }
-
-      const msg = await res.json();
       content = '';
       onMessageSent?.(msg);
     } catch (e) {

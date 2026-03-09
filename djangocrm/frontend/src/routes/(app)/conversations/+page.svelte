@@ -10,6 +10,7 @@
   import ConversationList from '$lib/components/conversations/ConversationList.svelte';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
+  import { apiRequest } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
 
   /** @type {{ data: any }} */
@@ -39,13 +40,11 @@
     selectedConversation = conversation;
     loadingMessages = true;
     try {
-      const res = await fetch(`/api/conversations/${conversation.id}/messages/`);
-      if (res.ok) {
-        const data = await res.json();
-        messages = data.results || data || [];
-      }
+      const data = await apiRequest(`/conversations/${conversation.id}/messages/`);
+      messages = data.results || data || [];
     } catch (e) {
       console.error('Erro ao carregar mensagens:', e);
+      toast.error('Erro ao carregar mensagens');
     } finally {
       loadingMessages = false;
     }
