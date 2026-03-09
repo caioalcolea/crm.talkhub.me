@@ -158,8 +158,11 @@ class MessageCreateView(APIView):
             if channel_config:
                 try:
                     provider = provider_cls()
+                    # Enrich message_data with conversation context
+                    message_data = dict(request.data)
+                    message_data["conversation_id"] = str(conversation.id)
                     send_result = provider.send_message(
-                        channel_config, conversation.contact, request.data
+                        channel_config, conversation.contact, message_data
                     )
                 except Exception as e:
                     logger.error("Failed to send message via %s: %s", channel_type, e)

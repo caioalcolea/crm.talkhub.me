@@ -6,8 +6,8 @@
   /**
    * @typedef {Object} Props
    * @property {any[]} channels - Available channels
-   * @property {string} [value] - Selected channel ID
-   * @property {(channelId: string) => void} [onSelect]
+   * @property {string} [value] - Selected channel_type
+   * @property {(channelType: string) => void} [onSelect]
    * @property {string} [placeholder]
    */
 
@@ -15,7 +15,7 @@
   let { channels = [], value = '', onSelect, placeholder = 'Selecionar canal...' } = $props();
 
   let selectedLabel = $derived(
-    channels.find(c => c.id === value)?.name || placeholder
+    channels.find(c => c.channel_type === value)?.display_name || placeholder
   );
 </script>
 
@@ -26,9 +26,9 @@
   </Select.Trigger>
   <Select.Content>
     {#each channels as channel (channel.id)}
-      <Select.Item value={channel.id} disabled={!channel.is_active}>
+      <Select.Item value={channel.channel_type} disabled={!channel.is_active}>
         <span class="flex items-center gap-2">
-          {channel.name}
+          {channel.display_name || channel.channel_type}
           {#if !channel.is_active}
             <Badge variant="secondary" class="text-[10px]">Inativo</Badge>
           {/if}

@@ -76,6 +76,7 @@
       conversationId={conversation.id}
       {channels}
       currentChannel={conversation.channel}
+      emailSubject={conversation.metadata_json?.email_subject || ''}
       {onMessageSent}
     />
   {:else}

@@ -70,7 +70,7 @@
           {/if}
 
           <div class="mt-1.5 flex items-center gap-1.5">
-            <ChannelBadge channel={conv.channel} size="xs" />
+            <ChannelBadge channelType={conv.channel} />
             <Badge variant="outline" class="text-[10px] px-1.5 py-0">
               {conv.status === 'open' ? 'Aberta' : conv.status === 'pending' ? 'Pendente' : 'Concluída'}
             </Badge>

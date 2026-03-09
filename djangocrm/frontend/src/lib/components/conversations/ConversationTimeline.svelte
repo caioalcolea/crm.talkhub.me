@@ -141,7 +141,7 @@
             </button>
           </div>
           <div class="flex items-center gap-2">
-            <ChannelBadge channel={conversation.channel} size="xs" />
+            <ChannelBadge channelType={conversation.channel} />
             {#if conversation.assigned_to_name}
               <span class="text-[11px] text-muted-foreground">Agente: {conversation.assigned_to_name}</span>
             {/if}

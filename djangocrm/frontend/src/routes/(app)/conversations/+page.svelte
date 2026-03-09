@@ -116,12 +116,12 @@
       <Select.Root type="single" value={filters.channel || ''} onValueChange={(v) => updateFilter('channel', v)}>
         <Select.Trigger class="w-40">
           <MessageSquare class="size-3.5 mr-1.5 text-muted-foreground" />
-          {channels.find(c => c.channel_type === filters.channel)?.name || 'Todos os canais'}
+          {channels.find(c => c.channel_type === filters.channel)?.display_name || 'Todos os canais'}
         </Select.Trigger>
         <Select.Content>
           <Select.Item value="">Todos os canais</Select.Item>
           {#each channels as ch (ch.id)}
-            <Select.Item value={ch.channel_type}>{ch.name}</Select.Item>
+            <Select.Item value={ch.channel_type}>{ch.display_name || ch.channel_type}</Select.Item>
           {/each}
         </Select.Content>
       </Select.Root>
@@ -157,6 +157,7 @@
           conversationId={selectedConversation.id}
           {channels}
           currentChannel={selectedConversation.channel}
+          emailSubject={selectedConversation.metadata_json?.email_subject || ''}
           {onMessageSent}
         />
       {:else}

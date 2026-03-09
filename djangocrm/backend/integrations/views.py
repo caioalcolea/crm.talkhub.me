@@ -85,6 +85,38 @@ def _encrypt_secret_fields(config: dict, schema: dict) -> dict:
     return encrypted
 
 
+def _auto_create_channel_config(org, connector_slug, config):
+    """Auto-create a ChannelConfig when a connector that maps to a channel connects."""
+    from channels.models import ChannelConfig
+
+    # Map connector slugs to channel types
+    CONNECTOR_CHANNEL_MAP = {
+        "smtp": ("smtp_native", "Email (SMTP)"),
+    }
+
+    mapping = CONNECTOR_CHANNEL_MAP.get(connector_slug)
+    if not mapping:
+        return
+
+    channel_type, display_name = mapping
+    from_email = config.get("from_email", "")
+
+    ChannelConfig.objects.update_or_create(
+        org=org,
+        channel_type=channel_type,
+        defaults={
+            "provider": connector_slug,
+            "display_name": display_name,
+            "config_json": {
+                "from_email": from_email,
+                "reply_to": config.get("reply_to", ""),
+            },
+            "is_active": True,
+            "capabilities_json": ["text", "email", "file"],
+        },
+    )
+
+
 def _check_feature_enabled(org, connector_slug):
     """Verifica se a feature flag está habilitada para o conector. Retorna None se OK, ou Response 403."""
     flag = OrgFeatureFlag.objects.filter(
@@ -480,6 +512,9 @@ class IntegrationConnectView(APIView):
                 "error_count": 0,
             },
         )
+
+        # Auto-create ChannelConfig for connectors that map to a channel
+        _auto_create_channel_config(request.org, connector_slug, config)
 
         return Response(
             IntegrationConnectionSerializer(connection).data,

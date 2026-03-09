@@ -1,6 +1,6 @@
 <script>
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
   import ChannelSelector from '$lib/components/channels/ChannelSelector.svelte';
   import { Send, Paperclip, Loader2, AlertTriangle } from '@lucide/svelte';
 
@@ -9,16 +9,26 @@
    * @property {string} conversationId
    * @property {any[]} [channels]
    * @property {string} [currentChannel]
+   * @property {string} [emailSubject]
    * @property {(msg: any) => void} [onMessageSent]
    */
 
   /** @type {Props} */
-  let { conversationId, channels = [], currentChannel = '', onMessageSent } = $props();
+  let { conversationId, channels = [], currentChannel = '', emailSubject = '', onMessageSent } = $props();
 
   let content = $state('');
+  let subject = $state(emailSubject);
   let selectedChannel = $state(currentChannel || '');
   let sending = $state(false);
   let error = $state('');
+
+  /** Whether the current channel is email */
+  let isEmail = $derived(
+    selectedChannel === 'smtp_native' ||
+    selectedChannel === 'email' ||
+    currentChannel === 'smtp_native' ||
+    currentChannel === 'email'
+  );
 
   async function sendMessage() {
     const text = content.trim();
@@ -28,14 +38,21 @@
     error = '';
 
     try {
+      /** @type {Record<string, any>} */
+      const body = {
+        msg_type: 'text',
+        content: text,
+        channel_type: selectedChannel || undefined
+      };
+
+      if (isEmail && subject) {
+        body.subject = subject;
+      }
+
       const res = await fetch(`/api/conversations/${conversationId}/messages/create/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          msg_type: 'text',
-          content: text,
-          channel_type: selectedChannel || undefined
-        })
+        body: JSON.stringify(body)
       });
 
       if (!res.ok) {
@@ -70,6 +87,19 @@
     </div>
   {/if}
 
+  {#if isEmail}
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-muted-foreground shrink-0">Assunto:</span>
+      <Input
+        type="text"
+        placeholder="Assunto do email"
+        bind:value={subject}
+        class="h-7 text-sm"
+        disabled={sending}
+      />
+    </div>
+  {/if}
+
   <div class="flex items-end gap-2">
     <!-- Channel selector (compact) -->
     {#if channels.length > 1}
@@ -88,7 +118,7 @@
       <textarea
         class="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         rows="1"
-        placeholder="Digite sua mensagem..."
+        placeholder={isEmail ? "Escreva seu email..." : "Digite sua mensagem..."}
         bind:value={content}
         onkeydown={handleKeydown}
         disabled={sending}
