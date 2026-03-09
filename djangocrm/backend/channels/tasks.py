@@ -138,9 +138,16 @@ def poll_imap_emails():
     """
     from integrations.models import IntegrationConnection
 
-    connections = IntegrationConnection.objects.filter(
-        connector_slug="smtp", is_active=True, is_connected=True
+    connections = list(
+        IntegrationConnection.objects.filter(
+            connector_slug="smtp", is_active=True, is_connected=True
+        )
     )
+
+    logger.info("IMAP poll: found %d active SMTP connection(s)", len(connections))
+
+    if not connections:
+        return
 
     total_new = 0
     for conn in connections:
@@ -149,17 +156,20 @@ def poll_imap_emails():
             config = _decrypt_smtp_config(conn.config_json or {})
             imap_config = _get_imap_config(config)
             if not imap_config:
+                logger.warning("IMAP poll: no IMAP config for org %s, skipping", conn.org_id)
                 continue
 
+            logger.info("IMAP poll: connecting to %s:%s for org %s",
+                        imap_config["host"], imap_config["port"], conn.org_id)
             count = _poll_org_emails(conn.org, config, imap_config)
+            logger.info("IMAP poll: org %s — %d new email(s)", conn.org_id, count)
             total_new += count
         except Exception as exc:
             logger.error(
-                "IMAP poll failed for org %s: %s", conn.org_id, exc
+                "IMAP poll failed for org %s: %s", conn.org_id, exc, exc_info=True
             )
 
-    if total_new:
-        logger.info("IMAP poll: %d new emails processed", total_new)
+    logger.info("IMAP poll complete: %d new email(s) total", total_new)
 
 
 def _poll_org_emails(org, smtp_config, imap_config):
