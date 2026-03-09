@@ -199,6 +199,20 @@ class ChatwootConnector(BaseConnector):
                     "message": "Chatwoot não está conectado."}
 
         config = _decrypt_config(conn.config_json or {})
+
+        # Ensure ChannelConfig exists (backfill for connections created before this code)
+        from channels.models import ChannelConfig
+        ChannelConfig.objects.update_or_create(
+            org=org,
+            channel_type="chatwoot",
+            defaults={
+                "provider": "chatwoot",
+                "display_name": "Chatwoot",
+                "is_active": True,
+                "config_json": {"account_id": config.get("account_id")},
+                "capabilities_json": ["text", "image", "file"],
+            },
+        )
         total_imported = 0
         total_records = 0
 

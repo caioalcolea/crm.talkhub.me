@@ -52,7 +52,7 @@ class ChatwootProvider(ChannelProvider):
         except Conversation.DoesNotExist:
             raise ValueError("Conversa não encontrada.")
 
-        cw_conv_id = conv.metadata_json.get("chatwoot_conversation_id")
+        cw_conv_id = (conv.metadata_json or {}).get("chatwoot_conversation_id")
         if not cw_conv_id:
             raise ValueError("Conversa não está vinculada ao Chatwoot.")
 
