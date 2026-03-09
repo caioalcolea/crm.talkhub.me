@@ -92,6 +92,7 @@ def _auto_create_channel_config(org, connector_slug, config):
     # Map connector slugs to channel types
     CONNECTOR_CHANNEL_MAP = {
         "smtp": ("smtp_native", "Email (SMTP)"),
+        "chatwoot": ("chatwoot", "Chatwoot"),
     }
 
     mapping = CONNECTOR_CHANNEL_MAP.get(connector_slug)
@@ -99,7 +100,20 @@ def _auto_create_channel_config(org, connector_slug, config):
         return
 
     channel_type, display_name = mapping
-    from_email = config.get("from_email", "")
+
+    # Build channel-specific config
+    if connector_slug == "chatwoot":
+        channel_config = {
+            "chatwoot_url": config.get("chatwoot_url", ""),
+            "account_id": config.get("account_id", ""),
+        }
+        capabilities = ["text", "image", "file"]
+    else:
+        channel_config = {
+            "from_email": config.get("from_email", ""),
+            "reply_to": config.get("reply_to", ""),
+        }
+        capabilities = ["text", "email", "file"]
 
     ChannelConfig.objects.update_or_create(
         org=org,
@@ -107,12 +121,9 @@ def _auto_create_channel_config(org, connector_slug, config):
         defaults={
             "provider": connector_slug,
             "display_name": display_name,
-            "config_json": {
-                "from_email": from_email,
-                "reply_to": config.get("reply_to", ""),
-            },
+            "config_json": channel_config,
             "is_active": True,
-            "capabilities_json": ["text", "email", "file"],
+            "capabilities_json": capabilities,
         },
     )
 
@@ -222,6 +233,24 @@ def webhook_receiver(request, connector_slug):
 
     # Identificar org
     org_id = request.headers.get("X-Org-Id") or request.data.get("org_id")
+
+    # Chatwoot (and similar) webhooks don't send X-Org-Id.
+    # Identify org by matching account_id from the payload to IntegrationConnection.
+    if not org_id:
+        account_id = None
+        if isinstance(request.data, dict):
+            account_id = request.data.get("account", {}).get("id") if isinstance(request.data.get("account"), dict) else None
+        if account_id:
+            conn_match = IntegrationConnection.objects.filter(
+                connector_slug=connector_slug,
+                is_active=True,
+            ).extra(
+                where=["(config_json->>'account_id')::text = %s"],
+                params=[str(account_id)],
+            ).first()
+            if conn_match:
+                org_id = str(conn_match.org_id)
+
     if not org_id:
         return Response({"error": "Organization not identified"}, status=status.HTTP_400_BAD_REQUEST)
 

@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "financeiro",
     "integrations",
     "channels",
+    "chatwoot",
     "conversations",
     "automations",
     "campaigns",
