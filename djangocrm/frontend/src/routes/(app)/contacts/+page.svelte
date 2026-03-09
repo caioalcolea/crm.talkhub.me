@@ -29,6 +29,7 @@
   import { PageHeader } from '$lib/components/layout';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import { getCurrentUser } from '$lib/api.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -1014,6 +1015,18 @@
             </p>
           </div>
         </div>
+      </div>
+
+      <!-- Related Entities -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <p class="mb-2 text-xs font-medium tracking-wider text-[var(--text-tertiary)] uppercase">
+          Relacionados
+        </p>
+        <RelatedEntitiesPanel
+          contactId={selectedContact.id}
+          entityType="contact"
+          sections={['leads', 'opportunities', 'cases', 'tasks', 'invoices', 'financial', 'conversations']}
+        />
       </div>
 
       <!-- Comments Section -->

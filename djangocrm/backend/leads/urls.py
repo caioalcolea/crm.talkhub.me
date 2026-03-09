@@ -6,7 +6,7 @@ from leads.views.lead_interactions import (
     LeadCommentView,
     LeadUploadView,
 )
-from leads.views.lead_views import LeadDetailView, LeadListView
+from leads.views.lead_views import LeadDetailView, LeadListView, LeadRelatedView
 from leads.views.kanban_views import (
     LeadKanbanView,
     LeadMoveView,
@@ -51,6 +51,7 @@ urlpatterns = [
     # Stage management
     path("stages/<str:pk>/", LeadStageDetailView.as_view(), name="stage_detail"),
     # Lead detail routes (must be after specific routes due to pk pattern)
+    path("<str:pk>/related/", LeadRelatedView.as_view(), name="lead-related"),
     path("<str:pk>/", LeadDetailView.as_view()),
     path("<str:pk>/move/", LeadMoveView.as_view(), name="lead_move"),
     path("comment/<str:pk>/", LeadCommentView.as_view()),

@@ -7,10 +7,11 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import { PageHeader } from '$lib/components/layout';
-  import { MessageSquare, Search, Filter, RefreshCw } from '@lucide/svelte';
+  import { MessageSquare, Search, Filter, RefreshCw, PanelRight } from '@lucide/svelte';
   import ConversationList from '$lib/components/conversations/ConversationList.svelte';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
+  import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import { apiRequest } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
 
@@ -20,6 +21,7 @@
   let conversations = $state(data.conversations || []);
   let channels = $derived(data.channels || []);
   let filters = $derived(data.filters || {});
+  let showContextPanel = $state(false);
 
   /** @type {any} */
   let selectedConversation = $state(null);
@@ -202,29 +204,56 @@
       />
     </div>
 
-    <!-- Right panel: timeline + input -->
-    <div class="flex flex-1 flex-col">
-      {#if selectedConversation}
-        <ConversationTimeline
-          conversation={selectedConversation}
-          {messages}
-          loading={loadingMessages}
-          onContactChanged={handleConversationContactChanged}
-          onConversationChanged={(updated) => { selectedConversation = updated; }}
-        />
-        <MessageInput
-          conversationId={selectedConversation.id}
-          {channels}
-          currentChannel={selectedConversation.channel}
-          emailSubject={selectedConversation.metadata_json?.email_subject || ''}
-          {onMessageSent}
-        />
-      {:else}
-        <div class="flex flex-1 items-center justify-center text-muted-foreground">
-          <div class="text-center">
-            <MessageSquare class="mx-auto mb-3 size-12 opacity-30" />
-            <p class="text-sm">Selecione uma conversa para visualizar</p>
+    <!-- Right panel: timeline + input + context -->
+    <div class="flex flex-1 overflow-hidden">
+      <div class="flex flex-1 flex-col">
+        {#if selectedConversation}
+          <ConversationTimeline
+            conversation={selectedConversation}
+            {messages}
+            loading={loadingMessages}
+            onContactChanged={handleConversationContactChanged}
+            onConversationChanged={(updated) => { selectedConversation = updated; }}
+          >
+            {#snippet headerActions()}
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-8"
+                onclick={() => (showContextPanel = !showContextPanel)}
+                title="Contexto do contato"
+              >
+                <PanelRight class="size-4" />
+              </Button>
+            {/snippet}
+          </ConversationTimeline>
+          <MessageInput
+            conversationId={selectedConversation.id}
+            {channels}
+            currentChannel={selectedConversation.channel}
+            emailSubject={selectedConversation.metadata_json?.email_subject || ''}
+            {onMessageSent}
+          />
+        {:else}
+          <div class="flex flex-1 items-center justify-center text-muted-foreground">
+            <div class="text-center">
+              <MessageSquare class="mx-auto mb-3 size-12 opacity-30" />
+              <p class="text-sm">Selecione uma conversa para visualizar</p>
+            </div>
           </div>
+        {/if}
+      </div>
+
+      {#if showContextPanel && selectedConversation?.contact}
+        <div class="w-72 shrink-0 overflow-y-auto border-l bg-background p-2">
+          <div class="mb-2 px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Contexto do Contato
+          </div>
+          <RelatedEntitiesPanel
+            contactId={selectedConversation.contact}
+            entityType="contact"
+            sections={['leads', 'opportunities', 'invoices', 'financial', 'tasks', 'cases']}
+          />
         </div>
       {/if}
     </div>

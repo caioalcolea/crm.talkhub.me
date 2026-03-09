@@ -30,6 +30,7 @@
   import { CrmTable } from '$lib/components/ui/crm-table';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import {
@@ -1081,6 +1082,16 @@
 
   {#snippet activitySection()}
     {#if drawer.mode !== 'create' && drawer.selected}
+      <div class="mb-4">
+        <p class="mb-2 text-xs font-medium tracking-wider text-[var(--text-tertiary)] uppercase">
+          Relacionados
+        </p>
+        <RelatedEntitiesPanel
+          entityId={drawer.selected.id}
+          entityType="case"
+          sections={['tasks']}
+        />
+      </div>
       <CommentSection
         entityId={drawer.selected.id}
         entityType="cases"

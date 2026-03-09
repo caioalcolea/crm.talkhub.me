@@ -929,3 +929,53 @@ class LeadDetailView(APIView):
             {"error": True, "errors": "you don't have permission to delete this lead"},
             status=status.HTTP_403_FORBIDDEN,
         )
+
+
+class LeadRelatedView(APIView):
+    """
+    GET /api/leads/{id}/related/?include=opportunities,tasks
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        include = set(request.query_params.get("include", "").split(","))
+        context = {}
+
+        if "opportunities" in include:
+            from opportunity.models import Opportunity
+
+            qs = Opportunity.objects.filter(lead_id=pk, org=org)
+            context["opportunities_count"] = qs.count()
+            context["opportunities"] = [
+                {
+                    "id": str(o.id),
+                    "name": o.name,
+                    "stage": o.stage,
+                    "amount": float(o.amount or 0),
+                    "currency": o.currency,
+                    "probability": o.probability,
+                }
+                for o in qs.order_by("-created_at")[:5]
+            ]
+
+        if "tasks" in include:
+            from tasks.models import Task
+
+            qs = Task.objects.filter(lead_id=pk, org=org).exclude(
+                status="Completed"
+            )
+            context["tasks_count"] = qs.count()
+            context["tasks"] = [
+                {
+                    "id": str(t.id),
+                    "title": t.title,
+                    "status": t.status,
+                    "due_date": str(t.due_date) if t.due_date else None,
+                    "priority": t.priority,
+                }
+                for t in qs.order_by("-created_at")[:5]
+            ]
+
+        return Response(context)

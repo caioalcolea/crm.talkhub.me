@@ -816,3 +816,98 @@ class OpportunityDetailView(APIView):
             {"error": True, "errors": serializer.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+
+class OpportunityRelatedView(APIView):
+    """
+    GET /api/opportunities/{id}/related/?include=tasks,invoices,financial,lead
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        include = set(request.query_params.get("include", "").split(","))
+        context = {}
+
+        if "tasks" in include:
+            from tasks.models import Task
+
+            qs = Task.objects.filter(opportunity_id=pk, org=org).exclude(
+                status="Completed"
+            )
+            context["tasks_count"] = qs.count()
+            context["tasks"] = [
+                {
+                    "id": str(t.id),
+                    "title": t.title,
+                    "status": t.status,
+                    "due_date": str(t.due_date) if t.due_date else None,
+                    "priority": t.priority,
+                }
+                for t in qs.order_by("-created_at")[:5]
+            ]
+
+        if "invoices" in include:
+            from invoices.models import Invoice
+
+            qs = Invoice.objects.filter(opportunity_id=pk, org=org)
+            context["invoices_count"] = qs.count()
+            context["invoices"] = [
+                {
+                    "id": str(i.id),
+                    "invoice_number": i.invoice_number,
+                    "status": i.status,
+                    "total_amount": float(i.total_amount or 0),
+                    "amount_due": float(i.amount_due or 0),
+                    "currency": i.currency,
+                }
+                for i in qs.order_by("-issue_date")[:5]
+            ]
+
+        if "financial" in include:
+            import datetime as _dt
+            from decimal import Decimal as _Decimal
+
+            from django.db.models import Sum as _Sum
+            from django.db.models.functions import Coalesce as _Coalesce
+
+            from financeiro.models import Parcela
+
+            parcelas = Parcela.objects.filter(
+                lancamento__opportunity_id=pk, org=org
+            )
+            zero = _Decimal("0")
+            context["financial"] = {
+                "total_receber": float(
+                    parcelas.filter(lancamento__tipo="RECEBER").aggregate(
+                        t=_Coalesce(_Sum("valor_parcela_convertido"), zero)
+                    )["t"]
+                ),
+                "total_aberto": float(
+                    parcelas.filter(status="ABERTO").aggregate(
+                        t=_Coalesce(_Sum("valor_parcela_convertido"), zero)
+                    )["t"]
+                ),
+                "total_vencido": float(
+                    parcelas.filter(
+                        status="ABERTO",
+                        data_vencimento__lt=_dt.date.today(),
+                    ).aggregate(
+                        t=_Coalesce(_Sum("valor_parcela_convertido"), zero)
+                    )["t"]
+                ),
+            }
+
+        if "lead" in include:
+            try:
+                opp = Opportunity.objects.get(pk=pk, org=org)
+                if opp.lead_id:
+                    context["lead"] = {
+                        "id": str(opp.lead_id),
+                        "title": str(opp.lead),
+                    }
+            except Opportunity.DoesNotExist:
+                pass
+
+        return Response(context)

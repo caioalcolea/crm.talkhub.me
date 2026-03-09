@@ -18,10 +18,11 @@
    * @property {boolean} [loading]
    * @property {((contact: any) => void)} [onContactChanged]
    * @property {((conversation: any) => void)} [onConversationChanged]
+   * @property {import('svelte').Snippet} [headerActions]
    */
 
   /** @type {Props} */
-  let { conversation, messages = [], loading = false, onContactChanged, onConversationChanged } = $props();
+  let { conversation, messages = [], loading = false, onContactChanged, onConversationChanged, headerActions } = $props();
 
   let loadingMore = $state(false);
   let timelineEl = $state(null);
@@ -271,6 +272,10 @@
       >
         <Sparkles class="size-4" />
       </Button>
+
+      {#if headerActions}
+        {@render headerActions()}
+      {/if}
 
       {#if conversation.omni_user_ns}
         <Button variant="ghost" size="icon" class="size-8" onclick={() => toggleBot('pause')} title="Pausar bot">

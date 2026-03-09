@@ -56,6 +56,7 @@ urlpatterns = [
         name="solution_unpublish",
     ),
     # Case detail routes (must be after all named routes due to <str:pk> pattern)
+    path("<str:pk>/related/", views.CaseRelatedView.as_view(), name="case-related"),
     path("<str:pk>/", views.CaseDetailView.as_view()),
     path("<str:pk>/tasks/", views.CaseTaskCreateView.as_view(), name="case_task_create"),
     path("<str:pk>/move/", kanban_views.CaseMoveView.as_view(), name="case_move"),
