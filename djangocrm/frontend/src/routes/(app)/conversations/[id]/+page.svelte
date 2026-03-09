@@ -71,6 +71,7 @@
       {conversation}
       {messages}
       onContactChanged={handleConversationContactChanged}
+      onConversationChanged={(updated) => { conversation = updated; }}
     />
     <MessageInput
       conversationId={conversation.id}

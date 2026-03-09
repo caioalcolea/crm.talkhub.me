@@ -210,6 +210,7 @@
           {messages}
           loading={loadingMessages}
           onContactChanged={handleConversationContactChanged}
+          onConversationChanged={(updated) => { selectedConversation = updated; }}
         />
         <MessageInput
           conversationId={selectedConversation.id}
