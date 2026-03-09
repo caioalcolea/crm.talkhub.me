@@ -84,11 +84,18 @@ class ConversationListSerializer(serializers.ModelSerializer):
         else:
             msg = obj.messages.order_by("-timestamp").first()
         if msg:
-            content = msg.content[:200] if msg.content else ""
-            # Strip HTML tags for preview
-            if msg.metadata_json and msg.metadata_json.get("content_type") == "html":
+            content = msg.content or ""
+            meta = msg.metadata_json or {}
+            # For email messages: use stored text_body if available,
+            # otherwise strip HTML from full content BEFORE truncating
+            if meta.get("text_body"):
+                content = meta["text_body"]
+            elif meta.get("content_type") == "html" or (
+                content and re.search(r"<[a-z][\s\S]*>", content[:500], re.IGNORECASE)
+            ):
                 content = re.sub(r"<[^>]+>", "", content)
-                content = content.replace("&nbsp;", " ").strip()
+                content = re.sub(r"&\w+;", " ", content)
+            content = " ".join(content.split())  # Normalize whitespace
             return {
                 "content": content[:100],
                 "direction": msg.direction,

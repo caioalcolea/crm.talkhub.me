@@ -231,23 +231,27 @@ class MessageCreateView(APIView):
         # Enrich metadata for email channels
         extra_meta = serializer.validated_data.get("metadata_json") or {}
         if channel_type in ("smtp_native", "email"):
-            contact_email = getattr(conversation.contact, "email", "") if conversation.contact else ""
-            subject = request.data.get("subject", "") or conversation.metadata_json.get("email_subject", "")
-            from_email = ""
             try:
-                from channels.providers.smtp_native import _get_smtp_config
-                smtp_cfg = _get_smtp_config(request.org)
-                if smtp_cfg:
-                    from_email = smtp_cfg.get("from_email", "")
-            except Exception:
-                pass
-            extra_meta.update({
-                "email_subject": subject,
-                "email_from": from_email,
-                "email_from_name": sender_name,
-                "email_to": contact_email,
-                "content_type": "text",
-            })
+                contact_email = getattr(conversation.contact, "email", "") if conversation.contact else ""
+                conv_meta = conversation.metadata_json or {}
+                subject = request.data.get("subject", "") or conv_meta.get("email_subject", "")
+                from_email = ""
+                try:
+                    from channels.providers.smtp_native import _get_smtp_config
+                    smtp_cfg = _get_smtp_config(request.org)
+                    if smtp_cfg:
+                        from_email = smtp_cfg.get("from_email", "")
+                except Exception:
+                    pass
+                extra_meta.update({
+                    "email_subject": subject,
+                    "email_from": from_email,
+                    "email_from_name": sender_name,
+                    "email_to": contact_email,
+                    "content_type": "text",
+                })
+            except Exception as e:
+                logger.warning("Failed to enrich email metadata: %s", e)
 
         try:
             message = serializer.save(
