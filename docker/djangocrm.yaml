@@ -103,6 +103,8 @@ services:
           memory: 1024M
       labels:
         - traefik.enable=true
+        ## Rede para o Traefik Swarm provider alcançar este serviço
+        - traefik.docker.network=talkhub
         ## Rota API/Admin/Static (prioridade alta)
         - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite`) || PathPrefix(`/webhooks`) || PathPrefix(`/track`) || PathPrefix(`/health`))
         - traefik.http.routers.crm_api.entrypoints=websecure
@@ -232,6 +234,8 @@ services:
           memory: 512M
       labels:
         - traefik.enable=true
+        ## Rede para o Traefik Swarm provider alcançar este serviço
+        - traefik.docker.network=talkhub
         ## Frontend catch-all (prioridade baixa — API tem prioridade)
         - traefik.http.routers.crm_frontend.rule=Host(`crm.talkhub.me`)
         - traefik.http.routers.crm_frontend.entrypoints=websecure
