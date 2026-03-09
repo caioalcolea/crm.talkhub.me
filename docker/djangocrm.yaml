@@ -103,10 +103,9 @@ services:
           memory: 1024M
       labels:
         - traefik.enable=true
-        ## Rede para o Traefik Swarm provider alcançar este serviço
         - traefik.docker.network=talkhub
         ## Rota API/Admin/Static (prioridade alta)
-        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite`) || PathPrefix(`/webhooks`) || PathPrefix(`/track`) || PathPrefix(`/health`))
+        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`))
         - traefik.http.routers.crm_api.entrypoints=websecure
         - traefik.http.routers.crm_api.tls=true
         - traefik.http.routers.crm_api.tls.certresolver=letsencryptresolver
@@ -114,18 +113,7 @@ services:
         - traefik.http.services.crm_api.loadbalancer.server.port=8000
         ## Headers HTTPS
         - traefik.http.middlewares.crm_headers.headers.customrequestheaders.X-Forwarded-Proto=https
-        - traefik.http.middlewares.crm_headers.headers.stsSeconds=31536000
-        - traefik.http.middlewares.crm_headers.headers.stsIncludeSubdomains=true
-        - traefik.http.middlewares.crm_headers.headers.stsPreload=true
-        - traefik.http.middlewares.crm_headers.headers.frameDeny=true
-        - traefik.http.middlewares.crm_headers.headers.contentTypeNosniff=true
-        - traefik.http.middlewares.crm_headers.headers.browserXssFilter=true
-        - traefik.http.middlewares.crm_headers.headers.referrerPolicy=strict-origin-when-cross-origin
-        ## Rate limiting
-        - traefik.http.middlewares.crm_ratelimit.ratelimit.average=100
-        - traefik.http.middlewares.crm_ratelimit.ratelimit.burst=50
-        - traefik.http.middlewares.crm_ratelimit.ratelimit.period=1s
-        - traefik.http.routers.crm_api.middlewares=crm_headers,crm_ratelimit
+        - traefik.http.routers.crm_api.middlewares=crm_headers
 
   ## ---- Celery Worker ---- ##
   crm_worker:
@@ -234,7 +222,6 @@ services:
           memory: 512M
       labels:
         - traefik.enable=true
-        ## Rede para o Traefik Swarm provider alcançar este serviço
         - traefik.docker.network=talkhub
         ## Frontend catch-all (prioridade baixa — API tem prioridade)
         - traefik.http.routers.crm_frontend.rule=Host(`crm.talkhub.me`)
