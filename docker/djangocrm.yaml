@@ -119,6 +119,8 @@ services:
   crm_worker:
     image: talkhub/djangocrm-backend:latest
     entrypoint: /entrypoint-prod.sh
+    healthcheck:
+      disable: true
     environment:
       - SERVICE_ROLE=worker
       - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
@@ -170,6 +172,8 @@ services:
   crm_beat:
     image: talkhub/djangocrm-backend:latest
     entrypoint: /entrypoint-prod.sh
+    healthcheck:
+      disable: true
     environment:
       - SERVICE_ROLE=beat
       - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
@@ -202,6 +206,12 @@ services:
   ## ---- SvelteKit Frontend ---- ##
   crm_frontend:
     image: talkhub/djangocrm-frontend:latest
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:3000', (r) => { r.resume(); r.on('end', () => process.exit(r.statusCode < 500 ? 0 : 1)) }).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     environment:
       - PUBLIC_DJANGO_API_URL=https://crm.talkhub.me
       - NODE_ENV=production
