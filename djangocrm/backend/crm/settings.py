@@ -372,7 +372,14 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
 
 # Fernet encryption key for secret fields (integrations, credentials)
-FERNET_KEY = os.environ.get("FERNET_KEY", "")
+# Auto-generate if missing or invalid (Docker Compose can mangle trailing '=')
+_fernet_key_raw = os.environ.get("FERNET_KEY", "")
+if _fernet_key_raw:
+    # Fix base64 padding if Docker stripped trailing '='
+    missing_padding = len(_fernet_key_raw) % 4
+    if missing_padding:
+        _fernet_key_raw += "=" * (4 - missing_padding)
+FERNET_KEY = _fernet_key_raw
 
 
 # ============================

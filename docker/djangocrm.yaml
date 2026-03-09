@@ -83,8 +83,8 @@ services:
       ## Google OAuth (opcional)
       - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
-      ## Fernet encryption
-      - FERNET_KEY=${CRM_FERNET_KEY:-jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=}
+      ## Fernet encryption (do NOT use ${VAR:-default} — trailing '=' breaks interpolation)
+      - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
     volumes:
       - crm_static:/app/staticfiles
       - crm_media:/app/media
@@ -152,7 +152,7 @@ services:
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
       - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
-      - FERNET_KEY=${CRM_FERNET_KEY:-jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=}
+      - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
     volumes:
       - crm_media:/app/media
     networks:
