@@ -226,15 +226,35 @@ class ChatwootConnector(BaseConnector):
         total_imported = 0
         total_records = 0
 
+        # Load cursor state for resumable sync
+        from integrations.models import SyncJob
+        job = None
+        cursor = {}
+        if job_id:
+            try:
+                job = SyncJob.objects.get(id=job_id)
+                cursor = job.cursor_state or {}
+            except SyncJob.DoesNotExist:
+                pass
+
+        statuses = ["open", "pending", "resolved", "snoozed"]
+        start_status_idx = cursor.get("status_idx", 0)
+        start_page = cursor.get("page", 1)
+        total_imported = cursor.get("imported", 0)
+        total_records = cursor.get("total", 0)
+
         try:
-            # Step 0: Deduplicate existing contacts (cleanup from previous sync bugs)
-            deduped = self._dedup_contacts(org)
-            if deduped:
-                logger.info("Chatwoot sync: merged %d duplicate contacts for org %s", deduped, org.id)
+            # Step 0: Deduplicate existing contacts (only on fresh sync)
+            if not cursor:
+                deduped = self._dedup_contacts(org)
+                if deduped:
+                    logger.info("Chatwoot sync: merged %d duplicate contacts for org %s", deduped, org.id)
+            else:
+                deduped = 0
 
             # Fetch conversations for ALL statuses (Chatwoot defaults to 'open' only)
-            for conv_status in ("open", "pending", "resolved", "snoozed"):
-                page = 1
+            for si, conv_status in enumerate(statuses[start_status_idx:], start_status_idx):
+                page = start_page if si == start_status_idx else 1
                 max_pages = 50  # Safety limit
                 while page <= max_pages:
                     resp = _api_request(config, "GET", "/conversations", params={
@@ -263,6 +283,15 @@ class ChatwootConnector(BaseConnector):
                                 total_imported += 1
                         except Exception as exc:
                             logger.error("Chatwoot sync: error importing conversation %s: %s", cw_conv.get("id"), exc)
+
+                    # Save checkpoint after each page for resumable sync
+                    if job:
+                        job.cursor_state = {
+                            "status_idx": si, "page": page + 1,
+                            "imported": total_imported, "total": total_records,
+                        }
+                        job.imported_count = total_imported
+                        job.save(update_fields=["cursor_state", "imported_count", "updated_at"])
 
                     # Check if there are more pages
                     meta = data.get("meta", {}) if isinstance(data, dict) else {}
@@ -575,19 +604,27 @@ class ChatwootConnector(BaseConnector):
 
     def _import_message(self, org, conversation, cw_msg):
         """Import a single Chatwoot message into the CRM."""
+        from django.db import IntegrityError
+
         from conversations.models import Message
 
         cw_msg_id = cw_msg.get("id")
         if not cw_msg_id:
             return
 
-        # Deduplicate by chatwoot_message_id
-        existing = Message.objects.filter(
+        # Idempotency key for this message
+        idem_key = f"chatwoot:{cw_msg_id}"
+
+        # Fast path: check if already imported (avoids IntegrityError in most cases)
+        if Message.objects.filter(idempotency_key=idem_key).exists():
+            return
+
+        # Legacy dedup fallback (for messages imported before idempotency_key was added)
+        if Message.objects.filter(
             org=org,
             conversation=conversation,
             metadata_json__chatwoot_message_id=cw_msg_id,
-        ).exists()
-        if existing:
+        ).exists():
             return
 
         # Map message type
@@ -633,22 +670,39 @@ class ChatwootConnector(BaseConnector):
             except (ValueError, OSError):
                 pass
 
-        Message.objects.create(
-            org=org,
-            conversation=conversation,
-            direction=direction,
-            msg_type=msg_type,
-            content=content,
-            media_url=media_url,
-            sender_type=sender.get("type", ""),
-            sender_name=sender_name,
-            sender_id=sender_id,
-            timestamp=timestamp,
-            metadata_json={
-                "chatwoot_message_id": cw_msg_id,
-                "chatwoot_content_type": content_type,
-            },
-        )
+        try:
+            msg = Message.objects.create(
+                org=org,
+                conversation=conversation,
+                direction=direction,
+                msg_type=msg_type,
+                content=content,
+                media_url=media_url,
+                sender_type=sender.get("type", ""),
+                sender_name=sender_name,
+                sender_id=sender_id,
+                timestamp=timestamp,
+                idempotency_key=idem_key,
+                metadata_json={
+                    "chatwoot_message_id": cw_msg_id,
+                    "chatwoot_content_type": content_type,
+                },
+            )
+            # Broadcast via WebSocket
+            try:
+                from conversations.broadcast import broadcast_new_message
+                from conversations.serializers import MessageSerializer
+
+                broadcast_new_message(
+                    str(org.id),
+                    str(conversation.id),
+                    MessageSerializer(msg).data,
+                )
+            except Exception:
+                pass
+        except IntegrityError:
+            # UNIQUE constraint violation — message already exists (race condition handled)
+            logger.info("Duplicate message skipped (IntegrityError): %s", idem_key)
 
     def get_status(self, org) -> dict:
         from integrations.models import IntegrationConnection
@@ -743,9 +797,25 @@ class ChatwootConnector(BaseConnector):
             logger.info("Chatwoot webhook: unhandled event %s", event)
             return {"status": "ignored", "event": event}
 
-    def _extract_contact_info(self, data, cw_conv_id=None):
+    def _extract_contact_info(self, data, cw_conv_id=None, org=None):
         """Extract contact info from webhook payload, handling both individual and group conversations."""
         sender = data.get("sender", {}) or {}
+
+        # Enrich incomplete sender data via Chatwoot API when name is missing
+        if sender.get("id") and not sender.get("name") and org:
+            try:
+                conn = _get_connection(org)
+                if conn:
+                    config = _decrypt_config(conn.config_json or {})
+                    resp = _api_request(config, "GET", f"/contacts/{sender['id']}")
+                    if resp.status_code == 200:
+                        sender = resp.json()
+                        logger.info("Enriched contact %s from Chatwoot API", sender.get("id"))
+                    else:
+                        logger.warning("Failed to enrich contact %s: HTTP %s", sender["id"], resp.status_code)
+            except Exception as e:
+                logger.warning("Failed to enrich contact %s: %s", sender.get("id"), e)
+
         cw_conv = data.get("conversation", {}) or data
         additional_attrs = (
             cw_conv.get("additional_attributes", {})
@@ -801,11 +871,18 @@ class ChatwootConnector(BaseConnector):
         data = payload
         msg_type_num = data.get("message_type")
 
-        # Skip outgoing messages sent by us (echo prevention)
+        # Skip outgoing messages sent by us (echo prevention — fast path)
         if msg_type_num == 1:
             content_attrs = data.get("content_attributes", {}) or {}
-            if content_attrs.get("external_created"):
+            additional_attrs = data.get("additional_attributes", {}) or {}
+            if content_attrs.get("external_created") or additional_attrs.get("external_created"):
                 return {"status": "skipped", "reason": "echo"}
+
+        # Robust idempotency check via crm_idempotency_key
+        additional_attrs = data.get("additional_attributes", {}) or {}
+        crm_key = additional_attrs.get("crm_idempotency_key")
+        if crm_key and Message.objects.filter(idempotency_key=crm_key).exists():
+            return {"status": "skipped", "reason": "idempotent_crm_key"}
 
         cw_conv = data.get("conversation", {})
         cw_conv_id = cw_conv.get("id") or data.get("conversation_id")
@@ -822,7 +899,7 @@ class ChatwootConnector(BaseConnector):
 
         if not conv:
             # Extract contact info (handles individuals and groups)
-            contact_info, is_group = self._extract_contact_info(data, cw_conv_id)
+            contact_info, is_group = self._extract_contact_info(data, cw_conv_id, org=org)
             logger.info(
                 "Chatwoot new conversation %s: is_group=%s, conv_type=%s, additional_attrs=%s",
                 cw_conv_id, is_group,
@@ -928,7 +1005,7 @@ class ChatwootConnector(BaseConnector):
             return {"status": "skipped", "reason": "already_exists"}
 
         # Extract contact info (handles individuals and groups)
-        contact_info, is_group = self._extract_contact_info(data, cw_conv_id)
+        contact_info, is_group = self._extract_contact_info(data, cw_conv_id, org=org)
 
         # Also try meta.sender and contact fields for individual conversations
         if not is_group:

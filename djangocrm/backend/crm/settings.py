@@ -23,12 +23,14 @@ DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.auth",
     "django.contrib.admin",
     "django.contrib.contenttypes",
     "django.contrib.messages",
     "django.contrib.sessions",
     "django.contrib.staticfiles",
+    "channels",
     "rest_framework",
     "rest_framework_simplejwt",
     "corsheaders",
@@ -92,6 +94,27 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "crm.wsgi.application"
+ASGI_APPLICATION = "crm.asgi.application"
+
+# Django Channels — Redis channel layer for WebSocket
+_REDIS_HOST = os.environ.get("REDIS_HOST", os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0"))
+# Parse redis host for channel layer (strip redis:// prefix and /db suffix)
+import re as _re
+
+_redis_match = _re.match(r"redis://([^:/]+):?(\d+)?/?(\d+)?", _REDIS_HOST)
+_ch_redis_host = _redis_match.group(1) if _redis_match else "localhost"
+_ch_redis_port = int(_redis_match.group(2) or 6379) if _redis_match else 6379
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [(_ch_redis_host, _ch_redis_port)],
+            "capacity": 1500,
+            "expiry": 10,
+        },
+    }
+}
 
 # Database
 # https://docs.djangoproject.com/en/1.10/ref/settings/#databases

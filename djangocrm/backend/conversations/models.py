@@ -52,6 +52,8 @@ class Conversation(BaseOrgModel):
             GinIndex(fields=["metadata_json"], name="conv_metadata_gin"),
             models.Index(fields=["org", "assigned_to"], name="conv_org_assigned"),
             models.Index(fields=["org", "-updated_at"], name="conv_org_updated"),
+            models.Index(fields=["org", "status", "-last_message_at"], name="conv_org_status_msg"),
+            models.Index(fields=["org", "channel", "-last_message_at"], name="conv_org_chan_msg"),
         ]
 
     def __str__(self):
@@ -91,6 +93,14 @@ class Message(BaseOrgModel):
     sender_id = models.CharField(max_length=255, blank=True, default="")
     timestamp = models.DateTimeField()
     metadata_json = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text="Chave única para deduplicação. Format: {source}:{external_id}",
+    )
 
     class Meta:
         db_table = "message"

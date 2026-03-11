@@ -930,3 +930,51 @@ class VariableRegistryView(APIView):
 
         return Response(result)
 
+
+class WebhookDLQView(APIView):
+    """Dead Letter Queue: list and reprocess failed webhooks."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext, IsOrgAdmin)
+
+    def get(self, request):
+        """List DLQ items for this org."""
+        items = WebhookLog.objects.filter(
+            org=request.org, is_dlq=True,
+        ).order_by("-created_at")[:50]
+        return Response(WebhookLogSerializer(items, many=True).data)
+
+    def post(self, request):
+        """Reprocess a DLQ item."""
+        from integrations.tasks import process_webhook
+
+        webhook_id = request.data.get("webhook_id")
+        if not webhook_id:
+            return Response(
+                {"error": "webhook_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            log = WebhookLog.objects.get(id=webhook_id, org=request.org, is_dlq=True)
+        except WebhookLog.DoesNotExist:
+            return Response(
+                {"error": "DLQ item not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not log.can_retry:
+            return Response(
+                {"error": "This webhook is not retryable (non-transient error)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        log.is_dlq = False
+        log.status = "queued"
+        log.retry_count = 0
+        log.save(update_fields=["is_dlq", "status", "retry_count", "updated_at"])
+
+        process_webhook.delay(
+            log.connector_slug, str(log.org_id), log.payload_json, {}
+        )
+
+        return Response({"status": "requeued", "webhook_id": str(log.id)})

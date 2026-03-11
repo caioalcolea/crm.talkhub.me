@@ -18,13 +18,18 @@ export async function load({ cookies, url }) {
   const qs = params.toString();
 
   try {
-    const [conversations, channels] = await Promise.all([
+    const [convResponse, channels] = await Promise.all([
       apiRequest(`/conversations/${qs ? '?' + qs : ''}`, {}, { cookies }),
       apiRequest('/channels/', {}, { cookies }),
     ]);
 
+    // Support both paginated {results, next_cursor, has_more} and legacy flat array
+    const isPaginated = convResponse?.results && 'next_cursor' in convResponse;
+
     return {
-      conversations: conversations?.results || conversations || [],
+      conversations: isPaginated ? convResponse.results : (convResponse?.results || convResponse || []),
+      nextCursor: isPaginated ? convResponse.next_cursor : null,
+      hasMore: isPaginated ? convResponse.has_more : false,
       channels: channels?.results || channels || [],
       filters: { channel, status, assigned_to, search, is_group },
       error: null,

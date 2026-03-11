@@ -116,6 +116,48 @@ services:
         - traefik.http.middlewares.crm_headers.headers.customrequestheaders.X-Forwarded-Proto=https
         - traefik.http.routers.crm_api.middlewares=crm_headers
 
+  ## ---- Daphne WebSocket (ASGI) ---- ##
+  crm_ws:
+    image: talkhub/djangocrm-backend:latest
+    command: daphne -b 0.0.0.0 -p 8001 crm.asgi:application
+    environment:
+      - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
+      - ENV_TYPE=prod
+      - DEBUG=False
+      - ALLOWED_HOSTS=crm.talkhub.me,localhost
+      - DBNAME=crm_db
+      - DBUSER=crm_user
+      - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
+      - DBHOST=crm_db
+      - DBPORT=5432
+      - CELERY_BROKER_URL=redis://crm_redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
+      - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
+    networks:
+      - talkhub
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=talkhub
+        ## WebSocket route (highest priority)
+        - traefik.http.routers.crm_ws.rule=Host(`crm.talkhub.me`) && PathPrefix(`/ws/`)
+        - traefik.http.routers.crm_ws.entrypoints=websecure
+        - traefik.http.routers.crm_ws.tls=true
+        - traefik.http.routers.crm_ws.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.crm_ws.priority=25
+        - traefik.http.services.crm_ws.loadbalancer.server.port=8001
+
   ## ---- Celery Worker ---- ##
   crm_worker:
     image: talkhub/djangocrm-backend:latest

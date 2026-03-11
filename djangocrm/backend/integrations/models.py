@@ -102,6 +102,11 @@ class SyncJob(BaseOrgModel):
     skipped_count = models.IntegerField(default=0)
     error_count = models.IntegerField(default=0)
     progress_detail = models.JSONField(default=dict, blank=True)
+    cursor_state = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Estado do cursor para retomada. Ex: {'page': 15, 'status': 'open'}",
+    )
     error_log = models.JSONField(default=list, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -162,6 +167,10 @@ class WebhookLog(BaseOrgModel):
     status = models.CharField(max_length=20, default="queued", choices=STATUS_CHOICES)
     processing_time_ms = models.PositiveIntegerField(null=True, blank=True)
     payload_json = models.JSONField(default=dict, blank=True)
+    is_dlq = models.BooleanField(default=False, db_index=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    error_detail = models.TextField(blank=True, default="")
+    can_retry = models.BooleanField(default=True)
 
     class Meta:
         db_table = "webhook_log"

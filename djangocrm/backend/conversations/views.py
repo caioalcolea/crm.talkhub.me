@@ -11,6 +11,7 @@ Views do app conversations.
 """
 
 import logging
+import uuid
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -49,7 +50,7 @@ class ConversationListView(APIView):
 
     def get(self, request):
         queryset = Conversation.objects.filter(org=request.org).select_related(
-            "contact", "assigned_to"
+            "contact", "assigned_to__user"
         )
 
         # Filtros
@@ -91,7 +92,23 @@ class ConversationListView(APIView):
             Coalesce("last_message_at", "created_at").desc()
         )
 
-        # Prefetch latest message to avoid N+1 queries
+        # Cursor-based pagination (manual, because DRF CursorPagination
+        # doesn't support Coalesce expressions natively)
+        limit = min(int(request.query_params.get("limit", 50)), 100)
+        cursor = request.query_params.get("cursor")  # ISO timestamp
+
+        if cursor:
+            from django.utils.dateparse import parse_datetime as _parse_dt
+            cursor_dt = _parse_dt(cursor)
+            if cursor_dt:
+                if not timezone.is_aware(cursor_dt):
+                    cursor_dt = timezone.make_aware(cursor_dt)
+                queryset = queryset.filter(
+                    Q(last_message_at__lt=cursor_dt)
+                    | Q(last_message_at__isnull=True, created_at__lt=cursor_dt)
+                )
+
+        # Prefetch latest message AFTER pagination filter (optimization)
         queryset = queryset.prefetch_related(
             Prefetch(
                 "messages",
@@ -100,8 +117,21 @@ class ConversationListView(APIView):
             )
         )
 
-        serializer = ConversationListSerializer(queryset[:100], many=True)
-        return Response(serializer.data)
+        items = list(queryset[: limit + 1])
+        has_more = len(items) > limit
+        if has_more:
+            items = items[:limit]
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = (last.last_message_at or last.created_at).isoformat()
+
+        return Response({
+            "results": ConversationListSerializer(items, many=True).data,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+        })
 
 
 class ConversationDetailView(APIView):
@@ -112,7 +142,7 @@ class ConversationDetailView(APIView):
     def get(self, request, pk):
         try:
             conversation = Conversation.objects.select_related(
-                "contact", "assigned_to"
+                "contact", "assigned_to__user"
             ).get(id=pk, org=request.org)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -150,6 +180,17 @@ class ConversationDetailView(APIView):
                     )
                 except Exception:
                     pass  # Non-critical
+
+        # Broadcast via WebSocket
+        try:
+            from conversations.broadcast import broadcast_conversation_update
+
+            broadcast_conversation_update(
+                str(request.org.id),
+                ConversationDetailSerializer(conversation).data,
+            )
+        except Exception:
+            pass  # Non-critical
 
         return Response(ConversationDetailSerializer(conversation).data)
 
@@ -229,6 +270,7 @@ class MessageCreateView(APIView):
                     # Enrich message_data with conversation context
                     message_data = dict(request.data)
                     message_data["conversation_id"] = str(conversation.id)
+                    message_data["idempotency_key"] = f"crm:{uuid.uuid4().hex}"
                     provider.send_message(
                         channel_config, conversation.contact, message_data
                     )
@@ -269,6 +311,9 @@ class MessageCreateView(APIView):
             except Exception as e:
                 logger.warning("Failed to enrich email metadata: %s", e)
 
+        # Generate idempotency key for outgoing messages
+        idem_key = f"crm:{uuid.uuid4().hex}"
+
         try:
             with transaction.atomic():
                 message = serializer.save(
@@ -277,6 +322,7 @@ class MessageCreateView(APIView):
                     sender_name=sender_name,
                     sender_id=str(request.user.id) if request.user else "",
                     metadata_json=extra_meta,
+                    idempotency_key=idem_key,
                 )
 
                 # Re-fetch with lock to prevent concurrent timestamp overwrites
@@ -284,6 +330,18 @@ class MessageCreateView(APIView):
                 if not conv.last_message_at or message.timestamp > conv.last_message_at:
                     conv.last_message_at = message.timestamp
                     conv.save(update_fields=["last_message_at", "updated_at"])
+
+            # Broadcast via WebSocket
+            try:
+                from conversations.broadcast import broadcast_new_message
+
+                broadcast_new_message(
+                    str(request.org.id),
+                    str(conversation.id),
+                    MessageSerializer(message).data,
+                )
+            except Exception:
+                pass  # Non-critical — clients will catch up via polling
 
             return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -305,7 +363,7 @@ class ConversationAssignView(APIView):
     def post(self, request, pk, action):
         try:
             conversation = Conversation.objects.select_related(
-                "contact", "assigned_to"
+                "contact", "assigned_to__user"
             ).get(id=pk, org=request.org)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -336,11 +394,10 @@ class ConversationAssignView(APIView):
 
         conversation.save(update_fields=["assigned_to", "updated_at"])
 
-        # Refresh related objects for the serializer
-        conversation.refresh_from_db()
+        # Single re-query with all relations (no redundant refresh_from_db)
         conversation = Conversation.objects.select_related(
             "contact", "assigned_to__user"
-        ).get(id=pk)
+        ).get(id=pk, org=request.org)
 
         return Response(ConversationDetailSerializer(conversation).data)
 
@@ -386,7 +443,7 @@ class ContactConversationsView(APIView):
         queryset = Conversation.objects.filter(
             org=request.org, contact_id=contact_id
         ).select_related(
-            "contact", "assigned_to"
+            "contact", "assigned_to__user"
         ).prefetch_related(
             Prefetch(
                 "messages",
@@ -395,7 +452,7 @@ class ContactConversationsView(APIView):
             )
         ).order_by(Coalesce("last_message_at", "created_at").desc())
 
-        serializer = ConversationListSerializer(queryset, many=True)
+        serializer = ConversationListSerializer(queryset[:50], many=True)
         return Response(serializer.data)
 
 
@@ -442,7 +499,7 @@ class ConversationUpdatesView(APIView):
                 Q(metadata_json__is_group=False) | ~Q(metadata_json__has_key="is_group")
             )
 
-        updated_convs = updated_convs.select_related("contact", "assigned_to").prefetch_related(
+        updated_convs = updated_convs.select_related("contact", "assigned_to__user").prefetch_related(
             Prefetch(
                 "messages",
                 queryset=Message.objects.order_by("-timestamp")[:1],

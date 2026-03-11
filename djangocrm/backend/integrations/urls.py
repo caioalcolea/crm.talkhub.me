@@ -39,6 +39,7 @@ from integrations.views import (
     IntegrationSyncView,
     SyncJobDetailView,
     VariableRegistryView,
+    WebhookDLQView,
     WebhookLogListView,
     webhook_receiver,
 )
@@ -52,6 +53,8 @@ urlpatterns = [
     path("logs/", IntegrationLogListView.as_view(), name="integration-logs"),
     # Webhook logs
     path("webhooks/logs/", WebhookLogListView.as_view(), name="webhook-logs"),
+    # Webhook Dead Letter Queue
+    path("webhooks/dlq/", WebhookDLQView.as_view(), name="webhook-dlq"),
     # Webhook receiver — token-based (preferred, secure multi-tenant)
     path("webhooks/<str:connector_slug>/<str:webhook_token>/", webhook_receiver, name="webhook-receiver-token"),
     # Webhook receiver — legacy (backward compat, AllowAny)

@@ -60,11 +60,16 @@ class ChatwootProvider(ChannelProvider):
         if not content:
             raise ValueError("Conteúdo da mensagem é obrigatório.")
 
-        # Send message via Chatwoot API
+        # Send message via Chatwoot API with idempotency key for anti-echo
+        idem_key = message_data.get("idempotency_key", "")
         resp = _api_request(config, "POST", f"/conversations/{cw_conv_id}/messages", json={
             "content": content,
             "message_type": "outgoing",
-            "content_attributes": {"external_created": True},
+            "private": False,
+            "additional_attributes": {
+                "crm_idempotency_key": idem_key,
+                "external_created": True,
+            },
         })
 
         if resp.status_code not in (200, 201):

@@ -1,7 +1,7 @@
 <script>
   import { Badge } from '$lib/components/ui/badge/index.js';
   import ChannelBadge from '$lib/components/channels/ChannelBadge.svelte';
-  import { User, Users, Clock } from '@lucide/svelte';
+  import { User, Users, Clock, Loader2 } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Props
@@ -9,10 +9,31 @@
    * @property {string} [selected]
    * @property {(conv: any) => void} [onSelect]
    * @property {boolean} [isGroupView]
+   * @property {boolean} [hasMore]
+   * @property {boolean} [loadingMore]
+   * @property {() => void} [onLoadMore]
    */
 
   /** @type {Props} */
-  let { conversations = [], selected = '', onSelect, isGroupView = false } = $props();
+  let { conversations = [], selected = '', onSelect, isGroupView = false, hasMore = false, loadingMore = false, onLoadMore } = $props();
+
+  /** @type {HTMLDivElement|undefined} */
+  let sentinel = $state();
+
+  // IntersectionObserver for infinite scroll
+  $effect(() => {
+    if (!sentinel || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore) {
+          onLoadMore?.();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
 
   /** @param {string} dateStr */
   function timeAgo(dateStr) {
@@ -101,5 +122,16 @@
         </div>
       </button>
     {/each}
+
+    <!-- Infinite scroll sentinel -->
+    {#if hasMore}
+      <div bind:this={sentinel} class="flex items-center justify-center py-4">
+        {#if loadingMore}
+          <Loader2 class="size-5 animate-spin text-muted-foreground" />
+        {:else}
+          <span class="text-xs text-muted-foreground">Carregando mais...</span>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}

@@ -28,6 +28,12 @@ cairocffi==1.7.1
 # Production server
 gunicorn==25.1.0
 
+# WebSocket (Django Channels + ASGI)
+channels==4.2.0
+channels-redis==4.2.1
+daphne==4.1.2
+websocket-client==1.8.0
+
 # Testing (dev only — consider moving to requirements-dev.txt)
 pytest==9.0.2
 pytest-django==4.12.0

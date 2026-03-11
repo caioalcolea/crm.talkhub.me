@@ -41,15 +41,17 @@ def process_webhook(self, connector_slug: str, org_id: str, payload: dict, heade
     connector = connector_cls()
     org = Org.objects.get(id=org_id)
 
+    # Find the most recent webhook log for this event
+    webhook_log = (
+        WebhookLog.objects.filter(org_id=org_id, connector_slug=connector_slug)
+        .order_by("-created_at")
+        .first()
+    )
+
     try:
         result = connector.handle_webhook(org, payload, headers)
 
-        # Atualizar status do webhook log mais recente
-        webhook_log = (
-            WebhookLog.objects.filter(org_id=org_id, connector_slug=connector_slug)
-            .order_by("-created_at")
-            .first()
-        )
+        # Mark webhook as processed
         if webhook_log and webhook_log.status == "queued":
             webhook_log.status = "processed"
             webhook_log.save(update_fields=["status", "updated_at"])
@@ -57,8 +59,6 @@ def process_webhook(self, connector_slug: str, org_id: str, payload: dict, heade
         return result
 
     except Exception as exc:
-        delay = WEBHOOK_RETRY_DELAYS[min(self.request.retries, len(WEBHOOK_RETRY_DELAYS) - 1)]
-
         IntegrationLog.objects.create(
             org_id=org_id,
             connector_slug=connector_slug,
@@ -69,6 +69,24 @@ def process_webhook(self, connector_slug: str, org_id: str, payload: dict, heade
             error_detail=str(exc),
         )
 
+        if self.request.retries >= self.max_retries:
+            # Move to Dead Letter Queue for manual reprocessing
+            if webhook_log:
+                webhook_log.status = "failed"
+                webhook_log.is_dlq = True
+                webhook_log.error_detail = str(exc)[:2000]
+                webhook_log.retry_count = self.request.retries + 1
+                webhook_log.can_retry = not isinstance(exc, (ValueError, KeyError))
+                webhook_log.save(update_fields=[
+                    "status", "is_dlq", "error_detail", "retry_count", "can_retry", "updated_at",
+                ])
+            logger.error(
+                "Webhook moved to DLQ (exhausted %d retries): %s/%s - %s",
+                self.max_retries + 1, connector_slug, org_id, exc,
+            )
+            return  # Don't raise — no more retries
+
+        delay = WEBHOOK_RETRY_DELAYS[min(self.request.retries, len(WEBHOOK_RETRY_DELAYS) - 1)]
         logger.warning(
             "Webhook processing failed (attempt %d/%d): %s - %s",
             self.request.retries + 1,

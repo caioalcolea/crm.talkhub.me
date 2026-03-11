@@ -14,6 +14,10 @@
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import { apiRequest } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
+  import {
+    wsConnect, wsDisconnect, wsWatch, wsUnwatch,
+    onWsMessage
+  } from '$lib/stores/websocket.svelte.js';
 
   /** @type {{ data: any }} */
   let { data } = $props();
@@ -32,6 +36,11 @@
   let refreshing = $state(false);
   let lastPollTime = $state(new Date().toISOString());
 
+  // Infinite scroll state
+  let nextCursor = $state(data.nextCursor || null);
+  let hasMore = $state(data.hasMore ?? false);
+  let loadingMore = $state(false);
+
   // Track active conversation ID to prevent stale message loads
   let activeConversationId = $state(null);
 
@@ -41,6 +50,8 @@
   // Sync conversations when data changes (e.g. from server-side navigation)
   $effect(() => {
     conversations = data.conversations || [];
+    nextCursor = data.nextCursor || null;
+    hasMore = data.hasMore ?? false;
     // Clear selection when switching tabs to prevent mixing
     if (selectedConversation) {
       const stillExists = conversations.find(c => c.id === selectedConversation.id);
@@ -60,19 +71,63 @@
     if (data.filters?.search) searchQuery = data.filters.search;
   });
 
-  // Fast poll for real-time updates (every 5s)
+  // --- WebSocket + Polling hybrid ---
+  // Try WebSocket first; fall back to polling if WS fails 3x consecutively.
+
+  // Connect WebSocket on mount
+  wsConnect();
+
+  // WS event handlers
+  const unsubConvUpdate = onWsMessage('conversation_update', (convData) => {
+    if (!convData) return;
+
+    // If it's just a "has_new_message" notification, trigger a lightweight poll
+    if (convData.has_new_message && !convData.id) {
+      pollUpdates();
+      return;
+    }
+
+    // Merge updated conversation into list
+    const idx = conversations.findIndex(c => c.id === convData.id);
+    if (idx >= 0) {
+      conversations[idx] = convData;
+      conversations = [...conversations].sort((a, b) =>
+        new Date(b.last_message_at || b.created_at || 0).getTime() -
+        new Date(a.last_message_at || a.created_at || 0).getTime()
+      );
+    }
+
+    // Update selected if matching
+    if (selectedConversation?.id === convData.id) {
+      selectedConversation = convData;
+    }
+  });
+
+  const unsubNewMessage = onWsMessage('new_message', (msgData) => {
+    if (!msgData || !activeConversationId) return;
+    if (msgData.conversation !== activeConversationId) return;
+    const existingIds = new Set(messages.map(m => m.id));
+    if (!existingIds.has(msgData.id)) {
+      messages = [...messages, msgData];
+    }
+  });
+
+  // Fast poll for real-time updates (every 5s) — active when WS is down
   const pollInterval = setInterval(async () => {
     await pollUpdates();
   }, 5000);
 
-  // Full refresh every 60s as fallback
+  // Full refresh every 120s as safety net (extended from 60s when WS is available)
   const fullRefreshInterval = setInterval(async () => {
     await refreshConversations(true);
-  }, 60000);
+  }, 120000);
 
   onDestroy(() => {
     clearInterval(pollInterval);
     clearInterval(fullRefreshInterval);
+    unsubConvUpdate();
+    unsubNewMessage();
+    wsDisconnect();
   });
 
   /**
@@ -166,8 +221,11 @@
       if (filters.is_group) params.set('is_group', filters.is_group);
       const qs = params.toString();
 
-      const freshConversations = await apiRequest(`/conversations/${qs ? '?' + qs : ''}`);
-      conversations = freshConversations?.results || freshConversations || [];
+      const resp = await apiRequest(`/conversations/${qs ? '?' + qs : ''}`);
+      const isPaginated = resp?.results && 'next_cursor' in resp;
+      conversations = isPaginated ? resp.results : (resp?.results || resp || []);
+      nextCursor = isPaginated ? resp.next_cursor : null;
+      hasMore = isPaginated ? resp.has_more : false;
 
       // Also refresh messages for the selected conversation
       if (activeConversationId) {
@@ -190,11 +248,13 @@
   /** @param {any} conversation */
   async function selectConversation(conversation) {
     // Guard: clear previous state immediately
+    if (activeConversationId) wsUnwatch(activeConversationId);
     const convId = conversation.id;
     activeConversationId = convId;
     selectedConversation = conversation;
     messages = [];
     loadingMessages = true;
+    wsWatch(convId);
 
     try {
       const data = await apiRequest(`/conversations/${convId}/messages/`);
@@ -238,6 +298,39 @@
 
   function handleSearch() {
     updateFilter('search', searchQuery);
+  }
+
+  /** Load next page of conversations (infinite scroll) */
+  async function loadMore() {
+    if (!hasMore || loadingMore || !nextCursor) return;
+    loadingMore = true;
+    try {
+      const params = new URLSearchParams();
+      params.set('cursor', nextCursor);
+      if (filters.channel) params.set('channel', filters.channel);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.assigned_to) params.set('assigned_to', filters.assigned_to);
+      if (filters.search) params.set('search', filters.search);
+      if (filters.is_group) params.set('is_group', filters.is_group);
+
+      const resp = await apiRequest(`/conversations/?${params.toString()}`);
+      const isPaginated = resp?.results && 'next_cursor' in resp;
+      const newItems = isPaginated ? resp.results : (resp?.results || resp || []);
+
+      // Dedup and append
+      const existingIds = new Set(conversations.map(c => c.id));
+      const unique = newItems.filter(c => !existingIds.has(c.id));
+      if (unique.length > 0) {
+        conversations = [...conversations, ...unique];
+      }
+
+      nextCursor = isPaginated ? resp.next_cursor : null;
+      hasMore = isPaginated ? resp.has_more : false;
+    } catch (e) {
+      console.error('Erro ao carregar mais conversas:', e);
+    } finally {
+      loadingMore = false;
+    }
   }
 
   /** @param {any} newMsg */
@@ -356,6 +449,9 @@
         selected={selectedConversation?.id}
         onSelect={selectConversation}
         isGroupView={currentTab === 'groups'}
+        {hasMore}
+        {loadingMore}
+        onLoadMore={loadMore}
       />
     </div>
 
