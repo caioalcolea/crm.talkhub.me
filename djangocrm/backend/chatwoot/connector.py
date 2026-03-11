@@ -1076,7 +1076,12 @@ class ChatwootConnector(BaseConnector):
             pass  # Non-critical — frontend will still poll
 
     def validate_webhook(self, payload: bytes, headers: dict, secret: str) -> bool:
-        """Validate Chatwoot webhook via HMAC-SHA256 if secret is configured."""
+        """Validate Chatwoot webhook via HMAC-SHA256 if secret is configured.
+
+        Chatwoot signature format (2025+):
+          X-Chatwoot-Signature: sha256=HMAC-SHA256(secret, "{timestamp}.{raw_body}")
+          X-Chatwoot-Timestamp: unix-timestamp (seconds)
+        """
         if not secret:
             logger.warning("Chatwoot webhook: no secret configured — accepting without signature verification")
             return True
@@ -1086,13 +1091,24 @@ class ChatwootConnector(BaseConnector):
             logger.warning("Chatwoot webhook: no signature header, but secret is configured")
             return False
 
-        expected = hmac.HMAC(
-            secret.encode("utf-8"),
-            payload if isinstance(payload, bytes) else payload.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
+        raw = payload if isinstance(payload, bytes) else payload.encode("utf-8")
+        timestamp = headers.get("X-Chatwoot-Timestamp", "") or headers.get("x-chatwoot-timestamp", "")
 
-        return hmac.compare_digest(expected, signature)
+        # New format: sha256=HMAC(secret, "{timestamp}.{body}")
+        if signature.startswith("sha256=") and timestamp:
+            sig_hex = signature[len("sha256="):]
+            message = f"{timestamp}.".encode("utf-8") + raw
+            expected = hmac.HMAC(
+                secret.encode("utf-8"), message, hashlib.sha256
+            ).hexdigest()
+            return hmac.compare_digest(expected, sig_hex)
+
+        # Legacy fallback: HMAC(secret, body) — no prefix, no timestamp
+        expected = hmac.HMAC(
+            secret.encode("utf-8"), raw, hashlib.sha256
+        ).hexdigest()
+        sig_clean = signature[len("sha256="):] if signature.startswith("sha256=") else signature
+        return hmac.compare_digest(expected, sig_clean)
 
     def get_sync_types(self) -> list[str]:
         return ["full"]
