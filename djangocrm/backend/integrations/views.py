@@ -978,3 +978,71 @@ class WebhookDLQView(APIView):
         )
 
         return Response({"status": "requeued", "webhook_id": str(log.id)})
+
+
+class FetchPubsubTokenView(APIView):
+    """POST /api/integrations/chatwoot/fetch-pubsub-token/
+
+    Proxy to Chatwoot API to retrieve the pubsub_token for ActionCable WebSocket.
+    Avoids CORS issues by going backend → Chatwoot instead of frontend → Chatwoot.
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext, IsOrgAdmin)
+
+    def post(self, request):
+        import requests as http_requests
+
+        from chatwoot.connector import _decrypt_config
+
+        conn = IntegrationConnection.objects.filter(
+            org=request.org, connector_slug="chatwoot"
+        ).first()
+        if not conn:
+            return Response(
+                {"error": "Chatwoot não configurado"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        config = _decrypt_config(conn.config_json or {})
+        chatwoot_url = config.get("chatwoot_url", "").rstrip("/")
+        token = config.get("api_access_token", "")
+
+        if not chatwoot_url or not token:
+            return Response(
+                {"error": "URL ou token de acesso não configurados. Salve as credenciais primeiro."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            resp = http_requests.get(
+                f"{chatwoot_url}/auth/sign_in",
+                headers={"api_access_token": token},
+                timeout=10,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Falha ao conectar ao Chatwoot: {e}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if resp.status_code != 200:
+            return Response(
+                {"error": f"Chatwoot retornou HTTP {resp.status_code}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        data = resp.json()
+        pubsub_token = data.get("data", {}).get("pubsub_token", "")
+        if not pubsub_token:
+            return Response(
+                {"error": "PubSub token não encontrado no perfil Chatwoot"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Auto-save to config
+        config["pubsub_token"] = pubsub_token
+        schema = {"fields": [{"name": "api_access_token", "secret": True}, {"name": "webhook_secret", "secret": True}]}
+        conn.config_json = _encrypt_secret_fields(config, schema)
+        conn.save(update_fields=["config_json", "updated_at"])
+
+        return Response({"pubsub_token": pubsub_token})

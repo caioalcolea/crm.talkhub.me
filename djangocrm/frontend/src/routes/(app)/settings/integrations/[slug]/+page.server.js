@@ -37,7 +37,19 @@ export async function load({ params, cookies }) {
     fieldMappings = [];
   }
 
-  return { integration, health, fieldMappings, slug, loadError };
+  // Load DLQ items for Chatwoot
+  /** @type {any[]} */
+  let dlqItems = [];
+  if (slug === 'chatwoot') {
+    try {
+      const dlqRes = await apiRequest('/integrations/webhooks/dlq/', {}, { cookies });
+      dlqItems = Array.isArray(dlqRes) ? dlqRes : (dlqRes?.results || []);
+    } catch {
+      dlqItems = [];
+    }
+  }
+
+  return { integration, health, fieldMappings, dlqItems, slug, loadError };
 }
 
 /** @type {import('./$types').Actions} */
@@ -204,6 +216,34 @@ export const actions = {
       return { syncIntervalSaved: true };
     } catch (err) {
       return fail(400, { error: err?.message || 'Falha ao salvar intervalo de sincronização.' });
+    }
+  },
+
+  fetchPubsubToken: async ({ cookies }) => {
+    try {
+      const result = await apiRequest(
+        '/integrations/chatwoot/fetch-pubsub-token/',
+        { method: 'POST' },
+        { cookies }
+      );
+      return { pubsubToken: result.pubsub_token };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Falha ao buscar PubSub Token.' });
+    }
+  },
+
+  reprocessDlq: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const webhook_id = formData.get('webhook_id');
+    try {
+      await apiRequest(
+        '/integrations/webhooks/dlq/',
+        { method: 'POST', body: { webhook_id } },
+        { cookies }
+      );
+      return { dlqReprocessed: true };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Falha ao reprocessar webhook.' });
     }
   },
 

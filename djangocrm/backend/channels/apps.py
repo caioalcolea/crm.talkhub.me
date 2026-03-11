@@ -4,6 +4,7 @@ from django.apps import AppConfig
 class ChannelsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "channels"
+    label = "crm_channels"
     verbose_name = "Communication Channels"
 
     # Registrado automaticamente pelo ConnectorRegistry.discover()

@@ -86,6 +86,32 @@ conn.close()
 print('  Database user setup complete.')
 " 2>&1 || echo "  WARNING: DB user setup failed (may already be configured)."
 
+    # 2.5. Rename 'channels' -> 'crm_channels' in django_migrations (one-time fix)
+    python -c "
+import os, sys
+try:
+    import psycopg2
+    conn = psycopg2.connect(
+        host=os.environ.get('DBHOST', 'crm_db'),
+        port=os.environ.get('DBPORT', '5432'),
+        dbname=os.environ.get('DBNAME', 'crm_db'),
+        user=os.environ.get('DBUSER', 'crm_user'),
+        password=os.environ.get('DBPASSWORD', 'crm_talkhub_2026'),
+    )
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute(\"UPDATE django_migrations SET app = 'crm_channels' WHERE app = 'channels' AND name LIKE '%%initial%%'\")
+    if cur.rowcount:
+        print(f'  Renamed {cur.rowcount} migration(s) from channels -> crm_channels.')
+    cur.execute(\"UPDATE django_content_type SET app_label = 'crm_channels' WHERE app_label = 'channels'\")
+    if cur.rowcount:
+        print(f'  Renamed {cur.rowcount} content type(s) from channels -> crm_channels.')
+    cur.close()
+    conn.close()
+except Exception as e:
+    print(f'  channels->crm_channels rename skipped: {e}')
+" 2>&1 || true
+
     # 3. Migrations
     echo "[3/6] Running migrations..."
     python manage.py migrate --noinput

@@ -764,6 +764,14 @@ class ChatwootConnector(BaseConnector):
                     "description": "ID numérico da conta Chatwoot.",
                 },
                 {
+                    "name": "pubsub_token",
+                    "type": "text",
+                    "label": "Token de Tempo Real (PubSub)",
+                    "placeholder": "",
+                    "required": False,
+                    "description": "Permite mensagens instantâneas sem recarregar. Extraído automaticamente do perfil Chatwoot.",
+                },
+                {
                     "name": "webhook_secret",
                     "type": "password",
                     "label": "Webhook Secret (opcional)",

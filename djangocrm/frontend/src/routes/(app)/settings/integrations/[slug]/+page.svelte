@@ -9,11 +9,10 @@
   import { PageHeader } from '$lib/components/layout';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { ArrowLeft, Plug, RefreshCw, Wifi, WifiOff, Loader2, Clock, Save, AlertTriangle, CircleHelp, Copy, Check } from '@lucide/svelte';
+  import { ArrowLeft, Plug, RefreshCw, Wifi, WifiOff, Loader2, Clock, Save, AlertTriangle } from '@lucide/svelte';
   import IntegrationHealth from '$lib/components/integrations/IntegrationHealth.svelte';
   import ConnectorConfigForm from '$lib/components/integrations/ConnectorConfigForm.svelte';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-
+  import ChatwootSetup from '$lib/components/integrations/ChatwootSetup.svelte';
   /** @type {{ data: any, form: any }} */
   let { data, form } = $props();
 
@@ -103,7 +102,17 @@
         <p class="text-muted-foreground">Integração não encontrada.</p>
       </Card.Content>
     </Card.Root>
+  {:else if isChatwoot}
+    <ChatwootSetup
+      {integration}
+      {health}
+      fieldMappings={data.fieldMappings}
+      dlqItems={data.dlqItems || []}
+      webhookUrl={chatwootWebhookUrl}
+      {form}
+    />
   {:else}
+    <!-- Generic Integration View -->
     <!-- Status & Health -->
     <Card.Root>
       <Card.Header>
@@ -128,149 +137,6 @@
           <Badge variant={integration.is_connected ? 'default' : 'outline'}>
             {integration.is_connected ? 'Conectado' : 'Desconectado'}
           </Badge>
-          {#if isChatwoot}
-            <Dialog.Root>
-              <Dialog.Trigger>
-                <button type="button" class="inline-flex items-center justify-center gap-1.5 rounded-full text-muted-foreground hover:text-foreground transition-colors" title="Como conectar o Chatwoot?">
-                  <CircleHelp class="size-5" />
-                  <span class="text-xs underline underline-offset-2">Como conectar?</span>
-                </button>
-              </Dialog.Trigger>
-              <Dialog.Content class="max-w-xl max-h-[85vh] overflow-y-auto">
-                <Dialog.Header>
-                  <Dialog.Title>Como conectar o Chatwoot ao CRM</Dialog.Title>
-                  <Dialog.Description>
-                    Preencha os dados abaixo e configure o webhook para receber eventos em tempo real.
-                  </Dialog.Description>
-                </Dialog.Header>
-                <div class="space-y-5 text-sm">
-
-                  <!-- Step 1: URL -->
-                  <div class="rounded-lg border p-4 space-y-2">
-                    <div class="flex items-center gap-2">
-                      <span class="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
-                      <p class="font-semibold">URL do Chatwoot</p>
-                    </div>
-                    <p class="text-muted-foreground">
-                      É o endereço que você usa para acessar o painel do Chatwoot. Exemplo:
-                    </p>
-                    <div class="bg-muted rounded-md px-3 py-2 font-mono text-xs">
-                      https://chat.seudominio.com.br
-                    </div>
-                  </div>
-
-                  <!-- Step 2: Account ID -->
-                  <div class="rounded-lg border p-4 space-y-2">
-                    <div class="flex items-center gap-2">
-                      <span class="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
-                      <p class="font-semibold">ID da Conta (Account ID)</p>
-                    </div>
-                    <p class="text-muted-foreground">
-                      No Chatwoot, vá em <strong>Settings &rarr; Account Settings</strong>. O ID aparece na URL do navegador:
-                    </p>
-                    <div class="bg-muted rounded-md px-3 py-2 font-mono text-xs">
-                      https://chat.seudominio.com.br/app/accounts/<strong class="text-foreground">1</strong>/settings/general
-                    </div>
-                    <p class="text-muted-foreground text-xs">
-                      O número após <code>/accounts/</code> é o seu Account ID.
-                    </p>
-                  </div>
-
-                  <!-- Step 3: Token -->
-                  <div class="rounded-lg border p-4 space-y-2">
-                    <div class="flex items-center gap-2">
-                      <span class="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">3</span>
-                      <p class="font-semibold">Token de Acesso (API Access Token)</p>
-                    </div>
-                    <p class="text-muted-foreground">
-                      No Chatwoot, clique no seu <strong>avatar</strong> (canto inferior esquerdo) e depois em:
-                    </p>
-                    <div class="flex items-center gap-2 text-muted-foreground">
-                      <span class="bg-muted rounded px-2 py-1 font-mono text-xs">Profile Settings</span>
-                      <span>&rarr;</span>
-                      <span class="bg-muted rounded px-2 py-1 font-mono text-xs">Access Token</span>
-                    </div>
-                    <p class="text-muted-foreground text-xs">
-                      Copie o token exibido. Se não existir, clique em "Create" para gerar um novo.
-                    </p>
-                  </div>
-
-                  <!-- Step 4: Webhook -->
-                  <div class="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3 dark:border-blue-800 dark:bg-blue-950">
-                    <div class="flex items-center gap-2">
-                      <span class="flex size-6 items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold">4</span>
-                      <p class="font-semibold text-blue-800 dark:text-blue-200">Configurar Webhook no Chatwoot</p>
-                    </div>
-                    <p class="text-blue-700 dark:text-blue-300">
-                      No Chatwoot, vá em <strong>Settings &rarr; Integrations &rarr; Webhook &rarr; Adicionar novo webhook</strong>
-                      e cole a URL abaixo:
-                    </p>
-                    {#if integration?.webhook_token}
-                    <div class="flex items-center gap-2">
-                      <div class="bg-white dark:bg-blue-900 rounded-md px-3 py-2 font-mono text-xs break-all flex-1 border border-blue-200 dark:border-blue-700 select-all">
-                        {chatwootWebhookUrl}
-                      </div>
-                      <button
-                        type="button"
-                        onclick={copyWebhookUrl}
-                        class="shrink-0 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900 p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors"
-                        title="Copiar URL"
-                      >
-                        {#if webhookCopied}
-                          <Check class="size-4" />
-                        {:else}
-                          <Copy class="size-4" />
-                        {/if}
-                      </button>
-                    </div>
-                    {:else}
-                    <p class="text-amber-600 dark:text-amber-400 text-xs font-medium">
-                      Conecte a integração primeiro para gerar a URL exclusiva do webhook.
-                    </p>
-                    {/if}
-                    <p class="text-blue-700 dark:text-blue-300">
-                      Marque os seguintes eventos:
-                    </p>
-                    <div class="grid grid-cols-2 gap-1 text-xs text-blue-600 dark:text-blue-400">
-                      <span>&#x2713; Conversa Criada</span>
-                      <span>&#x2713; Conversa Atualizada</span>
-                      <span>&#x2713; Status de conversa alterado</span>
-                      <span>&#x2713; Mensagem criada</span>
-                      <span>&#x2713; Mensagem atualizada</span>
-                      <span>&#x2713; Contato criado</span>
-                      <span>&#x2713; Contato atualizado</span>
-                    </div>
-                    <p class="text-blue-600 dark:text-blue-400 text-xs">
-                      O webhook permite que o CRM receba atualizações em tempo real do Chatwoot, sem necessidade de polling.
-                    </p>
-                  </div>
-
-                  <!-- Webhook auto-register info -->
-                  <div class="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
-                    <p class="text-green-700 dark:text-green-300 text-xs">
-                      <strong>Dica:</strong> Ao clicar em "Salvar e Conectar", o CRM tenta registrar o webhook automaticamente via API.
-                      Se o registro automático falhar (por permissões ou rede), configure manualmente pelo passo 4 acima.
-                    </p>
-                  </div>
-
-                  <!-- Webhook Secret (optional) -->
-                  <div class="rounded-lg border border-dashed p-4 space-y-2">
-                    <p class="font-semibold text-muted-foreground">Webhook Secret (opcional)</p>
-                    <p class="text-muted-foreground text-xs">
-                      Para validar a autenticidade dos webhooks, defina um secret aqui e configure o mesmo valor
-                      no Chatwoot ao editar o webhook. Recomendado para produção, mas não obrigatório.
-                    </p>
-                  </div>
-
-                </div>
-                <Dialog.Footer>
-                  <Dialog.Close>
-                    <Button variant="outline">Entendi</Button>
-                  </Dialog.Close>
-                </Dialog.Footer>
-              </Dialog.Content>
-            </Dialog.Root>
-          {/if}
           {#if integration.last_sync_at}
             <span class="text-muted-foreground text-xs">
               Último sync: {new Date(integration.last_sync_at).toLocaleString('pt-BR')}

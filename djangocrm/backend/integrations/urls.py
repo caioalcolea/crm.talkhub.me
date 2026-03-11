@@ -39,6 +39,7 @@ from integrations.views import (
     IntegrationSyncView,
     SyncJobDetailView,
     VariableRegistryView,
+    FetchPubsubTokenView,
     WebhookDLQView,
     WebhookLogListView,
     webhook_receiver,
@@ -73,6 +74,8 @@ urlpatterns = [
     path("variables/", VariableRegistryView.as_view(), name="variable-registry"),
     # Health dashboard (all integrations)
     path("health/", IntegrationHealthDashboardView.as_view(), name="integration-health-dashboard"),
+    # Chatwoot-specific: fetch PubSub token for ActionCable WebSocket
+    path("chatwoot/fetch-pubsub-token/", FetchPubsubTokenView.as_view(), name="fetch-pubsub-token"),
     # Integration detail and actions (slug-based, must be last)
     path("<str:connector_slug>/", IntegrationDetailView.as_view(), name="integration-detail"),
     path("<str:connector_slug>/connect/", IntegrationConnectView.as_view(), name="integration-connect"),
