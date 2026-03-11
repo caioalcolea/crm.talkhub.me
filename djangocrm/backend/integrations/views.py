@@ -1031,7 +1031,13 @@ class FetchPubsubTokenView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            return Response(
+                {"error": f"Chatwoot retornou resposta inválida (body vazio ou não-JSON)"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         pubsub_token = data.get("data", {}).get("pubsub_token", "")
         if not pubsub_token:
             return Response(
