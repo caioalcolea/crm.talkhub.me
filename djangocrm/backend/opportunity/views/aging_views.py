@@ -39,7 +39,7 @@ class StageAgingConfigView(APIView):
 
     def put(self, request):
         """Bulk upsert stage aging configs (admin only)."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": True, "errors": "Only admins can update aging config"},
                 status=status.HTTP_403_FORBIDDEN,

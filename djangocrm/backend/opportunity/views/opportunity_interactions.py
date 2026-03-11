@@ -91,7 +91,7 @@ class OpportunityCommentView(APIView):
             )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = CommentSerializer(obj, data=params)
@@ -140,7 +140,7 @@ class OpportunityCommentView(APIView):
             )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = CommentSerializer(obj, data=params, partial=True)
@@ -184,7 +184,7 @@ class OpportunityCommentView(APIView):
             )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == self.object.commented_by
         ):
             self.object.delete()
@@ -228,7 +228,7 @@ class OpportunityAttachmentView(APIView):
             )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == self.object.created_by
         ):
             self.object.delete()

@@ -34,7 +34,7 @@ class OpportunityLineItemListView(APIView):
                 {"error": True, "message": "Opportunity not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile.user == opportunity.created_by)
                 or (self.request.profile in opportunity.assigned_to.all())
@@ -167,7 +167,7 @@ class OpportunityLineItemDetailView(APIView):
                 {"error": True, "message": "Opportunity not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile.user == opportunity.created_by)
                 or (self.request.profile in opportunity.assigned_to.all())

@@ -82,7 +82,7 @@ class InvoiceListView(APIView, LimitOffsetPagination):
         )
 
         # Non-admin users can only see their own or assigned invoices
-        if role != "ADMIN" and not self.request.user.is_superuser:
+        if role != "ADMIN" and not self.request.profile.is_admin:
             queryset = queryset.filter(
                 Q(created_by=self.request.profile.user)
                 | Q(assigned_to=self.request.profile)
@@ -222,7 +222,7 @@ class InvoiceDetailView(APIView):
     def check_permissions_for_object(self, invoice):
         """Check if user has permission to access this invoice"""
         role = self.request.profile.role
-        if role != "ADMIN" and not self.request.user.is_superuser:
+        if role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 self.request.profile == invoice.created_by
                 or self.request.profile in invoice.assigned_to.all()
@@ -488,7 +488,7 @@ class InvoiceCancelView(APIView):
 
         # Check permissions
         role = request.profile.role
-        if role != "ADMIN" and not request.user.is_superuser:
+        if role != "ADMIN" and not request.profile.is_admin:
             if not (
                 request.profile == invoice.created_by
                 or request.profile in invoice.assigned_to.all()
@@ -542,7 +542,7 @@ class InvoicePDFView(APIView):
 
         # Check user permissions
         role = request.profile.role
-        if role != "ADMIN" and not request.user.is_superuser:
+        if role != "ADMIN" and not request.profile.is_admin:
             if not (
                 request.profile == invoice.created_by
                 or request.profile in invoice.assigned_to.all()
@@ -769,7 +769,7 @@ class PaymentDetailView(APIView):
         # Check user permissions - must be admin, invoice creator, or assigned to invoice
         invoice = payment.invoice
         role = request.profile.role
-        if role != "ADMIN" and not request.user.is_superuser:
+        if role != "ADMIN" and not request.profile.is_admin:
             if not (
                 request.profile == invoice.created_by
                 or request.profile in invoice.assigned_to.all()
@@ -929,7 +929,7 @@ class EstimateListView(APIView, LimitOffsetPagination):
             "account", "contact", "opportunity", "created_by"
         )
 
-        if role != "ADMIN" and not self.request.user.is_superuser:
+        if role != "ADMIN" and not self.request.profile.is_admin:
             queryset = queryset.filter(
                 Q(created_by=self.request.profile) | Q(assigned_to=self.request.profile)
             ).distinct()
@@ -1180,7 +1180,7 @@ class EstimatePDFView(APIView):
 
         # Check user permissions
         role = request.profile.role
-        if role != "ADMIN" and not request.user.is_superuser:
+        if role != "ADMIN" and not request.profile.is_admin:
             if not (
                 request.profile == estimate.created_by
                 or request.profile in estimate.assigned_to.all()
@@ -1965,7 +1965,7 @@ class InvoiceFromOpportunityView(APIView):
             )
 
         # Check permission
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             if not (
                 (request.profile.user == opportunity.created_by)
                 or (request.profile in opportunity.assigned_to.all())

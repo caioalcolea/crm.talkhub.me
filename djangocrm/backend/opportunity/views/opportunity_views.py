@@ -50,7 +50,7 @@ class OpportunityListView(APIView, LimitOffsetPagination):
         )
         accounts = Account.objects.filter(org=self.request.profile.org)
         contacts = Contact.objects.filter(org=self.request.profile.org)
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             queryset = queryset.filter(
                 Q(created_by=self.request.profile.user)
                 | Q(assigned_to=self.request.profile)
@@ -340,7 +340,7 @@ class OpportunityDetailView(APIView):
                 {"error": True, "errors": "User company doesnot match with header...."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile == opportunity_object.created_by)
                 or (self.request.profile in opportunity_object.assigned_to.all())
@@ -483,7 +483,7 @@ class OpportunityDetailView(APIView):
                 {"error": True, "errors": "User company doesnot match with header...."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if self.request.profile.user != self.object.created_by:
                 return Response(
                     {
@@ -534,7 +534,7 @@ class OpportunityDetailView(APIView):
                 {"error": True, "errors": "User company doesnot match with header...."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile == self.opportunity.created_by)
                 or (self.request.profile in self.opportunity.assigned_to.all())
@@ -551,12 +551,12 @@ class OpportunityDetailView(APIView):
 
         if (
             self.request.profile == self.opportunity.created_by
-            or self.request.user.is_superuser
+            or self.request.profile.is_admin
             or self.request.profile.role == "ADMIN"
         ):
             comment_permission = True
 
-        if self.request.user.is_superuser or self.request.profile.role == "ADMIN":
+        if self.request.profile.is_admin or self.request.profile.role == "ADMIN":
             users_mention = list(
                 Profile.objects.filter(
                     is_active=True, org=self.request.profile.org
@@ -629,7 +629,7 @@ class OpportunityDetailView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         comment_serializer = CommentSerializer(data=params)
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile == self.opportunity_obj.created_by)
                 or (self.request.profile in self.opportunity_obj.assigned_to.all())
@@ -711,7 +711,7 @@ class OpportunityDetailView(APIView):
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile == opportunity_object.created_by)
                 or (self.request.profile in opportunity_object.assigned_to.all())

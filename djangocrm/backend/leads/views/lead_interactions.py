@@ -145,7 +145,7 @@ class LeadCommentView(APIView):
         obj = self.get_object(pk)
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = LeadCommentSerializer(obj, data=params)
@@ -188,7 +188,7 @@ class LeadCommentView(APIView):
         obj = self.get_object(pk)
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = LeadCommentSerializer(obj, data=params, partial=True)
@@ -227,7 +227,7 @@ class LeadCommentView(APIView):
         self.object = self.get_object(pk)
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == self.object.commented_by
         ):
             self.object.delete()
@@ -272,7 +272,7 @@ class LeadAttachmentView(APIView):
             )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile.user == self.object.created_by
         ):
             self.object.delete()
