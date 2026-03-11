@@ -104,7 +104,9 @@ chatwoot/
 
 **Key features**:
 - Auto-register webhook no Chatwoot ao conectar
-- Detecção automática de grupos (`conversation_type=group`)
+- Detecção automática de grupos: `conversation_type`, `additional_attributes.type`, `"(GROUP)"` no nome, `chat_name_or_title`/`group_name`
+- Contact dedup: busca por chatwoot_id, email, phone, nome exato (para grupos sem email/phone). Auto-dedup (`_dedup_contacts`) roda no início de cada sync
+- Sync de todos os status (open, pending, resolved, snoozed) — API Chatwoot defaults to open only
 - Contact sync: atualiza email/telefone/nome faltantes em contatos existentes
 - Status bidirecional com grace period de 30s (CRM→Chatwoot via Celery async)
 - Echo prevention para mensagens enviadas pelo CRM

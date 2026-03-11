@@ -143,6 +143,9 @@ docker stack services djangocrm
 6. **IMAP polling**: Emails are fetched via Celery Beat every 2 minutes (`poll_imap_emails` task) AND on manual sync via the SMTP connector
 7. **Chatwoot status sync**: CRM status changes are synced to Chatwoot async via Celery. A 30s grace period prevents Chatwoot webhooks from reverting local status changes (`status_changed_locally_at` in metadata)
 8. **Conversation updates**: Frontend uses fast polling (5s incremental via `/conversations/updates/`, 60s full refresh). Do NOT use bare 30s full refresh — it's too heavy
+9. **Chatwoot contact dedup**: Group contacts (no email/phone) are deduped by exact name match. chatwoot_id is stored in `description` field as `chatwoot_id:123`. The `_dedup_contacts()` method auto-cleans duplicates on every sync
+10. **Chatwoot sync all statuses**: Chatwoot API `GET /conversations` defaults to `status=open` only. The sync must iterate all statuses (open, pending, resolved, snoozed) to get all conversations
+11. **Conversation ordering**: `ConversationListView` uses `Coalesce(last_message_at, created_at)` to ensure conversations without messages (freshly synced) appear in the list
 
 ## Services (Docker Swarm)
 
@@ -200,10 +203,14 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/ (AllowAny)
 
 ### Key Patterns
 - **Echo prevention**: Outgoing messages with `content_attributes.external_created=True` are skipped
-- **Group detection**: Checks `conversation_type=="group"`, `additional_attributes.type=="group"`, and fallback name chain
+- **Group detection**: Checks `conversation_type=="group"`, `additional_attributes.type=="group"`, `"(GROUP)"` in contact name, and fallback name chain
+- **Contact dedup**: `_get_or_create_contact` matches by: (1) chatwoot_id stored in description, (2) email, (3) phone, (4) exact name for contacts without email/phone (groups). Handles both `NULL` and `""` for empty fields
+- **Auto-dedup on sync**: `_dedup_contacts()` runs at start of every sync — merges duplicate contacts (same name, no email/phone), reassigns conversations, removes duplicates
+- **Sync all statuses**: Chatwoot API defaults to `status=open`. Sync iterates all statuses: open, pending, resolved, snoozed
 - **Contact sync**: `_get_or_create_contact` updates existing contacts with missing email/phone/name from Chatwoot
 - **Status precedence**: Local CRM status changes set `status_changed_locally_at` → webhooks skip status sync for 30s
 - **Async status sync**: `sync_conversation_status_to_chatwoot` Celery task syncs CRM→Chatwoot via `toggle_status` API
+- **Conversation ordering**: `ConversationListView` uses `Coalesce(last_message_at, created_at)` so conversations without messages still appear
 
 ### Frontend Real-Time
 - **Fast poll** (5s): `GET /conversations/updates/?since=<ISO>&conversation_id=<UUID>` — returns only deltas

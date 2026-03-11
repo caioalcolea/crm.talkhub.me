@@ -399,9 +399,11 @@ Eventos suportados:
 - `contact_created` / `contact_updated` — sync de contatos (atualiza email/telefone/nome faltantes)
 
 Funcionalidades:
-- **Grupos**: Detecção automática (`conversation_type=group`), nome extraído de `additional_attributes.chat_name_or_title`
+- **Grupos**: Detecção automática via múltiplas heurísticas: `conversation_type=group`, `additional_attributes.type=group`, `"(GROUP)"` no nome do contato, `chat_name_or_title`/`group_name`
 - **Status bidirecional**: CRM→Chatwoot via Celery async (`toggle_status` API), com grace period de 30s para não reverter
-- **Deduplicação**: Mensagens e conversas dedup por `chatwoot_message_id` / `chatwoot_conversation_id` no `metadata_json`
+- **Deduplicação de conversas/mensagens**: Dedup por `chatwoot_message_id` / `chatwoot_conversation_id` no `metadata_json`
+- **Deduplicação de contatos**: `_get_or_create_contact` busca por: (1) chatwoot_id armazenado na description, (2) email, (3) phone, (4) nome exato para contatos sem email/phone (grupos). `_dedup_contacts()` roda automaticamente no início de cada sync para mesclar duplicatas existentes
+- **Sync de todos os status**: A API Chatwoot `GET /conversations` retorna apenas `status=open` por padrão. O sync itera todos: open, pending, resolved, snoozed
 - **Echo prevention**: Mensagens `outgoing` com `external_created=True` são ignoradas
 - **Auto-registro**: Webhook é registrado automaticamente no Chatwoot ao conectar
 

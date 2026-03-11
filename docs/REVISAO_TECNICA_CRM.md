@@ -23,7 +23,7 @@ O TalkHub CRM e um sistema CRM multi-tenant SaaS em transformacao para CRM conve
 
 ### Metricas do Sistema
 
-- **15 apps Django** (accounts, contacts, leads, opportunity, cases, tasks, invoices, orders, financeiro, integrations, channels, conversations, talkhub_omni, automations, campaigns)
+- **17 apps Django** (accounts, contacts, leads, opportunity, cases, tasks, invoices, orders, financeiro, integrations, channels, conversations, chatwoot, talkhub_omni, salesforce, automations, campaigns)
 - **90+ models** com org FK
 - **120+ endpoints REST**
 - **30+ Celery tasks** (periodicas + on-demand)
@@ -591,7 +591,7 @@ POST     /api/campaigns/<id>/pause-resume/ -> Pausar/retomar
 | 3 | Adicionar requirepass ao Redis | CRITICO | 30min |
 | 4 | Corrigir inconsistencia de senha RLS (init-rls-user.sql) | CRITICO | 1h |
 | 5 | Adicionar rate limiting em endpoints auth | ALTO | 2h |
-| 6 | Containers como non-root user | MEDIO | 1h |
+| ~~6~~ | ~~Containers como non-root user~~ | ~~MEDIO~~ | ~~CORRIGIDO~~ |
 
 ### Fase 2: Integridade de Dados (Sprint 2 - 1 semana)
 
@@ -628,8 +628,8 @@ POST     /api/campaigns/<id>/pause-resume/ -> Pausar/retomar
 
 | # | Tarefa | Prioridade | Esforco |
 |---|--------|-----------|---------|
-| 23 | Adicionar health checks nos Dockerfiles e compose | ALTO | 2h |
-| 24 | Implementar backup automatizado PostgreSQL | MEDIO | 4h |
+| ~~23~~ | ~~Adicionar health checks nos Dockerfiles e compose~~ | ~~ALTO~~ | ~~CORRIGIDO~~ |
+| ~~24~~ | ~~Implementar backup automatizado PostgreSQL~~ | ~~MEDIO~~ | ~~CORRIGIDO~~ |
 | 25 | Adicionar HTTP security headers (HSTS, CSP, X-Frame) | MEDIO | 2h |
 | 26 | Automatizar CI/CD (build -> push -> deploy) | MEDIO | 8h |
 | 27 | Adicionar Trivy/Bandit ao CI para security scanning | BAIXO | 2h |
@@ -647,23 +647,28 @@ POST     /api/campaigns/<id>/pause-resume/ -> Pausar/retomar
 - **Bot control**: Pause/resume bot por contato
 - **Multi-canal**: Suporte a WhatsApp, SMS, Email, Web Chat via TalkHub Omni
 
+### Implementado (atualizado 2026-03-11)
+- **Chatwoot integration**: COMPLETO — webhook bidirecional (7 eventos), sync de conversas/contatos/grupos, envio de mensagens, status sync com grace period 30s
+- **Real-time messaging**: Fast polling 5s incremental (`/conversations/updates/`), full refresh 60s fallback. Merge incremental de conversas e mensagens (dedup por ID)
+- **Contact dedup automático**: `_dedup_contacts()` roda no inicio de cada sync — mescla contatos duplicados (mesmo nome, sem email/phone), redireciona conversas
+- **Group detection**: Múltiplas heurísticas: `conversation_type`, `additional_attributes.type`, `"(GROUP)"` no nome, `chat_name_or_title`/`group_name`
+- **All-status sync**: Sync itera open, pending, resolved, snoozed (Chatwoot API defaults to open only)
+
 ### Pendente / Em Progresso
-- **Real-time messaging**: Sem WebSocket/SSE implementado (conversas nao atualizam em tempo real)
-- **Chatwoot integration**: Planejado mas nao implementado
+- **WebSocket/SSE**: Nao implementado (fast polling 5s funciona bem mas WebSocket seria ideal)
 - **Evolution API integration**: Planejado mas nao implementado
 - **EvoAI integration**: Planejado mas nao implementado
 - **Read status**: Mensagens sem tracking de leitura
 - **Typing indicators**: Nao implementado
 - **Message reactions**: Nao implementado
-- **Contact merge**: Sem funcionalidade de merge de contatos duplicados
 - **Unified contact timeline**: Historico unificado (CRM + conversas) parcialmente implementado
 
 ### Recomendacao para CRM Conversacional
-1. **Prioridade 1**: Implementar WebSocket/SSE para atualizacoes em tempo real
-2. **Prioridade 2**: Completar integracao Chatwoot + Evolution API
+1. **Prioridade 1**: Completar integracao Evolution API (WhatsApp direto)
+2. **Prioridade 2**: Implementar WebSocket/SSE para substituir fast polling
 3. **Prioridade 3**: Unificar timeline de contato (todas as interacoes em um so lugar)
-4. **Prioridade 4**: Implementar contact merge para deduplicacao
-5. **Prioridade 5**: Adicionar typing indicators e read receipts
+4. **Prioridade 4**: Adicionar typing indicators e read receipts
+5. **Prioridade 5**: Integrar EvoAI para funcionalidades de IA
 
 ---
 
