@@ -272,6 +272,37 @@ io.on("connection", (socket) => {
   }
 });
 
+// ── Zombie Player Reaper ────────────────────────────────────
+// Periodically check for players whose socket disconnected without
+// firing the disconnect event (network drops, frozen tabs, etc.)
+const REAP_INTERVAL_MS = 30000; // every 30s
+
+setInterval(() => {
+  let reaped = 0;
+  for (const [roomId, room] of rooms) {
+    for (const [socketId, player] of room) {
+      const sock = io.sockets.sockets.get(socketId);
+      if (!sock || !sock.connected) {
+        room.delete(socketId);
+        // Notify remaining players
+        for (const [otherId] of room) {
+          const otherSock = io.sockets.sockets.get(otherId);
+          if (otherSock) otherSock.emit("player-left", { id: socketId });
+        }
+        reaped++;
+        console.log(`[${roomId}] Reaped zombie: ${player.displayName}`);
+      }
+    }
+    // Clean up empty rooms
+    if (room.size === 0) {
+      rooms.delete(roomId);
+    }
+  }
+  if (reaped > 0) {
+    console.log(`Reaper: cleaned ${reaped} zombie player(s)`);
+  }
+}, REAP_INTERVAL_MS);
+
 // ── Start ───────────────────────────────────────────────────
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`🏢 Cowork Server listening on port ${PORT}`);

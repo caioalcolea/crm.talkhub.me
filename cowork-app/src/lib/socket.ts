@@ -22,7 +22,15 @@ export function connectSocket(config: CoworkConfig): Socket {
     socket.disconnect();
   }
 
-  socket = io(config.socketUrl, {
+  // socketUrl is the origin (e.g. https://crm.talkhub.me/cowork-ws)
+  // Traefik StripPrefix removes /cowork-ws before forwarding to the server,
+  // so we must include /cowork-ws/socket.io/ as the path so Traefik can match
+  // the route and strip it → server receives /socket.io/ as expected.
+  const url = new URL(config.socketUrl);
+  const basePath = url.pathname.replace(/\/$/, ""); // e.g. "/cowork-ws"
+
+  socket = io(url.origin, {
+    path: `${basePath}/socket.io/`,
     transports: ["websocket", "polling"],
     autoConnect: true,
   });

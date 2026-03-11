@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
@@ -131,9 +132,12 @@ class CoworkGuestJoinView(APIView):
     """
     Public endpoint: validate an invite token and return a guest JWT.
     Bypasses RLS via raw SQL (token IS the authentication).
+    Rate-limited to 10 req/min per IP to prevent token brute-force.
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "cowork_guest"
 
     def get(self, request, token):
         # Bypass RLS — lookup invite by token directly
