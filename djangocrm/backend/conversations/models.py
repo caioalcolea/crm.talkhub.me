@@ -5,6 +5,7 @@ Conversation e Message são genéricos e independentes de integração.
 Qualquer ChannelProvider pode criar conversas e mensagens.
 """
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from common.base import BaseOrgModel
@@ -48,6 +49,9 @@ class Conversation(BaseOrgModel):
             models.Index(fields=["org", "channel"]),
             models.Index(fields=["contact"]),
             models.Index(fields=["omni_user_ns"]),
+            GinIndex(fields=["metadata_json"], name="conv_metadata_gin"),
+            models.Index(fields=["org", "assigned_to"], name="conv_org_assigned"),
+            models.Index(fields=["org", "-updated_at"], name="conv_org_updated"),
         ]
 
     def __str__(self):

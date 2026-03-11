@@ -82,6 +82,7 @@
     try {
       const params = new URLSearchParams({ since: lastPollTime });
       if (activeConversationId) params.set('conversation_id', activeConversationId);
+      if (filters.is_group) params.set('is_group', filters.is_group);
 
       const updates = await apiRequest(`/conversations/updates/?${params.toString()}`);
       if (!updates || updates.error) return;

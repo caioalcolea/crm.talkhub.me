@@ -34,6 +34,10 @@
   async function sendMessage() {
     const text = content.trim();
     if (!text || sending) return;
+    if (!conversationId) {
+      error = 'Nenhuma conversa selecionada';
+      return;
+    }
 
     sending = true;
     error = '';

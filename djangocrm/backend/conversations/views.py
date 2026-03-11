@@ -12,6 +12,7 @@ Views do app conversations.
 
 import logging
 
+from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -66,7 +67,7 @@ class ConversationListView(APIView):
 
         tag = request.query_params.get("tag")
         if tag:
-            queryset = queryset.filter(tags__name=tag)
+            queryset = queryset.filter(tags__name=tag).distinct()
 
         # Filter by group/individual conversations
         is_group = request.query_params.get("is_group")
@@ -269,17 +270,20 @@ class MessageCreateView(APIView):
                 logger.warning("Failed to enrich email metadata: %s", e)
 
         try:
-            message = serializer.save(
-                org=request.org,
-                conversation=conversation,
-                sender_name=sender_name,
-                sender_id=str(request.user.id) if request.user else "",
-                metadata_json=extra_meta,
-            )
+            with transaction.atomic():
+                message = serializer.save(
+                    org=request.org,
+                    conversation=conversation,
+                    sender_name=sender_name,
+                    sender_id=str(request.user.id) if request.user else "",
+                    metadata_json=extra_meta,
+                )
 
-            # Atualizar last_message_at
-            conversation.last_message_at = message.timestamp
-            conversation.save(update_fields=["last_message_at", "updated_at"])
+                # Re-fetch with lock to prevent concurrent timestamp overwrites
+                conv = Conversation.objects.select_for_update().get(pk=conversation.pk)
+                if not conv.last_message_at or message.timestamp > conv.last_message_at:
+                    conv.last_message_at = message.timestamp
+                    conv.save(update_fields=["last_message_at", "updated_at"])
 
             return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -381,7 +385,15 @@ class ContactConversationsView(APIView):
     def get(self, request, contact_id):
         queryset = Conversation.objects.filter(
             org=request.org, contact_id=contact_id
-        ).select_related("assigned_to")
+        ).select_related(
+            "contact", "assigned_to"
+        ).prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=Message.objects.order_by("-timestamp")[:1],
+                to_attr="_latest_messages",
+            )
+        ).order_by(Coalesce("last_message_at", "created_at").desc())
 
         serializer = ConversationListSerializer(queryset, many=True)
         return Response(serializer.data)
@@ -419,7 +431,18 @@ class ConversationUpdatesView(APIView):
         updated_convs = Conversation.objects.filter(
             org=request.org,
             updated_at__gt=since_dt,
-        ).select_related("contact", "assigned_to").prefetch_related(
+        )
+
+        # Filter by group/individual to match frontend tab
+        is_group = request.query_params.get("is_group")
+        if is_group == "true":
+            updated_convs = updated_convs.filter(metadata_json__is_group=True)
+        elif is_group == "false":
+            updated_convs = updated_convs.filter(
+                Q(metadata_json__is_group=False) | ~Q(metadata_json__has_key="is_group")
+            )
+
+        updated_convs = updated_convs.select_related("contact", "assigned_to").prefetch_related(
             Prefetch(
                 "messages",
                 queryset=Message.objects.order_by("-timestamp")[:1],

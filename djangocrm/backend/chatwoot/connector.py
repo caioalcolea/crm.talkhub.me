@@ -1078,6 +1078,7 @@ class ChatwootConnector(BaseConnector):
     def validate_webhook(self, payload: bytes, headers: dict, secret: str) -> bool:
         """Validate Chatwoot webhook via HMAC-SHA256 if secret is configured."""
         if not secret:
+            logger.warning("Chatwoot webhook: no secret configured — accepting without signature verification")
             return True
 
         signature = headers.get("X-Chatwoot-Signature", "") or headers.get("x-chatwoot-signature", "")
