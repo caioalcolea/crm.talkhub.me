@@ -107,18 +107,19 @@ export function wsDisconnect() {
 }
 
 /**
- * Whether the WebSocket is connected.
- * Use in components: `if (wsConnected) { ... }`
+ * Whether the WebSocket is currently connected.
+ * @returns {boolean}
  */
-export function get wsConnected() {
+export function isWsConnected() {
   return connected;
 }
 
 /**
  * Whether polling should be used as fallback.
  * True when WS failed too many times consecutively.
+ * @returns {boolean}
  */
-export function get wsShouldFallbackToPoll() {
+export function shouldFallbackToPoll() {
   return consecutiveFailures >= MAX_FAILURES_BEFORE_FALLBACK;
 }
 
