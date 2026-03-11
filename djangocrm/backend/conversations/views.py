@@ -68,6 +68,15 @@ class ConversationListView(APIView):
         if tag:
             queryset = queryset.filter(tags__name=tag)
 
+        # Filter by group/individual conversations
+        is_group = request.query_params.get("is_group")
+        if is_group == "true":
+            queryset = queryset.filter(metadata_json__is_group=True)
+        elif is_group == "false":
+            queryset = queryset.filter(
+                Q(metadata_json__is_group=False) | ~Q(metadata_json__has_key="is_group")
+            )
+
         search = request.query_params.get("search")
         if search:
             queryset = queryset.filter(

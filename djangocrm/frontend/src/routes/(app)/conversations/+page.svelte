@@ -7,7 +7,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import { PageHeader } from '$lib/components/layout';
-  import { MessageSquare, Search, Filter, RefreshCw, PanelRight } from '@lucide/svelte';
+  import { MessageSquare, Search, Filter, RefreshCw, PanelRight, Users, MessageCircle } from '@lucide/svelte';
   import ConversationList from '$lib/components/conversations/ConversationList.svelte';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
@@ -32,9 +32,24 @@
   let refreshing = $state(false);
   let lastPollTime = $state(new Date().toISOString());
 
+  // Track active conversation ID to prevent stale message loads
+  let activeConversationId = $state(null);
+
+  // Derived: current tab (conversations or groups)
+  let currentTab = $derived(filters.is_group === 'true' ? 'groups' : 'conversations');
+
   // Sync conversations when data changes (e.g. from server-side navigation)
   $effect(() => {
     conversations = data.conversations || [];
+    // Clear selection when switching tabs to prevent mixing
+    if (selectedConversation) {
+      const stillExists = conversations.find(c => c.id === selectedConversation.id);
+      if (!stillExists) {
+        selectedConversation = null;
+        messages = [];
+        activeConversationId = null;
+      }
+    }
   });
 
   $effect(() => {
@@ -66,7 +81,7 @@
   async function pollUpdates() {
     try {
       const params = new URLSearchParams({ since: lastPollTime });
-      if (selectedConversation) params.set('conversation_id', selectedConversation.id);
+      if (activeConversationId) params.set('conversation_id', activeConversationId);
 
       const updates = await apiRequest(`/conversations/updates/?${params.toString()}`);
       if (!updates || updates.error) return;
@@ -74,32 +89,43 @@
       // Update server time for next poll
       if (updates.server_time) lastPollTime = updates.server_time;
 
-      // Merge updated conversations into the list
+      // Merge updated conversations into the list (only matching current tab)
       if (updates.conversations?.length > 0) {
-        const updatedMap = new Map(updates.conversations.map(c => [c.id, c]));
-        let changed = false;
-
-        conversations = conversations.map(c => {
-          if (updatedMap.has(c.id)) {
-            changed = true;
-            const updated = updatedMap.get(c.id);
-            updatedMap.delete(c.id);
-            return updated;
-          }
-          return c;
+        const isGroupTab = filters.is_group === 'true';
+        const relevantUpdates = updates.conversations.filter(c => {
+          const convIsGroup = Boolean(c.is_group);
+          if (filters.is_group === 'true') return convIsGroup;
+          if (filters.is_group === 'false') return !convIsGroup;
+          return true; // no filter
         });
 
-        // Add new conversations not yet in the list
-        if (updatedMap.size > 0) {
-          conversations = [...updatedMap.values(), ...conversations];
-          changed = true;
-        }
+        if (relevantUpdates.length > 0) {
+          const updatedMap = new Map(relevantUpdates.map(c => [c.id, c]));
+          let changed = false;
 
-        // Re-sort by last_message_at
-        if (changed) {
-          conversations = [...conversations].sort((a, b) =>
-            new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime()
-          );
+          conversations = conversations.map(c => {
+            if (updatedMap.has(c.id)) {
+              changed = true;
+              const updated = updatedMap.get(c.id);
+              updatedMap.delete(c.id);
+              return updated;
+            }
+            return c;
+          });
+
+          // Add new conversations not yet in the list
+          if (updatedMap.size > 0) {
+            conversations = [...updatedMap.values(), ...conversations];
+            changed = true;
+          }
+
+          // Re-sort by last_message_at (with fallback to created_at)
+          if (changed) {
+            conversations = [...conversations].sort((a, b) =>
+              new Date(b.last_message_at || b.created_at || 0).getTime() -
+              new Date(a.last_message_at || a.created_at || 0).getTime()
+            );
+          }
         }
 
         // Update selected conversation if it was updated
@@ -109,10 +135,12 @@
         }
       }
 
-      // Append new messages for the active conversation
-      if (updates.messages?.length > 0 && selectedConversation) {
+      // Append new messages ONLY for the active conversation (prevents mixing)
+      if (updates.messages?.length > 0 && activeConversationId) {
         const existingIds = new Set(messages.map(m => m.id));
-        const newMsgs = updates.messages.filter(m => !existingIds.has(m.id));
+        const newMsgs = updates.messages.filter(m =>
+          !existingIds.has(m.id) && m.conversation === activeConversationId
+        );
         if (newMsgs.length > 0) {
           messages = [...messages, ...newMsgs];
         }
@@ -134,18 +162,19 @@
       if (filters.status) params.set('status', filters.status);
       if (filters.assigned_to) params.set('assigned_to', filters.assigned_to);
       if (filters.search) params.set('search', filters.search);
+      if (filters.is_group) params.set('is_group', filters.is_group);
       const qs = params.toString();
 
       const freshConversations = await apiRequest(`/conversations/${qs ? '?' + qs : ''}`);
       conversations = freshConversations?.results || freshConversations || [];
 
       // Also refresh messages for the selected conversation
-      if (selectedConversation) {
-        const freshMessages = await apiRequest(`/conversations/${selectedConversation.id}/messages/`);
+      if (activeConversationId) {
+        const freshMessages = await apiRequest(`/conversations/${activeConversationId}/messages/`);
         messages = freshMessages?.results || freshMessages || [];
 
-        // Update selected conversation data (e.g. status, last_message_at)
-        const updated = conversations.find(c => c.id === selectedConversation.id);
+        // Update selected conversation data
+        const updated = conversations.find(c => c.id === activeConversationId);
         if (updated) selectedConversation = updated;
       }
 
@@ -159,16 +188,28 @@
 
   /** @param {any} conversation */
   async function selectConversation(conversation) {
+    // Guard: clear previous state immediately
+    const convId = conversation.id;
+    activeConversationId = convId;
     selectedConversation = conversation;
+    messages = [];
     loadingMessages = true;
+
     try {
-      const data = await apiRequest(`/conversations/${conversation.id}/messages/`);
-      messages = data.results || data || [];
+      const data = await apiRequest(`/conversations/${convId}/messages/`);
+      // Only apply if this is still the active conversation (prevents race conditions)
+      if (activeConversationId === convId) {
+        messages = data.results || data || [];
+      }
     } catch (e) {
       console.error('Erro ao carregar mensagens:', e);
-      toast.error('Erro ao carregar mensagens');
+      if (activeConversationId === convId) {
+        toast.error('Erro ao carregar mensagens');
+      }
     } finally {
-      loadingMessages = false;
+      if (activeConversationId === convId) {
+        loadingMessages = false;
+      }
     }
   }
 
@@ -180,13 +221,29 @@
     goto(url.toString(), { replaceState: true, invalidateAll: true });
   }
 
+  /** @param {string} tab */
+  function switchTab(tab) {
+    // Clear selection when switching tabs
+    selectedConversation = null;
+    messages = [];
+    activeConversationId = null;
+
+    if (tab === 'groups') {
+      updateFilter('is_group', 'true');
+    } else {
+      updateFilter('is_group', 'false');
+    }
+  }
+
   function handleSearch() {
     updateFilter('search', searchQuery);
   }
 
   /** @param {any} newMsg */
   function onMessageSent(newMsg) {
-    messages = [...messages, newMsg];
+    if (activeConversationId && newMsg.conversation === activeConversationId) {
+      messages = [...messages, newMsg];
+    }
   }
 
   /** @param {any} contact */
@@ -208,20 +265,47 @@
 <PageHeader title="Conversas" subtitle="Gerencie suas conversas em tempo real" />
 
 <div class="flex h-[calc(100vh-10rem)] flex-col">
+  <!-- Tabs: Conversas | Grupos -->
+  <div class="flex items-center border-b px-4">
+    <button
+      class="flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors
+        {currentTab === 'conversations' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+      onclick={() => switchTab('conversations')}
+    >
+      <MessageCircle class="size-4" />
+      Conversas
+    </button>
+    <button
+      class="flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors
+        {currentTab === 'groups' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+      onclick={() => switchTab('groups')}
+    >
+      <Users class="size-4" />
+      Grupos
+    </button>
+
+    <div class="ml-auto flex items-center gap-2 py-2">
+      <Badge variant="outline" class="gap-1.5 px-3 py-1">
+        <MessageSquare class="size-3.5" />
+        {conversations.length}
+      </Badge>
+    </div>
+  </div>
+
   <!-- Filters bar -->
-  <div class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
+  <div class="flex flex-wrap items-center gap-3 border-b px-4 py-2.5">
     <div class="relative flex-1 max-w-xs">
       <Search class="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
       <Input
         placeholder="Buscar contato..."
-        class="pl-9"
+        class="pl-9 h-8"
         bind:value={searchQuery}
         onkeydown={(e) => e.key === 'Enter' && handleSearch()}
       />
     </div>
 
     <Select.Root type="single" value={filters.status || 'open'} onValueChange={(v) => updateFilter('status', v)}>
-      <Select.Trigger class="w-36">
+      <Select.Trigger class="w-36 h-8">
         <Filter class="size-3.5 mr-1.5 text-muted-foreground" />
         {filters.status === 'open' ? 'Abertas' : filters.status === 'pending' ? 'Pendentes' : filters.status === 'resolved' ? 'Concluídas' : 'Todas'}
       </Select.Trigger>
@@ -235,7 +319,7 @@
 
     {#if channels.length > 0}
       <Select.Root type="single" value={filters.channel || ''} onValueChange={(v) => updateFilter('channel', v)}>
-        <Select.Trigger class="w-40">
+        <Select.Trigger class="w-40 h-8">
           <MessageSquare class="size-3.5 mr-1.5 text-muted-foreground" />
           {channels.find(c => c.channel_type === filters.channel)?.display_name || 'Todos os canais'}
         </Select.Trigger>
@@ -248,7 +332,7 @@
       </Select.Root>
     {/if}
 
-    <div class="ml-auto flex items-center gap-2">
+    <div class="ml-auto">
       <Button
         variant="ghost"
         size="icon"
@@ -259,10 +343,6 @@
       >
         <RefreshCw class="size-3.5 {refreshing ? 'animate-spin' : ''}" />
       </Button>
-      <Badge variant="outline" class="gap-1.5 px-3 py-1">
-        <MessageSquare class="size-3.5" />
-        {conversations.length} conversa{conversations.length !== 1 ? 's' : ''}
-      </Badge>
     </div>
   </div>
 
@@ -274,6 +354,7 @@
         {conversations}
         selected={selectedConversation?.id}
         onSelect={selectConversation}
+        isGroupView={currentTab === 'groups'}
       />
     </div>
 
@@ -310,8 +391,13 @@
         {:else}
           <div class="flex flex-1 items-center justify-center text-muted-foreground">
             <div class="text-center">
-              <MessageSquare class="mx-auto mb-3 size-12 opacity-30" />
-              <p class="text-sm">Selecione uma conversa para visualizar</p>
+              {#if currentTab === 'groups'}
+                <Users class="mx-auto mb-3 size-12 opacity-30" />
+                <p class="text-sm">Selecione um grupo para visualizar</p>
+              {:else}
+                <MessageSquare class="mx-auto mb-3 size-12 opacity-30" />
+                <p class="text-sm">Selecione uma conversa para visualizar</p>
+              {/if}
             </div>
           </div>
         {/if}

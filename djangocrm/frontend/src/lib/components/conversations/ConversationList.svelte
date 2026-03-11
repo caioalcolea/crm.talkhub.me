@@ -1,17 +1,18 @@
 <script>
   import { Badge } from '$lib/components/ui/badge/index.js';
   import ChannelBadge from '$lib/components/channels/ChannelBadge.svelte';
-  import { User, Clock } from '@lucide/svelte';
+  import { User, Users, Clock } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Props
    * @property {any[]} conversations
    * @property {string} [selected]
    * @property {(conv: any) => void} [onSelect]
+   * @property {boolean} [isGroupView]
    */
 
   /** @type {Props} */
-  let { conversations = [], selected = '', onSelect } = $props();
+  let { conversations = [], selected = '', onSelect, isGroupView = false } = $props();
 
   /** @param {string} dateStr */
   function timeAgo(dateStr) {
@@ -41,7 +42,13 @@
 
 {#if conversations.length === 0}
   <div class="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
-    <p class="text-sm">Nenhuma conversa encontrada</p>
+    {#if isGroupView}
+      <Users class="mb-2 size-8 opacity-30" />
+      <p class="text-sm">Nenhum grupo encontrado</p>
+    {:else}
+      <User class="mb-2 size-8 opacity-30" />
+      <p class="text-sm">Nenhuma conversa encontrada</p>
+    {/if}
   </div>
 {:else}
   <div class="divide-y">
@@ -52,8 +59,12 @@
         onclick={() => onSelect?.(conv)}
       >
         <!-- Avatar -->
-        <div class="relative mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
-          <User class="size-5 text-muted-foreground" />
+        <div class="relative mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full {isGroupView || conv.is_group ? 'bg-indigo-100 dark:bg-indigo-950' : 'bg-muted'}">
+          {#if isGroupView || conv.is_group}
+            <Users class="size-5 text-indigo-600 dark:text-indigo-400" />
+          {:else}
+            <User class="size-5 text-muted-foreground" />
+          {/if}
           <div class="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background {statusColors[conv.status] || 'bg-gray-400'}"></div>
         </div>
 

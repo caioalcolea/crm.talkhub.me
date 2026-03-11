@@ -60,6 +60,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     last_message = serializers.SerializerMethodField()
     contact_name = serializers.SerializerMethodField()
+    is_group = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -71,11 +72,15 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "last_message_at",
             "contact",
             "contact_name",
+            "is_group",
             "last_message",
             "metadata_json",
             "created_at",
         )
         read_only_fields = fields
+
+    def get_is_group(self, obj):
+        return bool((obj.metadata_json or {}).get("is_group"))
 
     def get_last_message(self, obj):
         # Use prefetched messages if available (avoids N+1)
@@ -116,6 +121,7 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
     contact_name = serializers.SerializerMethodField()
     contact_email = serializers.SerializerMethodField()
     assigned_to_name = serializers.SerializerMethodField()
+    is_group = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -132,10 +138,14 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
             "contact",
             "contact_name",
             "contact_email",
+            "is_group",
             "created_at",
             "updated_at",
         )
         read_only_fields = fields
+
+    def get_is_group(self, obj):
+        return bool((obj.metadata_json or {}).get("is_group"))
 
     def get_contact_name(self, obj):
         if obj.contact:
