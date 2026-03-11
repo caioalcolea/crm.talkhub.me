@@ -9,7 +9,7 @@
   import { PageHeader } from '$lib/components/layout';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { ArrowLeft, Plug, RefreshCw, Wifi, WifiOff, Loader2, Clock, Save, AlertTriangle, CircleHelp } from '@lucide/svelte';
+  import { ArrowLeft, Plug, RefreshCw, Wifi, WifiOff, Loader2, Clock, Save, AlertTriangle, CircleHelp, Copy, Check } from '@lucide/svelte';
   import IntegrationHealth from '$lib/components/integrations/IntegrationHealth.svelte';
   import ConnectorConfigForm from '$lib/components/integrations/ConnectorConfigForm.svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -34,6 +34,15 @@
       ? `${window.location.origin}/api/integrations/webhooks/chatwoot/`
       : '/api/integrations/webhooks/chatwoot/'
   );
+
+  let webhookCopied = $state(false);
+  function copyWebhookUrl() {
+    if (typeof navigator !== 'undefined') {
+      navigator.clipboard.writeText(chatwootWebhookUrl);
+      webhookCopied = true;
+      setTimeout(() => { webhookCopied = false; }, 2000);
+    }
+  }
 
   /** Whether config has been saved (has non-empty config) */
   let hasConfig = $derived(() => {
@@ -131,7 +140,7 @@
                 <Dialog.Header>
                   <Dialog.Title>Como conectar o Chatwoot ao CRM</Dialog.Title>
                   <Dialog.Description>
-                    Você precisa de 3 informações do seu Chatwoot. O webhook é registrado automaticamente.
+                    Preencha os dados abaixo e configure o webhook para receber eventos em tempo real.
                   </Dialog.Description>
                 </Dialog.Header>
                 <div class="space-y-5 text-sm">
@@ -186,18 +195,55 @@
                     </p>
                   </div>
 
-                  <!-- Webhook auto -->
-                  <div class="rounded-lg border border-green-200 bg-green-50 p-4 space-y-2 dark:border-green-800 dark:bg-green-950">
+                  <!-- Step 4: Webhook -->
+                  <div class="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3 dark:border-blue-800 dark:bg-blue-950">
                     <div class="flex items-center gap-2">
-                      <Wifi class="size-4 text-green-600 dark:text-green-400" />
-                      <p class="font-semibold text-green-800 dark:text-green-200">Webhook automático</p>
+                      <span class="flex size-6 items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold">4</span>
+                      <p class="font-semibold text-blue-800 dark:text-blue-200">Configurar Webhook no Chatwoot</p>
                     </div>
-                    <p class="text-green-700 dark:text-green-300">
-                      Ao clicar em <strong>"Salvar e Conectar"</strong>, o CRM registra o webhook automaticamente no seu Chatwoot.
-                      Você <strong>não precisa</strong> configurar o webhook manualmente.
+                    <p class="text-blue-700 dark:text-blue-300">
+                      No Chatwoot, vá em <strong>Settings &rarr; Integrations &rarr; Webhook &rarr; Adicionar novo webhook</strong>
+                      e cole a URL abaixo:
                     </p>
-                    <p class="text-green-600 dark:text-green-400 text-xs">
-                      URL registrada: <code class="font-mono">{chatwootWebhookUrl}</code>
+                    <div class="flex items-center gap-2">
+                      <div class="bg-white dark:bg-blue-900 rounded-md px-3 py-2 font-mono text-xs break-all flex-1 border border-blue-200 dark:border-blue-700 select-all">
+                        {chatwootWebhookUrl}
+                      </div>
+                      <button
+                        type="button"
+                        onclick={copyWebhookUrl}
+                        class="shrink-0 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900 p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors"
+                        title="Copiar URL"
+                      >
+                        {#if webhookCopied}
+                          <Check class="size-4" />
+                        {:else}
+                          <Copy class="size-4" />
+                        {/if}
+                      </button>
+                    </div>
+                    <p class="text-blue-700 dark:text-blue-300">
+                      Marque os seguintes eventos:
+                    </p>
+                    <div class="grid grid-cols-2 gap-1 text-xs text-blue-600 dark:text-blue-400">
+                      <span>&#x2713; Conversa Criada</span>
+                      <span>&#x2713; Conversa Atualizada</span>
+                      <span>&#x2713; Status de conversa alterado</span>
+                      <span>&#x2713; Mensagem criada</span>
+                      <span>&#x2713; Mensagem atualizada</span>
+                      <span>&#x2713; Contato criado</span>
+                      <span>&#x2713; Contato atualizado</span>
+                    </div>
+                    <p class="text-blue-600 dark:text-blue-400 text-xs">
+                      O webhook permite que o CRM receba atualizações em tempo real do Chatwoot, sem necessidade de polling.
+                    </p>
+                  </div>
+
+                  <!-- Webhook auto-register info -->
+                  <div class="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+                    <p class="text-green-700 dark:text-green-300 text-xs">
+                      <strong>Dica:</strong> Ao clicar em "Salvar e Conectar", o CRM tenta registrar o webhook automaticamente via API.
+                      Se o registro automático falhar (por permissões ou rede), configure manualmente pelo passo 4 acima.
                     </p>
                   </div>
 
@@ -205,9 +251,8 @@
                   <div class="rounded-lg border border-dashed p-4 space-y-2">
                     <p class="font-semibold text-muted-foreground">Webhook Secret (opcional)</p>
                     <p class="text-muted-foreground text-xs">
-                      Se quiser validar a autenticidade dos webhooks, defina um secret aqui e configure o mesmo valor
-                      no Chatwoot em <strong>Settings &rarr; Integrations &rarr; Webhook &rarr; editar</strong>.
-                      Recomendado para produção, mas não obrigatório.
+                      Para validar a autenticidade dos webhooks, defina um secret aqui e configure o mesmo valor
+                      no Chatwoot ao editar o webhook. Recomendado para produção, mas não obrigatório.
                     </p>
                   </div>
 
