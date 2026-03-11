@@ -13,21 +13,30 @@ from django.db import migrations, models
 
 
 def generate_tokens(apps, schema_editor):
-    """Generate unique webhook tokens for all existing IntegrationConnection rows."""
+    """Generate unique webhook tokens for all existing IntegrationConnection rows.
+
+    Temporarily disables RLS so we can update all rows regardless of org context.
+    """
     from django.db import connection
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT id FROM integration_connection "
-            "WHERE webhook_token = '' OR webhook_token IS NULL"
-        )
-        rows = cursor.fetchall()
-        for (row_id,) in rows:
-            token = secrets.token_urlsafe(32)
+        # Disable RLS so migration can see/update all rows (crm_user owns the table)
+        cursor.execute("ALTER TABLE integration_connection DISABLE ROW LEVEL SECURITY")
+        try:
             cursor.execute(
-                "UPDATE integration_connection SET webhook_token = %s WHERE id = %s",
-                [token, str(row_id)],
+                "SELECT id FROM integration_connection "
+                "WHERE webhook_token = '' OR webhook_token IS NULL"
             )
+            rows = cursor.fetchall()
+            for (row_id,) in rows:
+                token = secrets.token_urlsafe(32)
+                cursor.execute(
+                    "UPDATE integration_connection SET webhook_token = %s WHERE id = %s",
+                    [token, str(row_id)],
+                )
+        finally:
+            # Re-enable RLS
+            cursor.execute("ALTER TABLE integration_connection ENABLE ROW LEVEL SECURITY")
 
 
 def reverse_tokens(apps, schema_editor):
