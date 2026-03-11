@@ -1,10 +1,9 @@
 """
 Add webhook_token to IntegrationConnection for secure per-connection webhook URLs.
 
-Three-step migration:
-1. Add field without unique constraint (allows empty defaults)
-2. Populate tokens for existing rows (bypasses RLS with raw SQL)
-3. Add unique constraint
+Idempotent migration using raw SQL to handle dirty DB state from previous
+failed attempts. Uses SeparateDatabaseAndState so Django tracks the field
+correctly while we control the actual DDL.
 """
 
 import secrets
@@ -12,17 +11,35 @@ import secrets
 from django.db import migrations, models
 
 
-def generate_tokens(apps, schema_editor):
-    """Generate unique webhook tokens for all existing IntegrationConnection rows.
+def add_column_and_populate(apps, schema_editor):
+    """Idempotent: add webhook_token column, populate tokens, add unique constraint.
 
-    Temporarily disables RLS so we can update all rows regardless of org context.
+    Handles dirty DB state where column/indexes may already exist from
+    previous failed migration attempts. Temporarily disables RLS so we can
+    update all rows regardless of org context.
     """
     from django.db import connection
 
     with connection.cursor() as cursor:
-        # Disable RLS so migration can see/update all rows (crm_user owns the table)
+        # Step 1: Add column if it doesn't exist
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'integration_connection'
+                    AND column_name = 'webhook_token'
+                ) THEN
+                    ALTER TABLE integration_connection
+                    ADD COLUMN webhook_token VARCHAR(64) NOT NULL DEFAULT '';
+                END IF;
+            END $$;
+        """)
+
+        # Step 2: Disable RLS so we can see/update all rows
         cursor.execute("ALTER TABLE integration_connection DISABLE ROW LEVEL SECURITY")
         try:
+            # Step 3: Populate tokens for rows that don't have one
             cursor.execute(
                 "SELECT id FROM integration_connection "
                 "WHERE webhook_token = '' OR webhook_token IS NULL"
@@ -35,16 +52,45 @@ def generate_tokens(apps, schema_editor):
                     [token, str(row_id)],
                 )
         finally:
-            # Re-enable RLS
+            # Step 4: Re-enable RLS
             cursor.execute("ALTER TABLE integration_connection ENABLE ROW LEVEL SECURITY")
 
+        # Step 5: Drop orphaned indexes from previous failed attempts
+        cursor.execute("""
+            DROP INDEX IF EXISTS integration_connection_webhook_token_b2d0be75_like;
+        """)
+        cursor.execute("""
+            DROP INDEX IF EXISTS integration_connection_webhook_token_b2d0be75;
+        """)
+        cursor.execute("""
+            DROP INDEX IF EXISTS integration_connection_webhook_token_b2d0be75_uniq;
+        """)
 
-def reverse_tokens(apps, schema_editor):
-    """Reverse: clear all webhook tokens."""
+        # Step 6: Create the indexes fresh
+        cursor.execute("""
+            CREATE UNIQUE INDEX integration_connection_webhook_token_b2d0be75_uniq
+            ON integration_connection (webhook_token);
+        """)
+        cursor.execute("""
+            CREATE INDEX integration_connection_webhook_token_b2d0be75_like
+            ON integration_connection (webhook_token varchar_pattern_ops);
+        """)
+
+
+def reverse_migration(apps, schema_editor):
+    """Reverse: drop column entirely."""
     from django.db import connection
 
     with connection.cursor() as cursor:
-        cursor.execute("UPDATE integration_connection SET webhook_token = ''")
+        cursor.execute("""
+            DROP INDEX IF EXISTS integration_connection_webhook_token_b2d0be75_uniq;
+        """)
+        cursor.execute("""
+            DROP INDEX IF EXISTS integration_connection_webhook_token_b2d0be75_like;
+        """)
+        cursor.execute("""
+            ALTER TABLE integration_connection DROP COLUMN IF EXISTS webhook_token;
+        """)
 
 
 class Migration(migrations.Migration):
@@ -54,31 +100,27 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Step 1: Add field without unique constraint
-        migrations.AddField(
-            model_name="integrationconnection",
-            name="webhook_token",
-            field=models.CharField(
-                blank=True,
-                default="",
-                db_index=True,
-                help_text="Token único para identificação do webhook. Auto-gerado.",
-                max_length=64,
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql=migrations.RunSQL.noop,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name="integrationconnection",
+                    name="webhook_token",
+                    field=models.CharField(
+                        blank=True,
+                        default="",
+                        db_index=True,
+                        help_text="Token único para identificação do webhook. Auto-gerado.",
+                        max_length=64,
+                        unique=True,
+                    ),
+                ),
+            ],
         ),
-        # Step 2: Populate tokens for existing rows
-        migrations.RunPython(generate_tokens, reverse_tokens),
-        # Step 3: Add unique constraint
-        migrations.AlterField(
-            model_name="integrationconnection",
-            name="webhook_token",
-            field=models.CharField(
-                blank=True,
-                default="",
-                db_index=True,
-                help_text="Token único para identificação do webhook. Auto-gerado.",
-                max_length=64,
-                unique=True,
-            ),
-        ),
+        migrations.RunPython(add_column_and_populate, reverse_migration),
     ]
