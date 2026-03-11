@@ -45,6 +45,7 @@ class IntegrationConnectionSerializer(serializers.ModelSerializer):
             "display_name",
             "is_active",
             "is_connected",
+            "webhook_token",
             "last_sync_at",
             "health_status",
             "error_count",

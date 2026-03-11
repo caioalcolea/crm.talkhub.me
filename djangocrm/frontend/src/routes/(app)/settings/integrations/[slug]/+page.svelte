@@ -31,8 +31,8 @@
   /** Webhook URL for Chatwoot */
   let chatwootWebhookUrl = $derived(
     typeof window !== 'undefined'
-      ? `${window.location.origin}/api/integrations/webhooks/chatwoot/`
-      : '/api/integrations/webhooks/chatwoot/'
+      ? `${window.location.origin}/api/integrations/webhooks/chatwoot/${integration?.webhook_token ? integration.webhook_token + '/' : ''}`
+      : `/api/integrations/webhooks/chatwoot/${integration?.webhook_token ? integration.webhook_token + '/' : ''}`
   );
 
   let webhookCopied = $state(false);
@@ -205,6 +205,7 @@
                       No Chatwoot, vá em <strong>Settings &rarr; Integrations &rarr; Webhook &rarr; Adicionar novo webhook</strong>
                       e cole a URL abaixo:
                     </p>
+                    {#if integration?.webhook_token}
                     <div class="flex items-center gap-2">
                       <div class="bg-white dark:bg-blue-900 rounded-md px-3 py-2 font-mono text-xs break-all flex-1 border border-blue-200 dark:border-blue-700 select-all">
                         {chatwootWebhookUrl}
@@ -222,6 +223,11 @@
                         {/if}
                       </button>
                     </div>
+                    {:else}
+                    <p class="text-amber-600 dark:text-amber-400 text-xs font-medium">
+                      Conecte a integração primeiro para gerar a URL exclusiva do webhook.
+                    </p>
+                    {/if}
                     <p class="text-blue-700 dark:text-blue-300">
                       Marque os seguintes eventos:
                     </p>

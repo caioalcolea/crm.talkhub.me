@@ -1,3 +1,5 @@
+import secrets
+
 from django.db import models
 
 from common.base import BaseOrgModel
@@ -43,6 +45,14 @@ class IntegrationConnection(BaseOrgModel):
     is_connected = models.BooleanField(default=False)
     config_json = models.JSONField(default=dict, blank=True)
     webhook_secret = models.CharField(max_length=255, blank=True, default="")
+    webhook_token = models.CharField(
+        max_length=64,
+        unique=True,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Token único para identificação do webhook. Auto-gerado.",
+    )
     last_sync_at = models.DateTimeField(null=True, blank=True)
     health_status = models.CharField(max_length=20, default="unknown", choices=HEALTH_CHOICES)
     error_count = models.PositiveIntegerField(default=0)
@@ -62,6 +72,11 @@ class IntegrationConnection(BaseOrgModel):
             models.Index(fields=["org", "connector_slug"]),
             models.Index(fields=["is_active"]),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.webhook_token:
+            self.webhook_token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.display_name} ({self.connector_slug}) - {self.org}"

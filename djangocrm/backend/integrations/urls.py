@@ -52,7 +52,9 @@ urlpatterns = [
     path("logs/", IntegrationLogListView.as_view(), name="integration-logs"),
     # Webhook logs
     path("webhooks/logs/", WebhookLogListView.as_view(), name="webhook-logs"),
-    # Webhook receiver (AllowAny)
+    # Webhook receiver — token-based (preferred, secure multi-tenant)
+    path("webhooks/<str:connector_slug>/<str:webhook_token>/", webhook_receiver, name="webhook-receiver-token"),
+    # Webhook receiver — legacy (backward compat, AllowAny)
     path("webhooks/<str:connector_slug>/", webhook_receiver, name="webhook-receiver"),
     # Field mappings
     path("field-mappings/", FieldMappingListView.as_view(), name="field-mapping-list"),

@@ -217,54 +217,81 @@ class FeatureFlagDetailView(APIView):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
-def webhook_receiver(request, connector_slug):
+def webhook_receiver(request, connector_slug, webhook_token=None):
     """
-    Endpoint genérico de webhook: POST /api/integrations/webhooks/<connector_slug>/
+    Endpoint genérico de webhook.
 
-    1. Valida existência do conector no registry.
-    2. Identifica org pelo header X-Org-Id ou payload.
-    3. Verifica IntegrationConnection.is_active.
-    4. Valida autenticidade via connector.validate_webhook().
-    5. Enfileira process_webhook.delay() e retorna HTTP 200.
+    URLs:
+        POST /api/integrations/webhooks/<connector_slug>/<webhook_token>/  (preferred)
+        POST /api/integrations/webhooks/<connector_slug>/                  (legacy)
+
+    Token-based: lookup direto por webhook_token (seguro, sem ambiguidade multi-tenant).
+    Legacy: identifica org pelo header X-Org-Id ou account_id no payload.
     """
     connector_cls = ConnectorRegistry.get(connector_slug)
     if not connector_cls:
         return Response({"error": "Connector not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    # Identificar org
-    org_id = request.headers.get("X-Org-Id") or request.data.get("org_id")
-
-    # Chatwoot (and similar) webhooks don't send X-Org-Id.
-    # Identify org by matching account_id from the payload to IntegrationConnection.
-    if not org_id:
-        account_id = None
-        if isinstance(request.data, dict):
-            account_id = request.data.get("account", {}).get("id") if isinstance(request.data.get("account"), dict) else None
-        if account_id:
-            conn_match = IntegrationConnection.objects.filter(
-                connector_slug=connector_slug,
-                is_active=True,
-            ).extra(
-                where=["(config_json->>'account_id')::text = %s"],
-                params=[str(account_id)],
-            ).first()
-            if conn_match:
-                org_id = str(conn_match.org_id)
-
-    if not org_id:
-        return Response({"error": "Organization not identified"}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Set RLS context for this org (webhook endpoints bypass middleware)
     from django.db import connection as db_conn
 
-    with db_conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT set_config('app.current_org', %s, false)", [str(org_id)]
-        )
+    connection = None
+    org_id = None
 
-    connection = IntegrationConnection.objects.filter(
-        connector_slug=connector_slug, org_id=org_id, is_active=True
-    ).first()
+    # ── PRIMARY: Token-based lookup (secure, no ambiguity) ──
+    if webhook_token:
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, org_id FROM integration_connection "
+                "WHERE webhook_token = %s AND connector_slug = %s AND is_active = true "
+                "LIMIT 1",
+                [webhook_token, connector_slug],
+            )
+            row = cursor.fetchone()
+        if not row:
+            return Response({"error": "Invalid webhook token"}, status=status.HTTP_404_NOT_FOUND)
+        conn_id, org_id = row[0], str(row[1])
+        # Set RLS context
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.current_org', %s, false)", [org_id]
+            )
+        connection = IntegrationConnection.objects.get(id=conn_id)
+
+    # ── FALLBACK: Legacy org identification ──
+    else:
+        org_id = request.headers.get("X-Org-Id") or request.data.get("org_id")
+
+        # Chatwoot (and similar) webhooks don't send X-Org-Id.
+        # Identify org by matching account_id from the payload to IntegrationConnection.
+        if not org_id:
+            account_id = None
+            if isinstance(request.data, dict):
+                account_id = request.data.get("account", {}).get("id") if isinstance(request.data.get("account"), dict) else None
+            if account_id:
+                with db_conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id, org_id FROM integration_connection "
+                        "WHERE connector_slug = %s AND is_active = true "
+                        "AND (config_json->>'account_id')::text = %s "
+                        "LIMIT 1",
+                        [connector_slug, str(account_id)],
+                    )
+                    row = cursor.fetchone()
+                if row:
+                    org_id = str(row[1])
+
+        if not org_id:
+            return Response({"error": "Organization not identified"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Set RLS context for this org (webhook endpoints bypass middleware)
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.current_org', %s, false)", [str(org_id)]
+            )
+
+        connection = IntegrationConnection.objects.filter(
+            connector_slug=connector_slug, org_id=org_id, is_active=True
+        ).first()
 
     if not connection:
         return Response(
@@ -544,6 +571,12 @@ class IntegrationConnectView(APIView):
 
         # Auto-create ChannelConfig for connectors that map to a channel
         _auto_create_channel_config(request.org, connector_slug, config)
+
+        # Post-connect hook (e.g. register webhook with token-based URL)
+        try:
+            connector.post_connect(request.org, connection)
+        except Exception as exc:
+            logger.warning("post_connect hook failed for %s: %s", connector_slug, exc)
 
         return Response(
             IntegrationConnectionSerializer(connection).data,

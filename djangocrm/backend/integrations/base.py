@@ -60,6 +60,10 @@ class BaseConnector(ABC):
         """Validar autenticidade do webhook (HMAC). Override opcional."""
         return True
 
+    def post_connect(self, org, connection) -> None:
+        """Chamado após IntegrationConnection ser salva. Override para post-connect hooks."""
+        pass
+
     def get_sync_types(self) -> list[str]:
         """Retornar tipos de sync suportados. Override opcional."""
         return ["all"]

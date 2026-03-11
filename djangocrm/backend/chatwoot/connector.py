@@ -128,17 +128,24 @@ class ChatwootConnector(BaseConnector):
         )
         logger.info("ChannelConfig for chatwoot created/updated for org %s", org.id)
 
-        # Auto-register webhook in Chatwoot
-        self._register_webhook(config, org)
-
         return True
 
-    def _register_webhook(self, config, org):
+    def post_connect(self, org, connection):
+        """Register webhook after IntegrationConnection is saved (has token)."""
+        config = _decrypt_config(connection.config_json or {})
+        self._register_webhook(config, org, connection)
+
+    def _register_webhook(self, config, org, connection=None):
         """Register a webhook in Chatwoot to receive events."""
         from django.conf import settings as django_settings
 
         domain = getattr(django_settings, "DOMAIN_NAME", "https://crm.talkhub.me")
-        webhook_url = f"{domain}/api/integrations/webhooks/chatwoot/"
+
+        # Use token-based URL if connection has a webhook_token
+        if connection and getattr(connection, "webhook_token", ""):
+            webhook_url = f"{domain}/api/integrations/webhooks/chatwoot/{connection.webhook_token}/"
+        else:
+            webhook_url = f"{domain}/api/integrations/webhooks/chatwoot/"
 
         try:
             # List existing webhooks to avoid duplicates
@@ -182,10 +189,11 @@ class ChatwootConnector(BaseConnector):
                 if resp.status_code == 200:
                     from django.conf import settings as django_settings
                     domain = getattr(django_settings, "DOMAIN_NAME", "https://crm.talkhub.me")
-                    webhook_url = f"{domain}/api/integrations/webhooks/chatwoot/"
+                    webhook_prefix = f"{domain}/api/integrations/webhooks/chatwoot/"
                     webhooks = resp.json().get("payload", resp.json() if isinstance(resp.json(), list) else [])
                     for wh in webhooks:
-                        if wh.get("url") == webhook_url:
+                        wh_url = wh.get("url", "")
+                        if wh_url.startswith(webhook_prefix) or wh_url == webhook_prefix:
                             _api_request(config, "DELETE", f"/webhooks/{wh['id']}")
                             logger.info("Chatwoot webhook removed (id=%s) for org %s", wh["id"], org.id)
             except Exception as exc:
