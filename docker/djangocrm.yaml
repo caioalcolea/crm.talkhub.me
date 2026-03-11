@@ -120,7 +120,10 @@ services:
   crm_ws:
     image: talkhub/djangocrm-backend:latest
     command: daphne -b 0.0.0.0 -p 8001 crm.asgi:application
+    healthcheck:
+      disable: true
     environment:
+      - SERVICE_ROLE=ws
       - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
       - ENV_TYPE=prod
       - DEBUG=False

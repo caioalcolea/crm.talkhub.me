@@ -30,7 +30,7 @@ done
 echo "[1/6] PostgreSQL is ready."
 
 # Steps 2-6 only run for the backend (not worker/beat)
-if [ "${SERVICE_ROLE}" = "worker" ] || [ "${SERVICE_ROLE}" = "beat" ]; then
+if [ "${SERVICE_ROLE}" = "worker" ] || [ "${SERVICE_ROLE}" = "beat" ] || [ "${SERVICE_ROLE}" = "ws" ]; then
     echo "Skipping migrations/static/admin for ${SERVICE_ROLE} role."
 else
     # 2. Ensure application DB user exists
@@ -112,9 +112,37 @@ except Exception as e:
     print(f'  channels->crm_channels rename skipped: {e}')
 " 2>&1 || true
 
-    # 3. Migrations
+    # 3. Migrations (with advisory lock to prevent race conditions)
     echo "[3/6] Running migrations..."
-    python manage.py migrate --noinput
+    python -c "
+import psycopg2, os, sys, subprocess
+
+conn = psycopg2.connect(
+    host=os.environ.get('DBHOST', 'crm_db'),
+    port=os.environ.get('DBPORT', '5432'),
+    dbname=os.environ.get('DBNAME', 'crm_db'),
+    user=os.environ.get('DBUSER', 'crm_user'),
+    password=os.environ.get('DBPASSWORD', 'crm_talkhub_2026'),
+)
+conn.autocommit = False
+cur = conn.cursor()
+# Advisory lock to prevent concurrent migrations
+cur.execute('SELECT pg_try_advisory_lock(1)')
+got_lock = cur.fetchone()[0]
+if got_lock:
+    print('  Migration lock acquired — running migrations...')
+    result = subprocess.run([sys.executable, 'manage.py', 'migrate', '--noinput'])
+    cur.execute('SELECT pg_advisory_unlock(1)')
+    conn.close()
+    sys.exit(result.returncode)
+else:
+    print('  Another instance is running migrations — waiting...')
+    cur.execute('SELECT pg_advisory_lock(1)')  # blocks until other releases
+    cur.execute('SELECT pg_advisory_unlock(1)')
+    conn.close()
+    print('  Migrations completed by another instance.')
+    sys.exit(0)
+"
 
     # 4. Verificar RLS status
     echo "[4/6] Checking Row-Level Security status..."
@@ -145,6 +173,12 @@ case "${SERVICE_ROLE}" in
         echo "  Starting Celery Beat"
         echo "============================================"
         exec celery -A crm beat --loglevel=info
+        ;;
+    ws)
+        echo "============================================"
+        echo "  Starting Daphne (WebSocket) on 0.0.0.0:8001"
+        echo "============================================"
+        exec "$@"
         ;;
     *)
         if [ $# -gt 0 ]; then
