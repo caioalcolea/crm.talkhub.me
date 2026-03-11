@@ -9,9 +9,10 @@
   import { PageHeader } from '$lib/components/layout';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { ArrowLeft, Plug, RefreshCw, Wifi, WifiOff, Loader2, Clock, Save, AlertTriangle } from '@lucide/svelte';
+  import { ArrowLeft, Plug, RefreshCw, Wifi, WifiOff, Loader2, Clock, Save, AlertTriangle, CircleHelp } from '@lucide/svelte';
   import IntegrationHealth from '$lib/components/integrations/IntegrationHealth.svelte';
   import ConnectorConfigForm from '$lib/components/integrations/ConnectorConfigForm.svelte';
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
 
   /** @type {{ data: any, form: any }} */
   let { data, form } = $props();
@@ -23,6 +24,16 @@
 
   /** Whether the integration is connected and active */
   let isConnected = $derived(integration?.is_connected && integration?.is_active);
+
+  /** Whether this is the Chatwoot integration */
+  let isChatwoot = $derived(data.slug === 'chatwoot' || integration?.slug === 'chatwoot');
+
+  /** Webhook URL for Chatwoot */
+  let chatwootWebhookUrl = $derived(
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/api/integrations/webhooks/chatwoot/`
+      : '/api/integrations/webhooks/chatwoot/'
+  );
 
   /** Whether config has been saved (has non-empty config) */
   let hasConfig = $derived(() => {
@@ -108,6 +119,69 @@
           <Badge variant={integration.is_connected ? 'default' : 'outline'}>
             {integration.is_connected ? 'Conectado' : 'Desconectado'}
           </Badge>
+          {#if !isConnected && isChatwoot}
+            <Dialog.Root>
+              <Dialog.Trigger>
+                <button type="button" class="inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground transition-colors" title="Como configurar o webhook?">
+                  <CircleHelp class="size-5" />
+                </button>
+              </Dialog.Trigger>
+              <Dialog.Content class="max-w-lg">
+                <Dialog.Header>
+                  <Dialog.Title>Como configurar o Webhook do Chatwoot</Dialog.Title>
+                  <Dialog.Description>
+                    Siga os passos abaixo para conectar o Chatwoot ao CRM via webhook.
+                  </Dialog.Description>
+                </Dialog.Header>
+                <div class="space-y-4 text-sm">
+                  <div class="space-y-2">
+                    <p class="font-medium">1. Acesse o painel do Chatwoot</p>
+                    <p class="text-muted-foreground">
+                      Vá em <strong>Settings &rarr; Integrations &rarr; Configure</strong> na seção <strong>Webhook</strong>.
+                    </p>
+                  </div>
+                  <div class="space-y-2">
+                    <p class="font-medium">2. Adicione a URL do webhook</p>
+                    <p class="text-muted-foreground">Cole a seguinte URL no campo de webhook:</p>
+                    <div class="bg-muted rounded-md px-3 py-2 font-mono text-xs break-all select-all">
+                      {chatwootWebhookUrl}
+                    </div>
+                  </div>
+                  <div class="space-y-2">
+                    <p class="font-medium">3. Selecione os eventos</p>
+                    <p class="text-muted-foreground">Marque todos os eventos disponíveis:</p>
+                    <ul class="text-muted-foreground list-inside list-disc space-y-1">
+                      <li>message_created</li>
+                      <li>message_updated</li>
+                      <li>conversation_created</li>
+                      <li>conversation_updated</li>
+                      <li>conversation_status_changed</li>
+                      <li>contact_created</li>
+                      <li>contact_updated</li>
+                    </ul>
+                  </div>
+                  <div class="space-y-2">
+                    <p class="font-medium">4. Preencha os campos nesta página</p>
+                    <p class="text-muted-foreground">
+                      Informe a <strong>URL do Chatwoot</strong>, o <strong>Token de Acesso</strong> (obtido em Perfil &rarr; Access Token) e o <strong>ID da Conta</strong>.
+                      O <strong>Webhook Secret</strong> é opcional mas recomendado para validação HMAC-SHA256.
+                    </p>
+                  </div>
+                  <div class="space-y-2">
+                    <p class="font-medium">5. Salve e conecte</p>
+                    <p class="text-muted-foreground">
+                      Clique em <strong>"Salvar e Conectar"</strong>. O CRM tentará registrar o webhook automaticamente no Chatwoot.
+                    </p>
+                  </div>
+                </div>
+                <Dialog.Footer>
+                  <Dialog.Close>
+                    <Button variant="outline">Entendi</Button>
+                  </Dialog.Close>
+                </Dialog.Footer>
+              </Dialog.Content>
+            </Dialog.Root>
+          {/if}
           {#if integration.last_sync_at}
             <span class="text-muted-foreground text-xs">
               Último sync: {new Date(integration.last_sync_at).toLocaleString('pt-BR')}
