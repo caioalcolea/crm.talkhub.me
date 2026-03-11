@@ -49,7 +49,8 @@
     Shield,
     Zap,
     QrCode,
-    Megaphone
+    Megaphone,
+    Video
   } from '@lucide/svelte';
 
   /**
@@ -234,6 +235,13 @@
       href: '/campaigns',
       label: 'Campanhas',
       icon: Megaphone,
+      type: 'link',
+      preload: 'off'
+    },
+    {
+      href: '/cowork',
+      label: 'Sala Cowork',
+      icon: Video,
       type: 'link',
       preload: 'off'
     }
