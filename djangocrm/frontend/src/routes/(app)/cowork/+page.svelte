@@ -1,5 +1,6 @@
 <script>
   import { enhance } from '$app/forms';
+  import { onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
@@ -7,6 +8,10 @@
   import {
     Plus, Video, Users, Link, Trash2, Play, Copy, UserPlus
   } from '@lucide/svelte';
+
+  /** @type {{ COWORK_APP_URL?: string }} */
+  const COWORK_APP_URL = '/cowork-app';
+  const COWORK_SOCKET_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}/cowork-ws`;
 
   let { data, form } = $props();
 
@@ -17,6 +22,8 @@
   let showInvite = $state(false);
   let inviteRoom = $state(null);
   let inviteResult = $state(null);
+  let iframeRef = $state(null);
+  let iframeReady = $state(false);
 
   $effect(() => {
     if (form?.toast) toast.success(form.toast);
@@ -24,11 +31,64 @@
     if (form?.coworkToken) {
       coworkToken = form.coworkToken;
       selectedRoom = form.room;
+      iframeReady = false;
     }
     if (form?.invite) {
       inviteResult = form.invite;
     }
   });
+
+  // Listen for postMessage from cowork-app iframe
+  function handleMessage(event) {
+    const { type, payload } = event.data || {};
+    switch (type) {
+      case 'cowork-ready':
+        iframeReady = true;
+        // Send init config to iframe
+        if (iframeRef?.contentWindow && coworkToken && selectedRoom) {
+          iframeRef.contentWindow.postMessage({
+            type: 'cowork-init',
+            payload: {
+              socketUrl: COWORK_SOCKET_URL,
+              token: coworkToken,
+              roomId: selectedRoom.id,
+              displayName: data.user?.name || data.user?.email || 'User',
+              isGuest: false
+            }
+          }, '*');
+        }
+        break;
+      case 'cowork-status':
+        // Could update participant count etc.
+        break;
+      case 'cowork-error':
+        toast.error(payload?.message || 'Erro no cowork');
+        break;
+    }
+  }
+
+  // Register/cleanup message listener
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', handleMessage);
+  }
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('message', handleMessage);
+    }
+    // Tell iframe to disconnect before we leave
+    if (iframeRef?.contentWindow) {
+      iframeRef.contentWindow.postMessage({ type: 'cowork-destroy' }, '*');
+    }
+  });
+
+  function leaveRoom() {
+    if (iframeRef?.contentWindow) {
+      iframeRef.contentWindow.postMessage({ type: 'cowork-destroy' }, '*');
+    }
+    coworkToken = null;
+    selectedRoom = null;
+    iframeReady = false;
+  }
 
   function copyInviteLink() {
     if (inviteResult?.invite_url) {
@@ -38,7 +98,6 @@
   }
 
   function enterRoom(roomId) {
-    // Submit form to get cowork token
     const form = document.getElementById('enter-room-form');
     if (form) {
       const input = form.querySelector('input[name="room_id"]');
@@ -76,33 +135,39 @@
     </Button>
   </div>
 
-  <!-- Active cowork session -->
+  <!-- Active cowork session (iframe) -->
   {#if coworkToken && selectedRoom}
     <div class="rounded-lg border bg-card overflow-hidden">
       <div class="flex items-center justify-between border-b px-4 py-3">
         <div class="flex items-center gap-3">
           <Badge variant="default" class="gap-1">
             <Video class="size-3" />
-            Ao Vivo
+            {iframeReady ? 'Ao Vivo' : 'Conectando...'}
           </Badge>
           <span class="font-medium">{selectedRoom.name}</span>
         </div>
-        <Button variant="outline" size="sm" onclick={() => { coworkToken = null; selectedRoom = null; }}>
+        <Button variant="outline" size="sm" onclick={leaveRoom}>
           Sair da Sala
         </Button>
       </div>
-      <div class="bg-muted/50 flex items-center justify-center p-8" style="min-height: 500px;">
-        <div class="text-center space-y-4">
-          <Video class="mx-auto size-16 text-muted-foreground" strokeWidth={1} />
-          <p class="text-muted-foreground text-lg font-medium">Sala Cowork Ativa</p>
-          <p class="text-muted-foreground text-sm max-w-md">
-            O iframe do cowork-app será renderizado aqui quando o serviço Socket.io estiver configurado.
-            Token JWT gerado com sucesso para a sala "{selectedRoom.name}".
-          </p>
-          <Badge variant="outline" class="font-mono text-xs">
-            Token: {coworkToken.substring(0, 20)}...
-          </Badge>
-        </div>
+      <div class="relative" style="min-height: 500px;">
+        <iframe
+          bind:this={iframeRef}
+          src={COWORK_APP_URL}
+          title="Sala Cowork"
+          class="w-full border-0"
+          style="height: 500px;"
+          allow="camera; microphone; display-capture"
+          sandbox="allow-scripts allow-same-origin allow-popups"
+        ></iframe>
+        {#if !iframeReady}
+          <div class="absolute inset-0 flex items-center justify-center bg-muted/80">
+            <div class="text-center space-y-2">
+              <div class="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+              <p class="text-muted-foreground text-sm">Carregando sala...</p>
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   {/if}

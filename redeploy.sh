@@ -28,6 +28,8 @@ STACK_NAME="djangocrm"
 COMPOSE_FILE="docker/djangocrm.yaml"
 BACKEND_IMAGE="talkhub/djangocrm-backend:latest"
 FRONTEND_IMAGE="talkhub/djangocrm-frontend:latest"
+COWORK_SERVER_IMAGE="talkhub/cowork-server:latest"
+COWORK_APP_IMAGE="talkhub/cowork-app:latest"
 API_URL="${PUBLIC_DJANGO_API_URL:-https://crm.talkhub.me}"
 
 # Source environment variables (optional — YAML has inline defaults)
@@ -196,6 +198,24 @@ else
         . \
         || fail "Falha no build do frontend"
     ok "Frontend build concluído"
+
+    log "  [cowork-server] Construindo ${COWORK_SERVER_IMAGE}..."
+    docker build \
+        $NO_CACHE \
+        -t "$COWORK_SERVER_IMAGE" \
+        -f docker/Dockerfile.cowork-server \
+        . \
+        || fail "Falha no build do cowork-server"
+    ok "Cowork server build concluído"
+
+    log "  [cowork-app] Construindo ${COWORK_APP_IMAGE}..."
+    docker build \
+        $NO_CACHE \
+        -t "$COWORK_APP_IMAGE" \
+        -f docker/Dockerfile.cowork-app \
+        . \
+        || fail "Falha no build do cowork-app"
+    ok "Cowork app build concluído"
 fi
 
 # ============================================================
@@ -221,7 +241,7 @@ sleep 20
 
 DEPLOY_OK=true
 
-for svc in crm_backend crm_frontend crm_worker crm_beat crm_db crm_redis; do
+for svc in crm_backend crm_frontend crm_worker crm_beat crm_db crm_redis crm_cowork_backend crm_cowork_front; do
     REPLICAS=$(docker service ls --filter "name=${STACK_NAME}_${svc}" --format '{{.Replicas}}' 2>/dev/null || echo "?/?")
     if echo "$REPLICAS" | grep -q "0/"; then
         echo -e "  ${RED}✘ ${svc}: ${REPLICAS}${NC}"

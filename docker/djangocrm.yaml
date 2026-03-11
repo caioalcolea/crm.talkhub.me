@@ -308,6 +308,76 @@ services:
           cpus: "0.5"
           memory: 256M
 
+  ## ---- Cowork Socket.io Server ---- ##
+  crm_cowork_backend:
+    image: talkhub/cowork-server:latest
+    environment:
+      - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
+      - ALLOWED_ORIGINS=https://crm.talkhub.me
+      - PROXIMITY_RADIUS=3
+      - PORT=3100
+    networks:
+      - talkhub
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=talkhub
+        ## Cowork WebSocket route (/cowork-ws/)
+        - traefik.http.routers.crm_cowork_ws.rule=Host(`crm.talkhub.me`) && PathPrefix(`/cowork-ws`)
+        - traefik.http.routers.crm_cowork_ws.entrypoints=websecure
+        - traefik.http.routers.crm_cowork_ws.tls=true
+        - traefik.http.routers.crm_cowork_ws.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.crm_cowork_ws.priority=22
+        - traefik.http.services.crm_cowork_ws.loadbalancer.server.port=3100
+        ## Strip /cowork-ws prefix so Socket.io receives /socket.io/
+        - traefik.http.middlewares.cowork_strip.stripprefix.prefixes=/cowork-ws
+        - traefik.http.routers.crm_cowork_ws.middlewares=cowork_strip
+
+  ## ---- Cowork Frontend (Next.js) ---- ##
+  crm_cowork_front:
+    image: talkhub/cowork-app:latest
+    environment:
+      - NODE_ENV=production
+      - PORT=3200
+    networks:
+      - talkhub
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=talkhub
+        ## Cowork app route (/cowork-app/)
+        - traefik.http.routers.crm_cowork_front.rule=Host(`crm.talkhub.me`) && PathPrefix(`/cowork-app`)
+        - traefik.http.routers.crm_cowork_front.entrypoints=websecure
+        - traefik.http.routers.crm_cowork_front.tls=true
+        - traefik.http.routers.crm_cowork_front.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.crm_cowork_front.priority=18
+        - traefik.http.services.crm_cowork_front.loadbalancer.server.port=3200
+        ## Strip /cowork-app prefix
+        - traefik.http.middlewares.cowork_app_strip.stripprefix.prefixes=/cowork-app
+        - traefik.http.routers.crm_cowork_front.middlewares=cowork_app_strip
+
 ## ========================== VOLUMES ========================== ##
 volumes:
   crm_db:

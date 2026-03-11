@@ -52,11 +52,21 @@ crm.talkhub.me/
 │   ├── djangocrm.yaml        # Docker Swarm stack definition
 │   ├── Dockerfile.backend    # Python 3.12-slim + Gunicorn
 │   ├── Dockerfile.frontend   # Node 22 multi-stage build
+│   ├── Dockerfile.cowork-server # Socket.io cowork server
+│   ├── Dockerfile.cowork-app # Next.js cowork frontend
 │   ├── entrypoint-prod.sh    # DB wait + migrations + RLS + collectstatic + admin
 │   ├── init-rls-user.sql     # Creates non-superuser for RLS
 │   ├── fix-deploy.sh         # Quick redeploy (no rebuild)
 │   ├── fix-db-user.sh        # Reset DB user password
 │   └── backup-db.sh          # pg_dump + optional S3 upload
+├── cowork-server/             # Socket.io real-time server (Node.js)
+│   ├── server.js             # Room state, JWT validation, proximity calc
+│   └── package.json
+├── cowork-app/                # Next.js virtual office frontend
+│   ├── src/app/              # App router (page.tsx = canvas room)
+│   ├── src/components/       # CoworkCanvas (2D tile grid renderer)
+│   ├── src/lib/              # Socket.io client + postMessage bridge
+│   └── package.json
 ├── redeploy.sh               # Full clean deploy script
 ├── README.md                 # Complete project documentation
 └── CLAUDE.md                 # This file
@@ -172,11 +182,37 @@ docker stack services djangocrm
 | crm_beat | djangocrm-backend | — | Celery Beat |
 | crm_frontend | djangocrm-frontend | 3000 | SvelteKit SSR |
 | crm_redis | redis:7-alpine | 6379 | Broker + Cache |
+| crm_cowork_backend | cowork-server | 3100 | Socket.io (cowork rooms) |
+| crm_cowork_front | cowork-app | 3200 | Next.js (virtual office) |
 
 ## Traefik Routing
 
+- Priority 25: `/ws/` -> crm_ws:8001 (Django WebSocket)
+- Priority 22: `/cowork-ws/` -> cowork_backend:3100 (Socket.io, strip prefix)
 - Priority 20: `/api`, `/admin`, `/static`, `/swagger`, `/media` -> backend:8000
+- Priority 18: `/cowork-app/` -> cowork_front:3200 (Next.js, strip prefix)
 - Priority 10: `/*` (catch-all) -> frontend:3000
+
+## Sala Cowork Architecture
+
+### Data Flow
+```
+SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
+  → iframe loads /cowork-app/ (Next.js)
+  → parent postMessage({ type: "cowork-init", payload: { token, socketUrl } })
+  → Next.js connects to /cowork-ws/ (Socket.io)
+  → join-room → room-state → real-time presence + movement
+```
+
+### Key Patterns
+- **In-memory state (V1)**: Room/player state stored in JS Map on cowork-server (no Redis needed for single replica)
+- **JWT bridge**: Django generates cowork-scoped JWT → validated by cowork-server using same SECRET_KEY
+- **postMessage protocol**: Parent (SvelteKit) ↔ iframe (Next.js) communication:
+  - Parent → Iframe: `cowork-init` (config), `cowork-destroy` (cleanup)
+  - Iframe → Parent: `cowork-ready`, `cowork-status`, `cowork-error`
+- **Proximity-based A/V**: Server calculates players within PROXIMITY_RADIUS tiles → emits `proximity-update`
+- **Guest access**: Public endpoint `/api/public/cowork/join/<token>/` generates guest JWT (30min, no org auth)
+- **Future**: Replace Canvas renderer with Phaser/Pixi.js from trevorwrightdev/gather-clone (strip Supabase, use postMessage + Redis state)
 
 ## Key Files for Common Tasks
 
@@ -194,6 +230,10 @@ docker stack services djangocrm
 | Chatwoot channel provider | `backend/chatwoot/provider.py` (send/receive messages) |
 | Conversation real-time | `backend/conversations/views.py` (`ConversationUpdatesView`) |
 | Webhook routing | `backend/integrations/views.py` (`webhook_receiver`), `backend/integrations/tasks.py` |
+| Cowork rooms (Django) | `backend/cowork/` (models, views, serializers, urls) |
+| Cowork Socket.io server | `cowork-server/server.js` (room state, proximity, JWT) |
+| Cowork virtual office | `cowork-app/src/` (Next.js + Canvas renderer) |
+| Cowork postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
 
 ## Chatwoot Integration
 
