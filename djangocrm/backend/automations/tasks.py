@@ -153,7 +153,13 @@ def _execute_action(action_type, action_params, org_id):
             )
 
         Model = apps.get_model(app_label, model_name)
-        obj = Model.objects.get(id=record_id)
+        # Enforce RLS: only update records belonging to the current org
+        if hasattr(Model, 'org_id'):
+            obj = Model.objects.get(id=record_id, org_id=org_id)
+        else:
+            raise ValueError(
+                f"update_field não suportado para modelo sem org: {model_name}"
+            )
         setattr(obj, field_name, new_value)
         obj.save(update_fields=[field_name, "updated_at"])
         return {"updated": f"{model_name}.{field_name}", "record_id": str(record_id)}

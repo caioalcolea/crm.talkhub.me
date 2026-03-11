@@ -6,7 +6,7 @@ Supports both status-based (default) and custom pipeline-based kanban boards.
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiParameter, inline_serializer
 from rest_framework import serializers, status
@@ -370,7 +370,13 @@ class LeadPipelineListCreateView(APIView):
     def get(self, request):
         """List all pipelines for the organization."""
         org = request.profile.org
-        pipelines = LeadPipeline.objects.filter(org=org, is_active=True)
+        pipelines = (
+            LeadPipeline.objects.filter(org=org, is_active=True)
+            .annotate(
+                _stage_count=Count("stages"),
+                _lead_count=Count("stages__leads"),
+            )
+        )
         serializer = LeadPipelineListSerializer(pipelines, many=True)
         return Response({"pipelines": serializer.data})
 

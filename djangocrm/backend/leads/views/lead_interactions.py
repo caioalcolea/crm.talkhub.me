@@ -1,4 +1,8 @@
+import logging
+
 from django.contrib.contenttypes.models import ContentType
+
+logger = logging.getLogger(__name__)
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -259,7 +263,13 @@ class LeadAttachmentView(APIView):
         },
     )
     def delete(self, request, pk, format=None):
-        self.object = self.model.objects.get(pk=pk)
+        try:
+            self.object = self.model.objects.get(pk=pk, org=request.profile.org)
+        except self.model.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Attachment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
             or request.user.is_superuser
@@ -349,7 +359,7 @@ class CreateLeadFromSite(APIView):
 
                 lead.contacts.add(contact)
             except Exception:
-                pass
+                logger.exception("Failed to create contact for site lead %s", lead.id)
 
             return Response(
                 {"error": False, "message": "Lead Created sucessfully."},

@@ -59,7 +59,7 @@ class LeadListView(APIView, LimitOffsetPagination):
             if params.get("name"):
                 queryset = queryset.filter(
                     Q(first_name__icontains=params.get("name"))
-                    & Q(last_name__icontains=params.get("name"))
+                    | Q(last_name__icontains=params.get("name"))
                 )
             if params.get("salutation"):
                 queryset = queryset.filter(
@@ -69,7 +69,7 @@ class LeadListView(APIView, LimitOffsetPagination):
                 queryset = queryset.filter(source=params.get("source"))
             if params.getlist("assigned_to"):
                 queryset = queryset.filter(
-                    assigned_to__id__in=params.get("assigned_to")
+                    assigned_to__id__in=params.getlist("assigned_to")
                 )
             if params.get("status"):
                 queryset = queryset.filter(status=params.get("status"))

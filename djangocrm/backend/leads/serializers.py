@@ -282,6 +282,9 @@ class LeadStageSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "org")
 
     def get_lead_count(self, obj):
+        # Use annotation if available, else fallback to query
+        if hasattr(obj, '_lead_count'):
+            return obj._lead_count
         return obj.leads.count()
 
 
@@ -309,9 +312,13 @@ class LeadPipelineSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "org")
 
     def get_stage_count(self, obj):
+        if hasattr(obj, '_stage_count'):
+            return obj._stage_count
         return obj.stages.count()
 
     def get_lead_count(self, obj):
+        if hasattr(obj, '_lead_count'):
+            return obj._lead_count
         return Lead.objects.filter(stage__pipeline=obj).count()
 
 
@@ -335,9 +342,13 @@ class LeadPipelineListSerializer(serializers.ModelSerializer):
         ]
 
     def get_stage_count(self, obj):
+        if hasattr(obj, '_stage_count'):
+            return obj._stage_count
         return obj.stages.count()
 
     def get_lead_count(self, obj):
+        if hasattr(obj, '_lead_count'):
+            return obj._lead_count
         return Lead.objects.filter(stage__pipeline=obj).count()
 
 

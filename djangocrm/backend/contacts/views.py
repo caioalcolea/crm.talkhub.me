@@ -52,7 +52,7 @@ class ContactsListView(APIView, LimitOffsetPagination):
             if params.get("name"):
                 queryset = queryset.filter(first_name__icontains=params.get("name"))
             if params.get("city"):
-                queryset = queryset.filter(address__city__icontains=params.get("city"))
+                queryset = queryset.filter(city__icontains=params.get("city"))
             if params.get("phone"):
                 queryset = queryset.filter(phone__icontains=params.get("phone"))
             if params.get("email"):
@@ -501,7 +501,13 @@ class ContactDetailView(APIView):
     def post(self, request, pk, **kwargs):
         params = request.data
         context = {}
-        self.contact_obj = Contact.objects.get(pk=pk)
+        try:
+            self.contact_obj = Contact.objects.get(pk=pk, org=request.profile.org)
+        except Contact.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Contact not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile == self.contact_obj.created_by)
@@ -838,7 +844,13 @@ class ContactAttachmentView(APIView):
         },
     )
     def delete(self, request, pk, format=None):
-        self.object = self.model.objects.get(pk=pk)
+        try:
+            self.object = self.model.objects.get(pk=pk, org=request.profile.org)
+        except self.model.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Attachment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
             or request.profile.is_admin

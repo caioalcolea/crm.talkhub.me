@@ -13,6 +13,7 @@ import time
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import EmailMessage
+from django.db.models import F
 from django.template import Template, Context
 from django.utils import timezone
 
@@ -129,7 +130,7 @@ def execute_email_blast(campaign_id, org_id):
 
 def _send_email_batch(campaign, recipients, org_id):
     """Send a batch of emails for a campaign."""
-    from campaigns.models import CampaignRecipient
+    from campaigns.models import Campaign, CampaignRecipient
 
     for recipient in recipients:
         contact = recipient.contact
@@ -137,8 +138,9 @@ def _send_email_batch(campaign, recipients, org_id):
             recipient.status = "failed"
             recipient.error_detail = "Contato sem email"
             recipient.save(update_fields=["status", "error_detail", "updated_at"])
-            campaign.failed_count += 1
-            campaign.save(update_fields=["failed_count"])
+            Campaign.objects.filter(id=campaign.id).update(
+                failed_count=F("failed_count") + 1
+            )
             continue
 
         try:
@@ -169,8 +171,9 @@ def _send_email_batch(campaign, recipients, org_id):
             recipient.status = "sent"
             recipient.sent_at = timezone.now()
             recipient.save(update_fields=["status", "sent_at", "updated_at"])
-            campaign.sent_count += 1
-            campaign.save(update_fields=["sent_count"])
+            Campaign.objects.filter(id=campaign.id).update(
+                sent_count=F("sent_count") + 1
+            )
 
         except Exception as exc:
             logger.exception(
@@ -180,8 +183,9 @@ def _send_email_batch(campaign, recipients, org_id):
             recipient.status = "failed"
             recipient.error_detail = str(exc)[:500]
             recipient.save(update_fields=["status", "error_detail", "updated_at"])
-            campaign.failed_count += 1
-            campaign.save(update_fields=["failed_count"])
+            Campaign.objects.filter(id=campaign.id).update(
+                failed_count=F("failed_count") + 1
+            )
 
 
 @shared_task(name="campaigns.tasks.execute_whatsapp_broadcast")
@@ -261,6 +265,8 @@ def execute_whatsapp_broadcast(campaign_id, org_id):
 
 def _send_whatsapp_batch(campaign, recipients, client):
     """Send a batch of WhatsApp messages."""
+    from campaigns.models import Campaign
+
     for recipient in recipients:
         contact = recipient.contact
 
@@ -268,8 +274,9 @@ def _send_whatsapp_batch(campaign, recipients, client):
             recipient.status = "failed"
             recipient.error_detail = "Contato sem telefone"
             recipient.save(update_fields=["status", "error_detail", "updated_at"])
-            campaign.failed_count += 1
-            campaign.save(update_fields=["failed_count"])
+            Campaign.objects.filter(id=campaign.id).update(
+                failed_count=F("failed_count") + 1
+            )
             continue
 
         # Need omni_user_ns or talkhub_subscriber_id to send
@@ -278,8 +285,9 @@ def _send_whatsapp_batch(campaign, recipients, client):
             recipient.status = "failed"
             recipient.error_detail = "Contato sem ID TalkHub Omni"
             recipient.save(update_fields=["status", "error_detail", "updated_at"])
-            campaign.failed_count += 1
-            campaign.save(update_fields=["failed_count"])
+            Campaign.objects.filter(id=campaign.id).update(
+                failed_count=F("failed_count") + 1
+            )
             continue
 
         try:
@@ -289,8 +297,9 @@ def _send_whatsapp_batch(campaign, recipients, client):
             recipient.status = "sent"
             recipient.sent_at = timezone.now()
             recipient.save(update_fields=["status", "sent_at", "updated_at"])
-            campaign.sent_count += 1
-            campaign.save(update_fields=["sent_count"])
+            Campaign.objects.filter(id=campaign.id).update(
+                sent_count=F("sent_count") + 1
+            )
 
         except Exception as exc:
             logger.exception(
@@ -300,8 +309,9 @@ def _send_whatsapp_batch(campaign, recipients, client):
             recipient.status = "failed"
             recipient.error_detail = str(exc)[:500]
             recipient.save(update_fields=["status", "error_detail", "updated_at"])
-            campaign.failed_count += 1
-            campaign.save(update_fields=["failed_count"])
+            Campaign.objects.filter(id=campaign.id).update(
+                failed_count=F("failed_count") + 1
+            )
 
 
 @shared_task(name="campaigns.tasks.execute_nurture_first_step")
