@@ -99,13 +99,27 @@ from common.base import BaseModel  # UUID pk, audit fields
 from common.base import BaseOrgModel  # + org FK (for new apps)
 ```
 
+### Webhook Multi-Tenant Pattern
+- Each `IntegrationConnection` has a unique `webhook_token` (auto-generated via `secrets.token_urlsafe(32)`)
+- Webhook URL: `/api/integrations/webhooks/<connector_slug>/<webhook_token>/` (preferred, secure)
+- Legacy URL: `/api/integrations/webhooks/<connector_slug>/` (backward compat, identifies org by account_id)
+- Token-based lookup uses raw SQL to bypass RLS (token IS the authentication)
+- `post_connect()` hook in `BaseConnector` registers webhook after connection is saved
+- Chatwoot connector overrides `post_connect()` to auto-register webhook with token-based URL
+
 ## Deploy Commands
 
 ```bash
-# Full redeploy (rebuild images + deploy)
+# Full redeploy (rebuild images + deploy + verify)
 ./redeploy.sh
 
-# Quick redeploy (reuse images)
+# Rebuild without Docker cache
+./redeploy.sh --no-cache
+
+# Deploy without rebuilding (reuse existing images)
+./redeploy.sh --skip-build
+
+# Quick redeploy (reuse images, no rebuild)
 docker/fix-deploy.sh
 
 # Logs
@@ -146,6 +160,7 @@ docker stack services djangocrm
 9. **Chatwoot contact dedup**: Group contacts (no email/phone) are deduped by exact name match. chatwoot_id is stored in `description` field as `chatwoot_id:123`. The `_dedup_contacts()` method auto-cleans duplicates on every sync
 10. **Chatwoot sync all statuses**: Chatwoot API `GET /conversations` defaults to `status=open` only. The sync must iterate all statuses (open, pending, resolved, snoozed) to get all conversations
 11. **Conversation ordering**: `ConversationListView` uses `Coalesce(last_message_at, created_at)` to ensure conversations without messages (freshly synced) appear in the list
+12. **Webhook multi-tenant**: Each `IntegrationConnection` has a unique `webhook_token`. Token-based URLs (`/webhooks/<slug>/<token>/`) prevent cross-tenant leakage when orgs share the same external service (e.g., same Chatwoot account_id). Legacy URL without token still works as fallback.
 
 ## Services (Docker Swarm)
 
@@ -184,8 +199,8 @@ docker stack services djangocrm
 
 ### Architecture
 ```
-Chatwoot → POST /api/integrations/webhooks/chatwoot/ (AllowAny)
-  → Identify org by account_id match
+Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny)
+  → Lookup org by webhook_token (raw SQL, bypasses RLS)
   → Validate HMAC-SHA256 signature
   → Enqueue process_webhook.delay() (Celery)
   → ChatwootConnector.handle_webhook() routes by event type

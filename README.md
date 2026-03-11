@@ -225,22 +225,13 @@ O `IsSuperAdmin` usa `user.is_superuser` (flag do Django), não domínio de emai
 
 ### Redeploy completo (recomendado)
 ```bash
-./redeploy.sh
+./redeploy.sh              # Rebuild + deploy (preserva dados)
+./redeploy.sh --no-cache   # Rebuild sem cache Docker
+./redeploy.sh --skip-build # Deploy sem rebuild (imagens existentes)
+./redeploy.sh --clean-db   # Recria volume do banco (APAGA DADOS)
+./redeploy.sh --clean-all  # Recria TODOS os volumes (APAGA TUDO)
 ```
-O script: remove stack → prune → rebuild imagens → recria volumes se necessário → deploy.
-
-### Deploy limpo (reset total)
-```bash
-# 1. Parar stack
-docker stack rm djangocrm
-sleep 15
-
-# 2. Remover volumes (PERDE TODOS OS DADOS)
-docker volume rm crm_db crm_static crm_media crm_redis
-
-# 3. Redeploy (recria volumes, roda migrations do zero, cria admin)
-./redeploy.sh
-```
+O script: remove stack → prune → rebuild → deploy → **verifica serviços, migrations e RLS automaticamente**.
 
 ### Rebuild individual
 ```bash
@@ -391,7 +382,9 @@ export const actions = {
 
 ### Chatwoot — Detalhes
 
-**Webhook**: `POST /api/integrations/webhooks/chatwoot/` (AllowAny, HMAC-SHA256)
+**Webhook**: `POST /api/integrations/webhooks/chatwoot/<webhook_token>/` (AllowAny, HMAC-SHA256)
+
+Cada integração recebe um `webhook_token` único auto-gerado, criando URLs exclusivas por org para isolamento multi-tenant seguro. URL legacy sem token ainda funciona como fallback.
 
 Eventos suportados:
 - `message_created` / `message_updated` — mensagens em tempo real + edição
@@ -429,6 +422,7 @@ Funcionalidades:
 |-----------|-----------|
 | [Diagrama Completo do CRM](DIAGRAMA_CRM_NATIVO.md) | Mapa detalhado de toda a arquitetura: models, campos, relacionamentos, herança, Celery Beat, RLS, fluxo de vendas |
 | [Variáveis de Ambiente](docs/ENV_VARIABLES.md) | Referência completa de todas as env vars (backend, frontend, deploy) |
+| [Guia: Novo Conector](djangocrm/backend/integrations/docs/new_connector_guide.md) | Como criar um novo conector de integração usando BaseConnector |
 
 ---
 
