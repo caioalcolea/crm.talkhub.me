@@ -119,60 +119,98 @@
           <Badge variant={integration.is_connected ? 'default' : 'outline'}>
             {integration.is_connected ? 'Conectado' : 'Desconectado'}
           </Badge>
-          {#if !isConnected && isChatwoot}
+          {#if isChatwoot}
             <Dialog.Root>
               <Dialog.Trigger>
-                <button type="button" class="inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground transition-colors" title="Como configurar o webhook?">
+                <button type="button" class="inline-flex items-center justify-center gap-1.5 rounded-full text-muted-foreground hover:text-foreground transition-colors" title="Como conectar o Chatwoot?">
                   <CircleHelp class="size-5" />
+                  <span class="text-xs underline underline-offset-2">Como conectar?</span>
                 </button>
               </Dialog.Trigger>
-              <Dialog.Content class="max-w-lg">
+              <Dialog.Content class="max-w-xl max-h-[85vh] overflow-y-auto">
                 <Dialog.Header>
-                  <Dialog.Title>Como configurar o Webhook do Chatwoot</Dialog.Title>
+                  <Dialog.Title>Como conectar o Chatwoot ao CRM</Dialog.Title>
                   <Dialog.Description>
-                    Siga os passos abaixo para conectar o Chatwoot ao CRM via webhook.
+                    Você precisa de 3 informações do seu Chatwoot. O webhook é registrado automaticamente.
                   </Dialog.Description>
                 </Dialog.Header>
-                <div class="space-y-4 text-sm">
-                  <div class="space-y-2">
-                    <p class="font-medium">1. Acesse o painel do Chatwoot</p>
+                <div class="space-y-5 text-sm">
+
+                  <!-- Step 1: URL -->
+                  <div class="rounded-lg border p-4 space-y-2">
+                    <div class="flex items-center gap-2">
+                      <span class="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+                      <p class="font-semibold">URL do Chatwoot</p>
+                    </div>
                     <p class="text-muted-foreground">
-                      Vá em <strong>Settings &rarr; Integrations &rarr; Configure</strong> na seção <strong>Webhook</strong>.
+                      É o endereço que você usa para acessar o painel do Chatwoot. Exemplo:
                     </p>
-                  </div>
-                  <div class="space-y-2">
-                    <p class="font-medium">2. Adicione a URL do webhook</p>
-                    <p class="text-muted-foreground">Cole a seguinte URL no campo de webhook:</p>
-                    <div class="bg-muted rounded-md px-3 py-2 font-mono text-xs break-all select-all">
-                      {chatwootWebhookUrl}
+                    <div class="bg-muted rounded-md px-3 py-2 font-mono text-xs">
+                      https://chat.seudominio.com.br
                     </div>
                   </div>
-                  <div class="space-y-2">
-                    <p class="font-medium">3. Selecione os eventos</p>
-                    <p class="text-muted-foreground">Marque todos os eventos disponíveis:</p>
-                    <ul class="text-muted-foreground list-inside list-disc space-y-1">
-                      <li>message_created</li>
-                      <li>message_updated</li>
-                      <li>conversation_created</li>
-                      <li>conversation_updated</li>
-                      <li>conversation_status_changed</li>
-                      <li>contact_created</li>
-                      <li>contact_updated</li>
-                    </ul>
-                  </div>
-                  <div class="space-y-2">
-                    <p class="font-medium">4. Preencha os campos nesta página</p>
+
+                  <!-- Step 2: Account ID -->
+                  <div class="rounded-lg border p-4 space-y-2">
+                    <div class="flex items-center gap-2">
+                      <span class="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
+                      <p class="font-semibold">ID da Conta (Account ID)</p>
+                    </div>
                     <p class="text-muted-foreground">
-                      Informe a <strong>URL do Chatwoot</strong>, o <strong>Token de Acesso</strong> (obtido em Perfil &rarr; Access Token) e o <strong>ID da Conta</strong>.
-                      O <strong>Webhook Secret</strong> é opcional mas recomendado para validação HMAC-SHA256.
+                      No Chatwoot, vá em <strong>Settings &rarr; Account Settings</strong>. O ID aparece na URL do navegador:
+                    </p>
+                    <div class="bg-muted rounded-md px-3 py-2 font-mono text-xs">
+                      https://chat.seudominio.com.br/app/accounts/<strong class="text-foreground">1</strong>/settings/general
+                    </div>
+                    <p class="text-muted-foreground text-xs">
+                      O número após <code>/accounts/</code> é o seu Account ID.
                     </p>
                   </div>
-                  <div class="space-y-2">
-                    <p class="font-medium">5. Salve e conecte</p>
+
+                  <!-- Step 3: Token -->
+                  <div class="rounded-lg border p-4 space-y-2">
+                    <div class="flex items-center gap-2">
+                      <span class="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">3</span>
+                      <p class="font-semibold">Token de Acesso (API Access Token)</p>
+                    </div>
                     <p class="text-muted-foreground">
-                      Clique em <strong>"Salvar e Conectar"</strong>. O CRM tentará registrar o webhook automaticamente no Chatwoot.
+                      No Chatwoot, clique no seu <strong>avatar</strong> (canto inferior esquerdo) e depois em:
+                    </p>
+                    <div class="flex items-center gap-2 text-muted-foreground">
+                      <span class="bg-muted rounded px-2 py-1 font-mono text-xs">Profile Settings</span>
+                      <span>&rarr;</span>
+                      <span class="bg-muted rounded px-2 py-1 font-mono text-xs">Access Token</span>
+                    </div>
+                    <p class="text-muted-foreground text-xs">
+                      Copie o token exibido. Se não existir, clique em "Create" para gerar um novo.
                     </p>
                   </div>
+
+                  <!-- Webhook auto -->
+                  <div class="rounded-lg border border-green-200 bg-green-50 p-4 space-y-2 dark:border-green-800 dark:bg-green-950">
+                    <div class="flex items-center gap-2">
+                      <Wifi class="size-4 text-green-600 dark:text-green-400" />
+                      <p class="font-semibold text-green-800 dark:text-green-200">Webhook automático</p>
+                    </div>
+                    <p class="text-green-700 dark:text-green-300">
+                      Ao clicar em <strong>"Salvar e Conectar"</strong>, o CRM registra o webhook automaticamente no seu Chatwoot.
+                      Você <strong>não precisa</strong> configurar o webhook manualmente.
+                    </p>
+                    <p class="text-green-600 dark:text-green-400 text-xs">
+                      URL registrada: <code class="font-mono">{chatwootWebhookUrl}</code>
+                    </p>
+                  </div>
+
+                  <!-- Webhook Secret (optional) -->
+                  <div class="rounded-lg border border-dashed p-4 space-y-2">
+                    <p class="font-semibold text-muted-foreground">Webhook Secret (opcional)</p>
+                    <p class="text-muted-foreground text-xs">
+                      Se quiser validar a autenticidade dos webhooks, defina um secret aqui e configure o mesmo valor
+                      no Chatwoot em <strong>Settings &rarr; Integrations &rarr; Webhook &rarr; editar</strong>.
+                      Recomendado para produção, mas não obrigatório.
+                    </p>
+                  </div>
+
                 </div>
                 <Dialog.Footer>
                   <Dialog.Close>
