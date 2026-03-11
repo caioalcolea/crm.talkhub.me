@@ -84,9 +84,10 @@
   function linkify(text) {
     if (!text) return '';
     const escaped = escapeHtml(text);
+    // Match URLs but exclude trailing punctuation that's likely not part of the URL
     return escaped.replace(
-      /(https?:\/\/[^\s]+)/g,
-      '<a href="$1" target="_blank" rel="noopener" class="underline hover:opacity-80">$1</a>'
+      /(https?:\/\/[^\s<>&]+(?:&amp;[^\s<>&]+)*)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-80">$1</a>'
     );
   }
 </script>
