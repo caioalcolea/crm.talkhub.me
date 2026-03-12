@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from cases.models import Case, CasePipeline, CaseStage
-from cases.serializer import (
+from cases.serializers import (
     CaseKanbanCardSerializer,
     CaseMoveSerializer,
     CasePipelineListSerializer,
@@ -93,7 +93,7 @@ class CaseKanbanView(APIView):
         )
 
         # Apply permission filtering
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             queryset = queryset.filter(
                 Q(assigned_to=request.profile) | Q(created_by=request.profile.user)
             )
@@ -228,7 +228,7 @@ class CaseMoveView(APIView):
         case = get_object_or_404(Case, pk=pk, org=org)
 
         # Permission check
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             if not (
                 request.profile.user == case.created_by
                 or request.profile in case.assigned_to.all()
@@ -382,7 +382,7 @@ class CasePipelineListCreateView(APIView):
         """Create a new pipeline."""
         org = request.profile.org
 
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Only admins can create pipelines"},
                 status=status.HTTP_403_FORBIDDEN,
@@ -467,7 +467,7 @@ class CasePipelineDetailView(APIView):
         responses={200: CasePipelineSerializer},
     )
     def put(self, request, pk):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -486,7 +486,7 @@ class CasePipelineDetailView(APIView):
 
     @extend_schema(tags=["Case Pipelines"], responses={204: None})
     def delete(self, request, pk):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -518,7 +518,7 @@ class CaseStageCreateView(APIView):
         responses={201: CaseStageSerializer},
     )
     def post(self, request, pipeline_pk):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -548,7 +548,7 @@ class CaseStageDetailView(APIView):
         responses={200: CaseStageSerializer},
     )
     def put(self, request, pk):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -567,7 +567,7 @@ class CaseStageDetailView(APIView):
 
     @extend_schema(tags=["Case Stages"], responses={204: None})
     def delete(self, request, pk):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -601,7 +601,7 @@ class CaseStageReorderView(APIView):
     )
     @transaction.atomic
     def post(self, request, pipeline_pk):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )

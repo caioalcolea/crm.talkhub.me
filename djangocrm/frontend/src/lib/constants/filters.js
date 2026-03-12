@@ -21,7 +21,7 @@ export const LEAD_SOURCES = [
   { value: 'existing customer', label: 'Cliente Existente' },
   { value: 'partner', label: 'Parceiro' },
   { value: 'public relations', label: 'Relações Públicas' },
-  { value: 'compaign', label: 'Campanha' },
+  { value: 'campaign', label: 'Campanha' },
   { value: 'other', label: 'Outro' }
 ];
 

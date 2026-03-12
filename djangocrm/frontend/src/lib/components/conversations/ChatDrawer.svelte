@@ -4,6 +4,7 @@
   import ConversationTimeline from './ConversationTimeline.svelte';
   import MessageInput from './MessageInput.svelte';
   import { X, Loader2, MessageSquare } from '@lucide/svelte';
+  import { apiRequest } from '$lib/api.js';
 
   /**
    * @typedef {Object} Props
@@ -33,22 +34,16 @@
     loading = true;
     try {
       // Fetch conversations for this contact
-      const convRes = await fetch(`/api/contacts/${contactId}/conversations/`);
-      if (convRes.ok) {
-        const convs = await convRes.json();
-        if (convs.length > 0) {
-          conversation = convs[0]; // Most recent
-          // Load messages
-          const msgRes = await fetch(`/api/conversations/${conversation.id}/messages/`);
-          if (msgRes.ok) {
-            const data = await msgRes.json();
-            messages = data.results || data || [];
-          }
-        }
+      const convs = await apiRequest(`/contacts/${contactId}/conversations/`);
+      if (convs && convs.length > 0) {
+        conversation = convs[0]; // Most recent
+        // Load messages
+        const data = await apiRequest(`/conversations/${conversation.id}/messages/`);
+        messages = data?.results || data || [];
       }
       // Load channels
-      const chRes = await fetch('/api/channels/');
-      if (chRes.ok) channels = await chRes.json();
+      const chData = await apiRequest('/channels/');
+      channels = chData?.results || chData || [];
     } catch (e) {
       console.error('Erro ao carregar conversa:', e);
     } finally {

@@ -12,7 +12,7 @@
   import { ArrowLeft, Plug, RefreshCw, Wifi, WifiOff, Loader2, Clock, Save, AlertTriangle } from '@lucide/svelte';
   import IntegrationHealth from '$lib/components/integrations/IntegrationHealth.svelte';
   import ConnectorConfigForm from '$lib/components/integrations/ConnectorConfigForm.svelte';
-
+  import ChatwootSetup from '$lib/components/integrations/ChatwootSetup.svelte';
   /** @type {{ data: any, form: any }} */
   let { data, form } = $props();
 
@@ -23,6 +23,25 @@
 
   /** Whether the integration is connected and active */
   let isConnected = $derived(integration?.is_connected && integration?.is_active);
+
+  /** Whether this is the Chatwoot integration */
+  let isChatwoot = $derived(data.slug === 'chatwoot' || integration?.slug === 'chatwoot');
+
+  /** Webhook URL for Chatwoot */
+  let chatwootWebhookUrl = $derived(
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/api/integrations/webhooks/chatwoot/${integration?.webhook_token ? integration.webhook_token + '/' : ''}`
+      : `/api/integrations/webhooks/chatwoot/${integration?.webhook_token ? integration.webhook_token + '/' : ''}`
+  );
+
+  let webhookCopied = $state(false);
+  function copyWebhookUrl() {
+    if (typeof navigator !== 'undefined') {
+      navigator.clipboard.writeText(chatwootWebhookUrl);
+      webhookCopied = true;
+      setTimeout(() => { webhookCopied = false; }, 2000);
+    }
+  }
 
   /** Whether config has been saved (has non-empty config) */
   let hasConfig = $derived(() => {
@@ -83,7 +102,17 @@
         <p class="text-muted-foreground">Integração não encontrada.</p>
       </Card.Content>
     </Card.Root>
+  {:else if isChatwoot}
+    <ChatwootSetup
+      {integration}
+      {health}
+      fieldMappings={data.fieldMappings}
+      dlqItems={data.dlqItems || []}
+      webhookUrl={chatwootWebhookUrl}
+      {form}
+    />
   {:else}
+    <!-- Generic Integration View -->
     <!-- Status & Health -->
     <Card.Root>
       <Card.Header>

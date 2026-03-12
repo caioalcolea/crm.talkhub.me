@@ -20,9 +20,10 @@ if not SECRET_KEY or SECRET_KEY.startswith("django-insecure"):
 DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
 # Security: Restrict allowed hosts - set ALLOWED_HOSTS env var in production
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.auth",
     "django.contrib.admin",
     "django.contrib.contenttypes",
@@ -46,26 +47,28 @@ INSTALLED_APPS = [
     "talkhub_omni",
     "financeiro",
     "integrations",
-    "channels",
+    "channels.apps.ChannelsConfig",
+    "chatwoot",
     "conversations",
     "automations",
     "campaigns",
+    "cowork",
     # "teams",  # Merged into common app
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "django.middleware.common.CommonMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",  # CSRF protection
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "crum.CurrentRequestUserMiddleware",
     "common.middleware.get_company.GetProfileAndOrg",
-    "common.middleware.rls_context.SetOrgContext",  # RLS: Set PostgreSQL session variable (permissive — views handle auth)
+    "common.middleware.rls_context.SetOrgContext",  # RLS: Set PostgreSQL session variable
 ]
 
 ROOT_URLCONF = "crm.urls"
@@ -91,6 +94,27 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "crm.wsgi.application"
+ASGI_APPLICATION = "crm.asgi.application"
+
+# Django Channels — Redis channel layer for WebSocket
+_REDIS_HOST = os.environ.get("REDIS_HOST", os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0"))
+# Parse redis host for channel layer (strip redis:// prefix and /db suffix)
+import re as _re
+
+_redis_match = _re.match(r"redis://([^:/]+):?(\d+)?/?(\d+)?", _REDIS_HOST)
+_ch_redis_host = _redis_match.group(1) if _redis_match else "localhost"
+_ch_redis_port = int(_redis_match.group(2) or 6379) if _redis_match else 6379
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [(_ch_redis_host, _ch_redis_port)],
+            "capacity": 1500,
+            "expiry": 10,
+        },
+    }
+}
 
 # Database
 # https://docs.djangoproject.com/en/1.10/ref/settings/#databases
@@ -219,11 +243,11 @@ LOGGING = {
         },
         "logfile": {
             "class": "logging.FileHandler",
-            "filename": "server.log",
+            "filename": os.path.join(BASE_DIR, "server.log"),
         },
         "security_audit": {
             "class": "logging.FileHandler",
-            "filename": "security_audit.log",
+            "filename": os.path.join(BASE_DIR, "security_audit.log"),
             "formatter": "security",
         },
     },
@@ -264,6 +288,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 10,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/minute",
+        "cowork_guest": "10/minute",
+    },
 }
 
 
@@ -331,10 +359,7 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-# STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
-
-# Django 5.x STORAGES dict (forward-compatible)
+# Django 5.x STORAGES dict (replaces deprecated STATICFILES_STORAGE)
 STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
@@ -375,7 +400,14 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
 
 # Fernet encryption key for secret fields (integrations, credentials)
-FERNET_KEY = os.environ.get("FERNET_KEY", "")
+# Auto-generate if missing or invalid (Docker Compose can mangle trailing '=')
+_fernet_key_raw = os.environ.get("FERNET_KEY", "")
+if _fernet_key_raw:
+    # Fix base64 padding if Docker stripped trailing '='
+    missing_padding = len(_fernet_key_raw) % 4
+    if missing_padding:
+        _fernet_key_raw += "=" * (4 - missing_padding)
+FERNET_KEY = _fernet_key_raw
 
 
 # ============================

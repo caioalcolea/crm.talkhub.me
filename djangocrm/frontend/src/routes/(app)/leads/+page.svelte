@@ -55,6 +55,7 @@
   import CrmTable from '$lib/components/ui/crm-table/CrmTable.svelte';
   import CrmDrawer from '$lib/components/ui/crm-drawer/CrmDrawer.svelte';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import { browser } from '$app/environment';
@@ -675,6 +676,7 @@
   // ContactAutocomplete state for create mode
   /** @type {any} */
   let selectedContact = $state(null);
+  let contactIdFromUrl = $state('');
 
   /**
    * Handle contact selection from autocomplete — fills form fields
@@ -749,9 +751,23 @@
     const action = $page.url.searchParams.get('action');
 
     if (action === 'create') {
+      const contactIdParam = $page.url.searchParams.get('contactId');
+      if (contactIdParam) {
+        contactIdFromUrl = contactIdParam;
+      }
       drawerData = null;
       drawerMode = 'create';
       drawerOpen = true;
+      // Pre-fill contact from URL — fetch contact details and fill form
+      if (contactIdFromUrl) {
+        createFormData = { ...createFormData, contacts: [contactIdFromUrl] };
+        apiRequest(`/contacts/${contactIdFromUrl}/`).then((contact) => {
+          if (contact && !contact.error) {
+            selectedContact = contact;
+            handleContactSelected(contact);
+          }
+        }).catch(() => {});
+      }
       // Lazy load form options when drawer opens via URL
       loadFormOptions();
     } else if (viewId && leads.length > 0) {
@@ -946,7 +962,7 @@
       description: '',
       assignedTo: [],
       teams: [],
-      contacts: [],
+      contacts: contactIdFromUrl ? [contactIdFromUrl] : [],
       tags: []
     };
     drawerData = null;
@@ -1840,6 +1856,16 @@
 
   {#snippet activitySection()}
     {#if drawerMode !== 'create' && drawerData}
+      <div class="mb-4">
+        <p class="mb-2 text-xs font-medium tracking-wider text-[var(--text-tertiary)] uppercase">
+          Relacionados
+        </p>
+        <RelatedEntitiesPanel
+          entityId={drawerData.id}
+          entityType="lead"
+          sections={['opportunities', 'tasks']}
+        />
+      </div>
       <CommentSection
         entityId={drawerData.id}
         entityType="leads"

@@ -13,6 +13,7 @@ Endpoint público (sem JWT):
 import logging
 
 from django.conf import settings
+from django.db import connection
 from django.shortcuts import redirect
 from django.utils import timezone
 
@@ -23,12 +24,21 @@ from rest_framework.views import APIView
 
 from common.models import Org, PendingInvitation, Profile, User
 from common.permissions import HasOrgContext, IsOrgAdmin
-from common.serializer import (
+from common.serializers import (
     PendingInvitationCreateSerializer,
     PendingInvitationSerializer,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _set_rls_context(org_id):
+    """Set RLS context so org-scoped INSERTs (e.g. Profile) are allowed."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT set_config('app.current_org', %s, false)",
+            [str(org_id)],
+        )
 
 
 class InvitationListCreateView(APIView):
@@ -182,6 +192,9 @@ class InvitationAcceptView(APIView):
     """
     GET /invite/accept/<token>/ — Endpoint público (sem JWT).
     Valida token, verifica expiração, redireciona para registro.
+
+    NOTE: pending_invitation has RLS DISABLED (migration 0003),
+    so ORM queries work without org context.
     """
 
     permission_classes = (AllowAny,)
@@ -228,6 +241,9 @@ class InvitationAcceptAPIView(APIView):
 
     Recebe {token}, valida, cria Profile na org do convite,
     e retorna org_id para o frontend fazer switch-org.
+
+    NOTE: pending_invitation has RLS DISABLED (migration 0003).
+    Profile creation requires setting RLS context first.
     """
 
     permission_classes = (IsAuthenticated,)
@@ -272,6 +288,9 @@ class InvitationAcceptAPIView(APIView):
             )
 
         org = invitation.org
+
+        # Set RLS context for profile operations on this org
+        _set_rls_context(org.id)
 
         # Check if user already has a profile in this org
         existing_profile = Profile.objects.filter(

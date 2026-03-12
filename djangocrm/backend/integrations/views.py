@@ -85,6 +85,49 @@ def _encrypt_secret_fields(config: dict, schema: dict) -> dict:
     return encrypted
 
 
+def _auto_create_channel_config(org, connector_slug, config):
+    """Auto-create a ChannelConfig when a connector that maps to a channel connects."""
+    from channels.models import ChannelConfig
+
+    # Map connector slugs to channel types
+    CONNECTOR_CHANNEL_MAP = {
+        "smtp": ("smtp_native", "Email (SMTP)"),
+        "chatwoot": ("chatwoot", "Chatwoot"),
+    }
+
+    mapping = CONNECTOR_CHANNEL_MAP.get(connector_slug)
+    if not mapping:
+        return
+
+    channel_type, display_name = mapping
+
+    # Build channel-specific config
+    if connector_slug == "chatwoot":
+        channel_config = {
+            "chatwoot_url": config.get("chatwoot_url", ""),
+            "account_id": config.get("account_id", ""),
+        }
+        capabilities = ["text", "image", "file"]
+    else:
+        channel_config = {
+            "from_email": config.get("from_email", ""),
+            "reply_to": config.get("reply_to", ""),
+        }
+        capabilities = ["text", "email", "file"]
+
+    ChannelConfig.objects.update_or_create(
+        org=org,
+        channel_type=channel_type,
+        defaults={
+            "provider": connector_slug,
+            "display_name": display_name,
+            "config_json": channel_config,
+            "is_active": True,
+            "capabilities_json": capabilities,
+        },
+    )
+
+
 def _check_feature_enabled(org, connector_slug):
     """Verifica se a feature flag está habilitada para o conector. Retorna None se OK, ou Response 403."""
     flag = OrgFeatureFlag.objects.filter(
@@ -174,28 +217,81 @@ class FeatureFlagDetailView(APIView):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
-def webhook_receiver(request, connector_slug):
+def webhook_receiver(request, connector_slug, webhook_token=None):
     """
-    Endpoint genérico de webhook: POST /api/integrations/webhooks/<connector_slug>/
+    Endpoint genérico de webhook.
 
-    1. Valida existência do conector no registry.
-    2. Identifica org pelo header X-Org-Id ou payload.
-    3. Verifica IntegrationConnection.is_active.
-    4. Valida autenticidade via connector.validate_webhook().
-    5. Enfileira process_webhook.delay() e retorna HTTP 200.
+    URLs:
+        POST /api/integrations/webhooks/<connector_slug>/<webhook_token>/  (preferred)
+        POST /api/integrations/webhooks/<connector_slug>/                  (legacy)
+
+    Token-based: lookup direto por webhook_token (seguro, sem ambiguidade multi-tenant).
+    Legacy: identifica org pelo header X-Org-Id ou account_id no payload.
     """
     connector_cls = ConnectorRegistry.get(connector_slug)
     if not connector_cls:
         return Response({"error": "Connector not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    # Identificar org
-    org_id = request.headers.get("X-Org-Id") or request.data.get("org_id")
-    if not org_id:
-        return Response({"error": "Organization not identified"}, status=status.HTTP_400_BAD_REQUEST)
+    from django.db import connection as db_conn
 
-    connection = IntegrationConnection.objects.filter(
-        connector_slug=connector_slug, org_id=org_id, is_active=True
-    ).first()
+    connection = None
+    org_id = None
+
+    # ── PRIMARY: Token-based lookup (secure, no ambiguity) ──
+    if webhook_token:
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, org_id FROM integration_connection "
+                "WHERE webhook_token = %s AND connector_slug = %s AND is_active = true "
+                "LIMIT 1",
+                [webhook_token, connector_slug],
+            )
+            row = cursor.fetchone()
+        if not row:
+            return Response({"error": "Invalid webhook token"}, status=status.HTTP_404_NOT_FOUND)
+        conn_id, org_id = row[0], str(row[1])
+        # Set RLS context
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.current_org', %s, false)", [org_id]
+            )
+        connection = IntegrationConnection.objects.get(id=conn_id)
+
+    # ── FALLBACK: Legacy org identification ──
+    else:
+        org_id = request.headers.get("X-Org-Id") or request.data.get("org_id")
+
+        # Chatwoot (and similar) webhooks don't send X-Org-Id.
+        # Identify org by matching account_id from the payload to IntegrationConnection.
+        if not org_id:
+            account_id = None
+            if isinstance(request.data, dict):
+                account_id = request.data.get("account", {}).get("id") if isinstance(request.data.get("account"), dict) else None
+            if account_id:
+                with db_conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id, org_id FROM integration_connection "
+                        "WHERE connector_slug = %s AND is_active = true "
+                        "AND (config_json->>'account_id')::text = %s "
+                        "LIMIT 1",
+                        [connector_slug, str(account_id)],
+                    )
+                    row = cursor.fetchone()
+                if row:
+                    org_id = str(row[1])
+
+        if not org_id:
+            return Response({"error": "Organization not identified"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Set RLS context for this org (webhook endpoints bypass middleware)
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.current_org', %s, false)", [str(org_id)]
+            )
+
+        connection = IntegrationConnection.objects.filter(
+            connector_slug=connector_slug, org_id=org_id, is_active=True
+        ).first()
 
     if not connection:
         return Response(
@@ -472,6 +568,15 @@ class IntegrationConnectView(APIView):
                 "error_count": 0,
             },
         )
+
+        # Auto-create ChannelConfig for connectors that map to a channel
+        _auto_create_channel_config(request.org, connector_slug, config)
+
+        # Post-connect hook (e.g. register webhook with token-based URL)
+        try:
+            connector.post_connect(request.org, connection)
+        except Exception as exc:
+            logger.warning("post_connect hook failed for %s: %s", connector_slug, exc)
 
         return Response(
             IntegrationConnectionSerializer(connection).data,
@@ -825,3 +930,125 @@ class VariableRegistryView(APIView):
 
         return Response(result)
 
+
+class WebhookDLQView(APIView):
+    """Dead Letter Queue: list and reprocess failed webhooks."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext, IsOrgAdmin)
+
+    def get(self, request):
+        """List DLQ items for this org."""
+        items = WebhookLog.objects.filter(
+            org=request.org, is_dlq=True,
+        ).order_by("-created_at")[:50]
+        return Response(WebhookLogSerializer(items, many=True).data)
+
+    def post(self, request):
+        """Reprocess a DLQ item."""
+        from integrations.tasks import process_webhook
+
+        webhook_id = request.data.get("webhook_id")
+        if not webhook_id:
+            return Response(
+                {"error": "webhook_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            log = WebhookLog.objects.get(id=webhook_id, org=request.org, is_dlq=True)
+        except WebhookLog.DoesNotExist:
+            return Response(
+                {"error": "DLQ item not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not log.can_retry:
+            return Response(
+                {"error": "This webhook is not retryable (non-transient error)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        log.is_dlq = False
+        log.status = "queued"
+        log.retry_count = 0
+        log.save(update_fields=["is_dlq", "status", "retry_count", "updated_at"])
+
+        process_webhook.delay(
+            log.connector_slug, str(log.org_id), log.payload_json, {}
+        )
+
+        return Response({"status": "requeued", "webhook_id": str(log.id)})
+
+
+class FetchPubsubTokenView(APIView):
+    """POST /api/integrations/chatwoot/fetch-pubsub-token/
+
+    Proxy to Chatwoot API to retrieve the pubsub_token for ActionCable WebSocket.
+    Avoids CORS issues by going backend → Chatwoot instead of frontend → Chatwoot.
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext, IsOrgAdmin)
+
+    def post(self, request):
+        import requests as http_requests
+
+        from chatwoot.connector import _decrypt_config
+
+        conn = IntegrationConnection.objects.filter(
+            org=request.org, connector_slug="chatwoot"
+        ).first()
+        if not conn:
+            return Response(
+                {"error": "Chatwoot não configurado"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        config = _decrypt_config(conn.config_json or {})
+        chatwoot_url = config.get("chatwoot_url", "").rstrip("/")
+        token = config.get("api_access_token", "")
+
+        if not chatwoot_url or not token:
+            return Response(
+                {"error": "URL ou token de acesso não configurados. Salve as credenciais primeiro."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            resp = http_requests.get(
+                f"{chatwoot_url}/auth/sign_in",
+                headers={"api_access_token": token},
+                timeout=10,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Falha ao conectar ao Chatwoot: {e}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if resp.status_code != 200:
+            return Response(
+                {"error": f"Chatwoot retornou HTTP {resp.status_code}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            data = resp.json()
+        except Exception:
+            return Response(
+                {"error": f"Chatwoot retornou resposta inválida (body vazio ou não-JSON)"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        pubsub_token = data.get("data", {}).get("pubsub_token", "")
+        if not pubsub_token:
+            return Response(
+                {"error": "PubSub token não encontrado no perfil Chatwoot"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Auto-save to config
+        config["pubsub_token"] = pubsub_token
+        schema = {"fields": [{"name": "api_access_token", "secret": True}, {"name": "webhook_secret", "secret": True}]}
+        conn.config_json = _encrypt_secret_fields(config, schema)
+        conn.save(update_fields=["config_json", "updated_at"])
+
+        return Response({"pubsub_token": pubsub_token})

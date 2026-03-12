@@ -8,6 +8,8 @@ import requests
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import extend_schema, inline_serializer
 
 from rest_framework import serializers, status
@@ -15,13 +17,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from common import serializer
+from common import serializers as common_serializers
 from common.models import Org, Profile, User
-from common.serializer import OrgAwareRefreshToken
+from common.serializers import OrgAwareRefreshToken
 
 logger = logging.getLogger(__name__)
 
 
+@method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True), name="post")
 class GoogleOAuthCallbackView(APIView):
     """
     Handle Google OAuth authorization code exchange with PKCE.
@@ -153,6 +156,7 @@ class GoogleOAuthCallbackView(APIView):
         )
 
 
+@method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True), name="post")
 class GoogleIdTokenView(APIView):
     """
     Handle Google Sign-In from mobile apps using ID token.
@@ -263,13 +267,14 @@ class MeView(APIView):
 
     @extend_schema(
         description="Get current authenticated user with organizations",
-        responses={200: serializer.UserDetailSerializer},
+        responses={200: common_serializers.UserDetailSerializer},
     )
     def get(self, request):
-        user_serializer = serializer.UserDetailSerializer(request.user)
+        user_serializer = common_serializers.UserDetailSerializer(request.user)
         return Response(user_serializer.data, status=status.HTTP_200_OK)
 
 
+@method_decorator(ratelimit(key="ip", rate="30/m", method="POST", block=True), name="post")
 class OrgAwareTokenRefreshView(APIView):
     """
     Custom token refresh that validates org membership.
@@ -462,6 +467,7 @@ class OrgSwitchView(APIView):
         )
 
 
+@method_decorator(ratelimit(key="ip", rate="5/m", method="POST", block=True), name="post")
 class MagicLinkRequestView(APIView):
     """
     Request a magic link for passwordless login/registration.
@@ -473,7 +479,7 @@ class MagicLinkRequestView(APIView):
 
     @extend_schema(
         tags=["auth"],
-        request=serializer.MagicLinkRequestSerializer,
+        request=common_serializers.MagicLinkRequestSerializer,
         responses={200: inline_serializer(
             name="MagicLinkRequestResponse",
             fields={"message": serializers.CharField()},
@@ -488,7 +494,7 @@ class MagicLinkRequestView(APIView):
             status=status.HTTP_200_OK,
         )
 
-        serializer_obj = serializer.MagicLinkRequestSerializer(data=request.data)
+        serializer_obj = common_serializers.MagicLinkRequestSerializer(data=request.data)
         if not serializer_obj.is_valid():
             return generic_response
 
@@ -533,7 +539,7 @@ class MagicLinkVerifyView(APIView):
 
     @extend_schema(
         tags=["auth"],
-        request=serializer.MagicLinkVerifySerializer,
+        request=common_serializers.MagicLinkVerifySerializer,
         responses={
             200: inline_serializer(
                 name="MagicLinkVerifyResponse",
@@ -551,7 +557,7 @@ class MagicLinkVerifyView(APIView):
         from common.audit_log import audit_log
         from common.models import MagicLinkToken
 
-        serializer_obj = serializer.MagicLinkVerifySerializer(data=request.data)
+        serializer_obj = common_serializers.MagicLinkVerifySerializer(data=request.data)
         if not serializer_obj.is_valid():
             return Response(
                 {"error": "Invalid request"},
@@ -619,7 +625,7 @@ class MagicLinkVerifyView(APIView):
         audit_log.login_success(user, default_org, request)
 
         # Build response (same shape as LoginView)
-        user_serializer = serializer.UserDetailSerializer(user)
+        user_serializer = common_serializers.UserDetailSerializer(user)
         response_data = {
             "access_token": str(token.access_token),
             "refresh_token": str(token),

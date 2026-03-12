@@ -1,7 +1,7 @@
 # 📊 DIAGRAMA COMPLETO DO CRM — TalkHub
 
-> Validado código a código em todas as 15 apps Django.
-> Última atualização: pós-bugfix multi-tenant (OrgScopedMixin aplicado).
+> Validado código a código em todas as 17 apps Django.
+> Última atualização: 2026-03-11 (Chatwoot connector completo + contact dedup + sync all statuses).
 
 ---
 

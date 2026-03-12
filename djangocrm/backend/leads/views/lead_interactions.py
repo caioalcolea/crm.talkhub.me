@@ -1,4 +1,8 @@
+import logging
+
 from django.contrib.contenttypes.models import ContentType
+
+logger = logging.getLogger(__name__)
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -7,12 +11,12 @@ from rest_framework.views import APIView
 
 from common.models import APISettings, Attachments, Comment
 from common.permissions import HasOrgContext
-from common.serializer import LeadCommentSerializer
+from common.serializers import LeadCommentSerializer
 from contacts.models import Contact
 from leads import swagger_params
 from leads.forms import LeadListForm
 from leads.models import Lead
-from leads.serializer import (
+from leads.serializers import (
     CreateLeadFromSiteSwaggerSerializer,
     LeadCommentEditSwaggerSerializer,
     LeadUploadSwaggerSerializer,
@@ -141,7 +145,7 @@ class LeadCommentView(APIView):
         obj = self.get_object(pk)
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = LeadCommentSerializer(obj, data=params)
@@ -184,7 +188,7 @@ class LeadCommentView(APIView):
         obj = self.get_object(pk)
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = LeadCommentSerializer(obj, data=params, partial=True)
@@ -223,7 +227,7 @@ class LeadCommentView(APIView):
         self.object = self.get_object(pk)
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == self.object.commented_by
         ):
             self.object.delete()
@@ -259,10 +263,16 @@ class LeadAttachmentView(APIView):
         },
     )
     def delete(self, request, pk, format=None):
-        self.object = self.model.objects.get(pk=pk)
+        try:
+            self.object = self.model.objects.get(pk=pk, org=request.profile.org)
+        except self.model.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Attachment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile.user == self.object.created_by
         ):
             self.object.delete()
@@ -349,7 +359,7 @@ class CreateLeadFromSite(APIView):
 
                 lead.contacts.add(contact)
             except Exception:
-                pass
+                logger.exception("Failed to create contact for site lead %s", lead.id)
 
             return Response(
                 {"error": False, "message": "Lead Created sucessfully."},

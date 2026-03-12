@@ -10,7 +10,7 @@ from django.db import connection
 from rest_framework.test import APIClient
 
 from common.models import Org, Profile, User
-from common.serializer import OrgAwareRefreshToken
+from common.serializers import OrgAwareRefreshToken
 
 
 def set_rls_context(org):

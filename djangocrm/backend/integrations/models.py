@@ -1,3 +1,5 @@
+import secrets
+
 from django.db import models
 
 from common.base import BaseOrgModel
@@ -43,6 +45,14 @@ class IntegrationConnection(BaseOrgModel):
     is_connected = models.BooleanField(default=False)
     config_json = models.JSONField(default=dict, blank=True)
     webhook_secret = models.CharField(max_length=255, blank=True, default="")
+    webhook_token = models.CharField(
+        max_length=64,
+        unique=True,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Token único para identificação do webhook. Auto-gerado.",
+    )
     last_sync_at = models.DateTimeField(null=True, blank=True)
     health_status = models.CharField(max_length=20, default="unknown", choices=HEALTH_CHOICES)
     error_count = models.PositiveIntegerField(default=0)
@@ -62,6 +72,11 @@ class IntegrationConnection(BaseOrgModel):
             models.Index(fields=["org", "connector_slug"]),
             models.Index(fields=["is_active"]),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.webhook_token:
+            self.webhook_token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.display_name} ({self.connector_slug}) - {self.org}"
@@ -87,6 +102,11 @@ class SyncJob(BaseOrgModel):
     skipped_count = models.IntegerField(default=0)
     error_count = models.IntegerField(default=0)
     progress_detail = models.JSONField(default=dict, blank=True)
+    cursor_state = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Estado do cursor para retomada. Ex: {'page': 15, 'status': 'open'}",
+    )
     error_log = models.JSONField(default=list, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -147,6 +167,10 @@ class WebhookLog(BaseOrgModel):
     status = models.CharField(max_length=20, default="queued", choices=STATUS_CHOICES)
     processing_time_ms = models.PositiveIntegerField(null=True, blank=True)
     payload_json = models.JSONField(default=dict, blank=True)
+    is_dlq = models.BooleanField(default=False, db_index=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    error_detail = models.TextField(blank=True, default="")
+    can_retry = models.BooleanField(default=True)
 
     class Meta:
         db_table = "webhook_log"

@@ -14,7 +14,7 @@ from rest_framework.views import APIView
 
 from accounts import swagger_params
 from accounts.models import Account
-from accounts.serializer import (
+from accounts.serializers import (
     AccountCommentEditSwaggerSerializer,
     AccountCreateSerializer,
     AccountDetailEditSwaggerSerializer,
@@ -26,9 +26,9 @@ from accounts.serializer import (
 )
 from common.utils import create_attachment, get_or_create_tags, handle_m2m_assignment
 from accounts.tasks import send_email, send_email_to_assigned_user
-from cases.serializer import CaseSerializer
+from cases.serializers import CaseSerializer
 from common.models import Attachments, Comment, Profile, Tags, Teams
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     CommentSerializer,
     ProfileSerializer,
@@ -43,13 +43,13 @@ from common.utils import (
     STATUS_CHOICE,
 )
 from contacts.models import Contact
-from contacts.serializer import ContactSerializer
-from invoices.serializer import InvoiceListSerializer
+from contacts.serializers import ContactSerializer
+from invoices.serializers import InvoiceListSerializer
 from leads.models import Lead
-from leads.serializer import LeadSerializer
+from leads.serializers import LeadSerializer
 from opportunity.models import SOURCES, STAGES, Opportunity
-from opportunity.serializer import OpportunitySerializer
-from tasks.serializer import TaskSerializer
+from opportunity.serializers import OpportunitySerializer
+from tasks.serializers import TaskSerializer
 
 
 class AccountsListView(APIView, LimitOffsetPagination):
@@ -838,7 +838,13 @@ class AccountAttachmentView(APIView):
 
     @extend_schema(tags=["Accounts"], parameters=swagger_params.organization_params)
     def delete(self, request, pk, format=None):
-        self.object = self.model.objects.get(pk=pk)
+        try:
+            self.object = self.model.objects.get(pk=pk, org=request.profile.org)
+        except self.model.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Attachment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
             or request.profile.is_admin
@@ -872,13 +878,17 @@ class AccountCreateMailView(APIView):
         data = request.data
         scheduled_later = data.get("scheduled_later")
         scheduled_date_time = data.get("scheduled_date_time")
-        account = Account.objects.filter(id=pk).first()
+        account = Account.objects.filter(id=pk, org=request.profile.org).first()
+        if not account:
+            return Response(
+                {"error": True, "errors": "Account not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         serializer = EmailSerializer(
             data=data,
-            request_obj=request,  # account=account,
+            request_obj=request,
         )
 
-        data = {}
         if serializer.is_valid():
             email_obj = serializer.save(from_account=account)
             if scheduled_later not in ["", None, False, "false"]:
@@ -889,7 +899,14 @@ class AccountCreateMailView(APIView):
                     )
 
             if data.get("recipients"):
-                contacts = json.loads(data.get("recipients"))
+                try:
+                    contacts = json.loads(data.get("recipients"))
+                except (json.JSONDecodeError, TypeError):
+                    email_obj.delete()
+                    return Response(
+                        {"error": True, "errors": "Invalid recipients format"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 for contact in contacts:
                     obj_contact = Contact.objects.filter(
                         id=contact, org=request.profile.org
@@ -898,9 +915,11 @@ class AccountCreateMailView(APIView):
                         email_obj.recipients.add(contact)
                     else:
                         email_obj.delete()
-                        data["recipients"] = "Please enter valid recipient"
-                        return Response({"error": True, "errors": data})
-            if data.get("scheduled_later") != "true":
+                        return Response(
+                            {"error": True, "errors": {"recipients": "Invalid recipient"}},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            if scheduled_later != "true":
                 send_email.delay(email_obj.id, str(request.profile.org.id))
             else:
                 email_obj.scheduled_later = True

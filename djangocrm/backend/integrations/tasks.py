@@ -41,15 +41,17 @@ def process_webhook(self, connector_slug: str, org_id: str, payload: dict, heade
     connector = connector_cls()
     org = Org.objects.get(id=org_id)
 
+    # Find the most recent webhook log for this event
+    webhook_log = (
+        WebhookLog.objects.filter(org_id=org_id, connector_slug=connector_slug)
+        .order_by("-created_at")
+        .first()
+    )
+
     try:
         result = connector.handle_webhook(org, payload, headers)
 
-        # Atualizar status do webhook log mais recente
-        webhook_log = (
-            WebhookLog.objects.filter(org_id=org_id, connector_slug=connector_slug)
-            .order_by("-created_at")
-            .first()
-        )
+        # Mark webhook as processed
         if webhook_log and webhook_log.status == "queued":
             webhook_log.status = "processed"
             webhook_log.save(update_fields=["status", "updated_at"])
@@ -57,8 +59,6 @@ def process_webhook(self, connector_slug: str, org_id: str, payload: dict, heade
         return result
 
     except Exception as exc:
-        delay = WEBHOOK_RETRY_DELAYS[min(self.request.retries, len(WEBHOOK_RETRY_DELAYS) - 1)]
-
         IntegrationLog.objects.create(
             org_id=org_id,
             connector_slug=connector_slug,
@@ -69,6 +69,24 @@ def process_webhook(self, connector_slug: str, org_id: str, payload: dict, heade
             error_detail=str(exc),
         )
 
+        if self.request.retries >= self.max_retries:
+            # Move to Dead Letter Queue for manual reprocessing
+            if webhook_log:
+                webhook_log.status = "failed"
+                webhook_log.is_dlq = True
+                webhook_log.error_detail = str(exc)[:2000]
+                webhook_log.retry_count = self.request.retries + 1
+                webhook_log.can_retry = not isinstance(exc, (ValueError, KeyError))
+                webhook_log.save(update_fields=[
+                    "status", "is_dlq", "error_detail", "retry_count", "can_retry", "updated_at",
+                ])
+            logger.error(
+                "Webhook moved to DLQ (exhausted %d retries): %s/%s - %s",
+                self.max_retries + 1, connector_slug, org_id, exc,
+            )
+            return  # Don't raise — no more retries
+
+        delay = WEBHOOK_RETRY_DELAYS[min(self.request.retries, len(WEBHOOK_RETRY_DELAYS) - 1)]
         logger.warning(
             "Webhook processing failed (attempt %d/%d): %s - %s",
             self.request.retries + 1,
@@ -148,6 +166,45 @@ def run_connector_sync(connector_slug: str, org_id: str, sync_type: str, job_id:
         raise
 
 
+@shared_task(name="integrations.tasks.sync_conversation_status_to_chatwoot", max_retries=2, default_retry_delay=5)
+def sync_conversation_status_to_chatwoot(org_id: str, chatwoot_conversation_id: int, new_status: str):
+    """
+    Sync a CRM status change to Chatwoot (fire-and-forget).
+
+    Called when user changes conversation status in the CRM UI.
+    Maps CRM status → Chatwoot status and calls the Chatwoot API.
+    """
+    set_rls_context(org_id)
+
+    from integrations.models import IntegrationConnection
+
+    conn = IntegrationConnection.objects.filter(
+        org_id=org_id, connector_slug="chatwoot", is_active=True, is_connected=True,
+    ).first()
+    if not conn:
+        return
+
+    from chatwoot.connector import _api_request, _decrypt_config
+    config = _decrypt_config(conn.config_json or {})
+
+    # Map CRM status → Chatwoot status
+    crm_to_chatwoot = {"open": "open", "pending": "pending", "resolved": "resolved"}
+    cw_status = crm_to_chatwoot.get(new_status)
+    if not cw_status:
+        return
+
+    try:
+        resp = _api_request(config, "POST", f"/conversations/{chatwoot_conversation_id}/toggle_status", json={
+            "status": cw_status,
+        })
+        if resp.status_code in (200, 201):
+            logger.info("Synced status '%s' to Chatwoot conversation %s", cw_status, chatwoot_conversation_id)
+        else:
+            logger.warning("Failed to sync status to Chatwoot: %s %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        logger.warning("Error syncing status to Chatwoot: %s", exc)
+
+
 @shared_task(name="integrations.tasks.cleanup_old_logs")
 def cleanup_old_logs():
     """
@@ -179,54 +236,62 @@ def check_pending_syncs():
     sync_interval_minutes configurado, verifica se o tempo desde o último
     sync excede o intervalo e dispara run_connector_sync.
     """
+    from django.db import connection as db_conn
+
     from integrations.models import IntegrationConnection, SyncJob
 
     now = timezone.now()
-    connections = IntegrationConnection.objects.filter(
-        is_active=True, is_connected=True
-    )
+
+    # Get all org IDs (organization table has no RLS)
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT id FROM organization")
+        org_ids = [row[0] for row in cursor.fetchall()]
 
     queued = 0
-    for conn in connections:
-        set_rls_context(str(conn.org_id))
+    for org_id in org_ids:
+        set_rls_context(str(org_id))
 
-        interval = conn.sync_interval_minutes or 60
-        if interval < 5:
-            interval = 5
+        connections = IntegrationConnection.objects.filter(
+            is_active=True, is_connected=True
+        )
+        for conn in connections:
+            interval = conn.sync_interval_minutes or 60
+            if interval < 5:
+                interval = 5
 
-        # Verificar se o último sync foi há mais tempo que o intervalo
-        if conn.last_sync_at:
-            elapsed = (now - conn.last_sync_at).total_seconds() / 60
-            if elapsed < interval:
+            # Verificar se o último sync foi há mais tempo que o intervalo
+            if conn.last_sync_at:
+                elapsed = (now - conn.last_sync_at).total_seconds() / 60
+                if elapsed < interval:
+                    continue
+
+            # Verificar se já existe um sync em andamento
+            running = SyncJob.objects.filter(
+                org_id=conn.org_id,
+                connector_slug=conn.connector_slug,
+                status__in=["PENDING", "IN_PROGRESS"],
+            ).exists()
+            if running:
                 continue
 
-        # Verificar se já existe um sync em andamento
-        running = SyncJob.objects.filter(
-            org_id=conn.org_id,
-            connector_slug=conn.connector_slug,
-            status__in=["PENDING", "IN_PROGRESS"],
-        ).exists()
-        if running:
-            continue
+            # Criar SyncJob e disparar task
+            job = SyncJob.objects.create(
+                org_id=conn.org_id,
+                connector_slug=conn.connector_slug,
+                sync_type="all",
+                status="PENDING",
+            )
+            run_connector_sync.delay(
+                conn.connector_slug, str(conn.org_id), "all", str(job.id)
+            )
+            queued += 1
 
-        # Criar SyncJob e disparar task
-        job = SyncJob.objects.create(
-            org_id=conn.org_id,
-            connector_slug=conn.connector_slug,
-            sync_type="all",
-            status="PENDING",
-        )
-        run_connector_sync.delay(
-            conn.connector_slug, str(conn.org_id), "all", str(job.id)
-        )
-        queued += 1
-
-        logger.info(
-            "Queued scheduled sync: %s (org=%s, interval=%dmin)",
-            conn.connector_slug,
-            conn.org_id,
-            interval,
-        )
+            logger.info(
+                "Queued scheduled sync: %s (org=%s, interval=%dmin)",
+                conn.connector_slug,
+                conn.org_id,
+                interval,
+            )
 
     logger.info("check_pending_syncs: queued %d syncs", queued)
 
@@ -246,57 +311,65 @@ def check_integration_health():
     """
     from django.conf import settings
     from django.core.mail import send_mail
+    from django.db import connection as db_conn
 
     from integrations.models import IntegrationConnection
 
-    connections = IntegrationConnection.objects.filter(is_active=True)
+    # Get all org IDs (organization table has no RLS)
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT id FROM organization")
+        org_ids = [row[0] for row in cursor.fetchall()]
 
-    for conn in connections:
-        set_rls_context(str(conn.org_id))
+    checked = 0
+    for org_id in org_ids:
+        set_rls_context(str(org_id))
 
-        old_status = conn.health_status
+        connections = IntegrationConnection.objects.filter(is_active=True)
+        for conn in connections:
+            checked += 1
+            old_status = conn.health_status
 
-        if conn.error_count > 15:
-            new_status = "down"
-        elif conn.error_count > 5:
-            new_status = "degraded"
-        else:
-            new_status = "healthy"
+            if conn.error_count > 15:
+                new_status = "down"
+            elif conn.error_count > 5:
+                new_status = "degraded"
+            else:
+                new_status = "healthy"
 
-        if new_status != old_status:
-            conn.health_status = new_status
-            conn.save(update_fields=["health_status", "updated_at"])
+            if new_status != old_status:
+                conn.health_status = new_status
+                conn.save(update_fields=["health_status", "updated_at"])
 
-            logger.info(
-                "Health status changed: %s (%s) %s → %s",
-                conn.connector_slug,
-                conn.org_id,
-                old_status,
-                new_status,
-            )
+                logger.info(
+                    "Health status changed: %s (%s) %s → %s",
+                    conn.connector_slug,
+                    conn.org_id,
+                    old_status,
+                    new_status,
+                )
 
-            # Enviar email ao admin quando status muda para "down"
-            if new_status == "down":
-                try:
-                    admin_email = getattr(settings, "DEFAULT_FROM_EMAIL", "adm@talkhub.me")
-                    send_mail(
-                        subject=f"[TalkHub CRM] Integração {conn.display_name} fora do ar",
-                        message=(
-                            f"A integração {conn.display_name} ({conn.connector_slug}) "
-                            f"está fora do ar.\n\n"
-                            f"Erros consecutivos: {conn.error_count}\n"
-                            f"Último erro: {conn.last_error or 'N/A'}\n"
-                            f"Último sync: {conn.last_sync_at or 'Nunca'}\n\n"
-                            f"Verifique o painel de integrações para mais detalhes."
-                        ),
-                        from_email=admin_email,
-                        recipient_list=[admin_email],
-                        fail_silently=True,
-                    )
-                except Exception as exc:
-                    logger.error("Failed to send health alert email: %s", exc)
+                # Enviar email ao admin quando status muda para "down"
+                if new_status == "down":
+                    try:
+                        admin_email = getattr(settings, "DEFAULT_FROM_EMAIL", "adm@talkhub.me")
+                        send_mail(
+                            subject=f"[TalkHub CRM] Integração {conn.display_name} fora do ar",
+                            message=(
+                                f"A integração {conn.display_name} ({conn.connector_slug}) "
+                                f"está fora do ar.\n\n"
+                                f"Erros consecutivos: {conn.error_count}\n"
+                                f"Último erro: {conn.last_error or 'N/A'}\n"
+                                f"Último sync: {conn.last_sync_at or 'Nunca'}\n\n"
+                                f"Verifique o painel de integrações para mais detalhes."
+                            ),
+                            from_email=admin_email,
+                            recipient_list=[admin_email],
+                            fail_silently=True,
+                        )
+                    except Exception as exc:
+                        logger.error("Failed to send health alert email: %s", exc)
 
-    logger.info("Health check completed for %d active connections", connections.count())
+    logger.info("Health check completed for %d active connections", checked)
 
 
 @shared_task(name="integrations.tasks.run_integration_review")

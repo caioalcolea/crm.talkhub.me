@@ -80,6 +80,7 @@
      ───────────────────────────────────────────────────────────────────────── */
   --color-primary-default: #ea580c;
   --color-primary-hover: #c2410c;
+  --color-primary-dark: #c2410c;
   --color-primary-active: #9a3412;
   --color-primary-light: #fff7ed;
 
@@ -462,6 +463,7 @@
   /* Primary color scale - Dark mode */
   --color-primary-default: #fb923c;
   --color-primary-hover: #fdba74;
+  --color-primary-dark: #fdba74;
   --color-primary-active: #f97316;
   --color-primary-light: #431407;
 

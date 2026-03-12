@@ -22,6 +22,7 @@ from opportunity.views.opportunity_interactions import (
 from opportunity.views.opportunity_views import (
     OpportunityDetailView,
     OpportunityListView,
+    OpportunityRelatedView,
 )
 
 app_name = "api_opportunities"
@@ -44,6 +45,7 @@ urlpatterns = [
         GoalBreakdownDetailView.as_view(),
         name="goal-breakdowns-detail",
     ),
+    path("<str:pk>/related/", OpportunityRelatedView.as_view(), name="opportunity-related"),
     path("<str:pk>/", OpportunityDetailView.as_view()),
     path("comment/<str:pk>/", OpportunityCommentView.as_view()),
     path("attachment/<str:pk>/", OpportunityAttachmentView.as_view()),

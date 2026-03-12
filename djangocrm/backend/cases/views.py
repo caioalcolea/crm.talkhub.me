@@ -15,10 +15,10 @@ from common.permissions import HasOrgContext
 from rest_framework.views import APIView
 
 from accounts.models import Account
-from accounts.serializer import AccountSerializer
+from accounts.serializers import AccountSerializer
 from cases import swagger_params
 from cases.models import Case
-from cases.serializer import (
+from cases.serializers import (
     CaseCommentEditSwaggerSerializer,
     CaseCreateSerializer,
     CaseCreateSwaggerSerializer,
@@ -27,10 +27,10 @@ from cases.serializer import (
 )
 from cases.tasks import send_email_to_assigned_user
 from common.models import Attachments, Comment, Profile, Tags, Teams
-from common.serializer import AttachmentsSerializer, CommentSerializer
+from common.serializers import AttachmentsSerializer, CommentSerializer
 from common.utils import CASE_TYPE, PRIORITY_CHOICE, STATUS_CHOICE
 from contacts.models import Contact
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 
 
 class CaseListView(APIView, LimitOffsetPagination):
@@ -39,7 +39,11 @@ class CaseListView(APIView, LimitOffsetPagination):
 
     def get_context_data(self, **kwargs):
         params = self.request.query_params
-        queryset = self.model.objects.filter(org=self.request.profile.org).order_by(
+        queryset = self.model.objects.filter(org=self.request.profile.org).select_related(
+            "account", "org"
+        ).prefetch_related(
+            "contacts", "assigned_to", "teams", "tags"
+        ).order_by(
             "-id"
         )
         accounts = Account.objects.filter(org=self.request.profile.org).order_by("-id")
@@ -934,7 +938,13 @@ class CaseAttachmentView(APIView):
         },
     )
     def delete(self, request, pk, format=None):
-        self.object = self.model.objects.get(pk=pk)
+        try:
+            self.object = self.model.objects.get(pk=pk, org=request.profile.org)
+        except self.model.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Attachment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
             or request.profile.is_admin
@@ -966,7 +976,7 @@ class CaseTaskCreateView(APIView):
     )
     def post(self, request, pk):
         from tasks.models import Task
-        from tasks.serializer import TaskCreateSerializer, TaskSerializer
+        from tasks.serializers import TaskCreateSerializer, TaskSerializer
 
         org = request.profile.org
         case = Case.objects.filter(pk=pk, org=org).first()
@@ -997,3 +1007,36 @@ class CaseTaskCreateView(APIView):
             {"error": True, "errors": serializer.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+
+class CaseRelatedView(APIView):
+    """
+    GET /api/cases/{id}/related/?include=tasks
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        include = set(request.query_params.get("include", "").split(","))
+        context = {}
+
+        if "tasks" in include:
+            from tasks.models import Task
+
+            qs = Task.objects.filter(case_id=pk, org=org).exclude(
+                status="Completed"
+            )
+            context["tasks_count"] = qs.count()
+            context["tasks"] = [
+                {
+                    "id": str(t.id),
+                    "title": t.title,
+                    "status": t.status,
+                    "due_date": str(t.due_date) if t.due_date else None,
+                    "priority": t.priority,
+                }
+                for t in qs.order_by("-created_at")[:5]
+            ]
+
+        return Response(context)

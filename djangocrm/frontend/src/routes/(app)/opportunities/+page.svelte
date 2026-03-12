@@ -32,6 +32,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
@@ -1645,6 +1646,18 @@
             </div>
           </div>
         {/if}
+      </div>
+
+      <!-- Related Entities -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <p class="mb-2 text-xs font-medium tracking-wider text-[var(--text-tertiary)] uppercase">
+          Relacionados
+        </p>
+        <RelatedEntitiesPanel
+          entityId={selectedRow.id}
+          entityType="opportunity"
+          sections={['tasks', 'invoices', 'financial', 'lead']}
+        />
       </div>
 
       <!-- Comments Section -->

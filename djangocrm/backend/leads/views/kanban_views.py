@@ -6,7 +6,7 @@ Supports both status-based (default) and custom pipeline-based kanban boards.
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiParameter, inline_serializer
 from rest_framework import serializers, status
@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 from common.permissions import HasOrgContext
 from common.utils import LEAD_STATUS
 from leads.models import Lead, LeadPipeline, LeadStage
-from leads.serializer import (
+from leads.serializers import (
     LeadKanbanCardSerializer,
     LeadMoveSerializer,
     LeadPipelineSerializer,
@@ -82,7 +82,7 @@ class LeadKanbanView(APIView):
         )
 
         # Apply permission filtering
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             queryset = queryset.filter(
                 Q(assigned_to=request.profile) | Q(created_by=request.profile.user)
             )
@@ -222,7 +222,7 @@ class LeadMoveView(APIView):
         lead = get_object_or_404(Lead, pk=pk, org=org)
 
         # Permission check
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             if not (
                 request.profile.user == lead.created_by
                 or request.profile in lead.assigned_to.all()
@@ -370,7 +370,13 @@ class LeadPipelineListCreateView(APIView):
     def get(self, request):
         """List all pipelines for the organization."""
         org = request.profile.org
-        pipelines = LeadPipeline.objects.filter(org=org, is_active=True)
+        pipelines = (
+            LeadPipeline.objects.filter(org=org, is_active=True)
+            .annotate(
+                _stage_count=Count("stages"),
+                _lead_count=Count("stages__leads"),
+            )
+        )
         serializer = LeadPipelineListSerializer(pipelines, many=True)
         return Response({"pipelines": serializer.data})
 
@@ -384,7 +390,7 @@ class LeadPipelineListCreateView(APIView):
         org = request.profile.org
 
         # Only admins can create pipelines
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Only admins can create pipelines"},
                 status=status.HTTP_403_FORBIDDEN,
@@ -477,7 +483,7 @@ class LeadPipelineDetailView(APIView):
     )
     def put(self, request, pk):
         """Update pipeline."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -497,7 +503,7 @@ class LeadPipelineDetailView(APIView):
     @extend_schema(tags=["Lead Pipelines"], responses={204: None})
     def delete(self, request, pk):
         """Delete pipeline (soft delete by setting is_active=False)."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -531,7 +537,7 @@ class LeadStageCreateView(APIView):
     )
     def post(self, request, pipeline_pk):
         """Add a new stage to pipeline."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -562,7 +568,7 @@ class LeadStageDetailView(APIView):
     )
     def put(self, request, pk):
         """Update stage."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -582,7 +588,7 @@ class LeadStageDetailView(APIView):
     @extend_schema(tags=["Lead Stages"], responses={204: None})
     def delete(self, request, pk):
         """Delete stage."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -618,7 +624,7 @@ class LeadStageReorderView(APIView):
     @transaction.atomic
     def post(self, request, pipeline_pk):
         """Reorder stages by providing ordered list of stage IDs."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )

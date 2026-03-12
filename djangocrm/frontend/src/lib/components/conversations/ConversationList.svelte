@@ -1,17 +1,39 @@
 <script>
   import { Badge } from '$lib/components/ui/badge/index.js';
   import ChannelBadge from '$lib/components/channels/ChannelBadge.svelte';
-  import { User, Clock } from '@lucide/svelte';
+  import { User, Users, Clock, Loader2 } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Props
    * @property {any[]} conversations
    * @property {string} [selected]
    * @property {(conv: any) => void} [onSelect]
+   * @property {boolean} [isGroupView]
+   * @property {boolean} [hasMore]
+   * @property {boolean} [loadingMore]
+   * @property {() => void} [onLoadMore]
    */
 
   /** @type {Props} */
-  let { conversations = [], selected = '', onSelect } = $props();
+  let { conversations = [], selected = '', onSelect, isGroupView = false, hasMore = false, loadingMore = false, onLoadMore } = $props();
+
+  /** @type {HTMLDivElement|undefined} */
+  let sentinel = $state();
+
+  // IntersectionObserver for infinite scroll
+  $effect(() => {
+    if (!sentinel || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore) {
+          onLoadMore?.();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
 
   /** @param {string} dateStr */
   function timeAgo(dateStr) {
@@ -31,11 +53,23 @@
     pending: 'bg-amber-500',
     resolved: 'bg-gray-400'
   };
+
+  /** Strip HTML tags for preview text */
+  function stripHtml(text) {
+    if (!text) return '';
+    return text.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  }
 </script>
 
 {#if conversations.length === 0}
   <div class="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
-    <p class="text-sm">Nenhuma conversa encontrada</p>
+    {#if isGroupView}
+      <Users class="mb-2 size-8 opacity-30" />
+      <p class="text-sm">Nenhum grupo encontrado</p>
+    {:else}
+      <User class="mb-2 size-8 opacity-30" />
+      <p class="text-sm">Nenhuma conversa encontrada</p>
+    {/if}
   </div>
 {:else}
   <div class="divide-y">
@@ -46,8 +80,12 @@
         onclick={() => onSelect?.(conv)}
       >
         <!-- Avatar -->
-        <div class="relative mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-muted">
-          <User class="size-5 text-muted-foreground" />
+        <div class="relative mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full {isGroupView || conv.is_group ? 'bg-indigo-100 dark:bg-indigo-950' : 'bg-muted'}">
+          {#if isGroupView || conv.is_group}
+            <Users class="size-5 text-indigo-600 dark:text-indigo-400" />
+          {:else}
+            <User class="size-5 text-muted-foreground" />
+          {/if}
           <div class="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background {statusColors[conv.status] || 'bg-gray-400'}"></div>
         </div>
 
@@ -60,17 +98,23 @@
             </span>
           </div>
 
+          {#if conv.metadata_json?.email_subject}
+            <p class="mt-0.5 truncate text-xs text-muted-foreground/60 italic">
+              {conv.metadata_json.email_subject}
+            </p>
+          {/if}
+
           {#if conv.last_message}
             <p class="mt-0.5 truncate text-xs text-muted-foreground">
               {#if conv.last_message.direction === 'out'}
                 <span class="text-muted-foreground/60">Você: </span>
               {/if}
-              {conv.last_message.content}
+              {stripHtml(conv.last_message.content)}
             </p>
           {/if}
 
           <div class="mt-1.5 flex items-center gap-1.5">
-            <ChannelBadge channel={conv.channel} size="xs" />
+            <ChannelBadge channelType={conv.channel} />
             <Badge variant="outline" class="text-[10px] px-1.5 py-0">
               {conv.status === 'open' ? 'Aberta' : conv.status === 'pending' ? 'Pendente' : 'Concluída'}
             </Badge>
@@ -78,5 +122,16 @@
         </div>
       </button>
     {/each}
+
+    <!-- Infinite scroll sentinel -->
+    {#if hasMore}
+      <div bind:this={sentinel} class="flex items-center justify-center py-4">
+        {#if loadingMore}
+          <Loader2 class="size-5 animate-spin text-muted-foreground" />
+        {:else}
+          <span class="text-xs text-muted-foreground">Carregando mais...</span>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}

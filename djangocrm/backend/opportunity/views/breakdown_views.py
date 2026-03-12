@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
 from opportunity.models import GoalBreakdown, SalesGoal
-from opportunity.serializer import (
+from opportunity.serializers import (
     GoalBreakdownCreateSerializer,
     GoalBreakdownSerializer,
 )
@@ -58,7 +58,7 @@ class GoalBreakdownListView(APIView):
         )
 
     def post(self, request, goal_id, *args, **kwargs):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": True, "errors": "Apenas administradores podem criar desdobramentos."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -111,7 +111,7 @@ class GoalBreakdownDetailView(APIView):
         return Response(serializer.data)
 
     def put(self, request, goal_id, pk, *args, **kwargs):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": True, "errors": "Apenas administradores podem editar desdobramentos."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -142,7 +142,7 @@ class GoalBreakdownDetailView(APIView):
         )
 
     def delete(self, request, goal_id, pk, *args, **kwargs):
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": True, "errors": "Apenas administradores podem excluir desdobramentos."},
                 status=status.HTTP_403_FORBIDDEN,

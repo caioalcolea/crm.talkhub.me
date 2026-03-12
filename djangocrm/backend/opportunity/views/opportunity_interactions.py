@@ -7,10 +7,10 @@ from rest_framework.views import APIView
 
 from common.models import Attachments, Comment
 from common.permissions import HasOrgContext
-from common.serializer import CommentSerializer
+from common.serializers import CommentSerializer
 from opportunity import swagger_params
 from opportunity.models import Opportunity
-from opportunity.serializer import OpportunityCommentEditSwaggerSerializer
+from opportunity.serializers import OpportunityCommentEditSwaggerSerializer
 
 
 class OpportunityCommentView(APIView):
@@ -18,7 +18,10 @@ class OpportunityCommentView(APIView):
     permission_classes = (IsAuthenticated, HasOrgContext)
 
     def get_object(self, pk):
-        return self.model.objects.get(pk=pk, org=self.request.profile.org)
+        try:
+            return self.model.objects.get(pk=pk, org=self.request.profile.org)
+        except self.model.DoesNotExist:
+            return None
 
     def post(self, request, pk, format=None):
         """Create a new comment on an opportunity. pk = opportunity UUID."""
@@ -81,9 +84,14 @@ class OpportunityCommentView(APIView):
     def put(self, request, pk, format=None):
         params = request.data
         obj = self.get_object(pk)
+        if obj is None:
+            return Response(
+                {"error": True, "errors": "Comment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = CommentSerializer(obj, data=params)
@@ -125,9 +133,14 @@ class OpportunityCommentView(APIView):
         """Handle partial updates to a comment."""
         params = request.data
         obj = self.get_object(pk)
+        if obj is None:
+            return Response(
+                {"error": True, "errors": "Comment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == obj.commented_by
         ):
             serializer = CommentSerializer(obj, data=params, partial=True)
@@ -164,9 +177,14 @@ class OpportunityCommentView(APIView):
     )
     def delete(self, request, pk, format=None):
         self.object = self.get_object(pk)
+        if self.object is None:
+            return Response(
+                {"error": True, "errors": "Comment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == self.object.commented_by
         ):
             self.object.delete()
@@ -201,10 +219,16 @@ class OpportunityAttachmentView(APIView):
         },
     )
     def delete(self, request, pk, format=None):
-        self.object = self.model.objects.get(pk=pk)
+        try:
+            self.object = self.model.objects.get(pk=pk, org=request.profile.org)
+        except self.model.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Attachment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
-            or request.user.is_superuser
+            or request.profile.is_admin
             or request.profile == self.object.created_by
         ):
             self.object.delete()

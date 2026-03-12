@@ -3,16 +3,17 @@ import secrets
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 
+from django.db import connection
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from common import serializer, swagger_params
+from common import serializers as common_serializers, swagger_params
 from common.models import Org, Profile
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     CreateProfileSerializer,
     OrganizationSerializer,
     OrgProfileCreateSerializer,
@@ -40,6 +41,13 @@ class OrgProfileCreateView(APIView):
         serializer = self.serializer_class(data=data)
         if serializer.is_valid():
             org_obj = serializer.save()
+
+            # Set RLS context to the new org so the profile INSERT is allowed
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT set_config('app.current_org', %s, false)",
+                    [str(org_obj.id)],
+                )
 
             # now creating the profile
             profile_obj = self.model2.objects.create(user=request.user, org=org_obj)
@@ -324,7 +332,7 @@ class ProfileDetailView(APIView):
                 description="Organization ID",
             )
         ],
-        responses={200: serializer.ProfileDetailSerializer},
+        responses={200: common_serializers.ProfileDetailSerializer},
     )
     def get(self, request):
         # request.profile is set by middleware based on org header
@@ -334,5 +342,5 @@ class ProfileDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        profile_serializer = serializer.ProfileDetailSerializer(request.profile)
+        profile_serializer = common_serializers.ProfileDetailSerializer(request.profile)
         return Response(profile_serializer.data, status=status.HTTP_200_OK)

@@ -9,7 +9,11 @@ services:
       - POSTGRES_DB=crm_db
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${CRM_POSTGRES_PASSWORD:-16864b0c4a4e46c68d35ad644cca2791}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
       - TZ=America/Sao_Paulo
+    command: >
+      postgres
+      -c crm.db_password=${CRM_DB_PASSWORD:-crm_talkhub_2026}
     volumes:
       - crm_db:/var/lib/postgresql/data
     configs:
@@ -48,22 +52,25 @@ services:
       - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
       - DBHOST=crm_db
       - DBPORT=5432
-      ## Redis
+      ## Superuser password (used by entrypoint to ensure crm_user exists)
+      - POSTGRES_PASSWORD=${CRM_POSTGRES_PASSWORD:-16864b0c4a4e46c68d35ad644cca2791}
+      ## Redis (dedicado para CRM)
       - CELERY_BROKER_URL=redis://crm_redis:6379/0
       - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
       ## MinIO S3
       - AWS_BUCKET_NAME=${CRM_S3_BUCKET:-talkhub-crm}
-      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY}
-      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY}
-      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://s3.talkhub.me}
+      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY:-Admin}
+      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY:-Madu*0112talk}
+      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://bucketss3.talkhub.me}
       ## SMTP (Titan)
       - EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
       - EMAIL_HOST=smtp.titan.email
       - EMAIL_PORT=465
       - EMAIL_USE_SSL=True
-      - EMAIL_HOST_USER=adm@talkhub.me
-      - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:-Madu*0112talk@}
-      - DEFAULT_FROM_EMAIL=TalkHub CRM <adm@talkhub.me>
+      - EMAIL_USE_TLS=False
+      - EMAIL_HOST_USER=talkhub@talkhub.me
+      - EMAIL_HOST_PASSWORD=Madu*0112talk@
+      - DEFAULT_FROM_EMAIL=talkhub@talkhub.me
       - ADMIN_EMAIL=admin@talkhub.me
       - ADMIN_PASSWORD=${CRM_ADMIN_PASSWORD:-TalkHub2026!}
       ## CORS / CSRF
@@ -73,11 +80,11 @@ services:
       ## Sentry (opcional)
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
-      ## Google OAuth
-      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET}
-      ## Fernet encryption
-      - FERNET_KEY=${CRM_FERNET_KEY}
+      ## Google OAuth (opcional)
+      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
+      ## Fernet encryption (do NOT use ${VAR:-default} — trailing '=' breaks interpolation)
+      - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
     volumes:
       - crm_static:/app/staticfiles
       - crm_media:/app/media
@@ -97,8 +104,9 @@ services:
           memory: 1024M
       labels:
         - traefik.enable=true
+        - traefik.docker.network=talkhub
         ## Rota API/Admin/Static (prioridade alta)
-        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin/`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite/`) || PathPrefix(`/webhooks/`) || PathPrefix(`/track/`))
+        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite`) || PathPrefix(`/health`) || PathPrefix(`/track`) || PathPrefix(`/webhooks`) || PathPrefix(`/logout`) || PathPrefix(`/schema`))
         - traefik.http.routers.crm_api.entrypoints=websecure
         - traefik.http.routers.crm_api.tls=true
         - traefik.http.routers.crm_api.tls.certresolver=letsencryptresolver
@@ -108,9 +116,57 @@ services:
         - traefik.http.middlewares.crm_headers.headers.customrequestheaders.X-Forwarded-Proto=https
         - traefik.http.routers.crm_api.middlewares=crm_headers
 
+  ## ---- Daphne WebSocket (ASGI) ---- ##
+  crm_ws:
+    image: talkhub/djangocrm-backend:latest
+    command: daphne -b 0.0.0.0 -p 8001 crm.asgi:application
+    healthcheck:
+      disable: true
+    environment:
+      - SERVICE_ROLE=ws
+      - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
+      - ENV_TYPE=prod
+      - DEBUG=False
+      - ALLOWED_HOSTS=crm.talkhub.me,localhost
+      - DBNAME=crm_db
+      - DBUSER=crm_user
+      - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
+      - DBHOST=crm_db
+      - DBPORT=5432
+      - CELERY_BROKER_URL=redis://crm_redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
+      - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
+    networks:
+      - talkhub
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=talkhub
+        ## WebSocket route (highest priority)
+        - traefik.http.routers.crm_ws.rule=Host(`crm.talkhub.me`) && PathPrefix(`/ws/`)
+        - traefik.http.routers.crm_ws.entrypoints=websecure
+        - traefik.http.routers.crm_ws.tls=true
+        - traefik.http.routers.crm_ws.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.crm_ws.priority=25
+        - traefik.http.services.crm_ws.loadbalancer.server.port=8001
+
   ## ---- Celery Worker ---- ##
   crm_worker:
     image: talkhub/djangocrm-backend:latest
+    entrypoint: /entrypoint-prod.sh
+    healthcheck:
+      disable: true
     environment:
       - SERVICE_ROLE=worker
       - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
@@ -124,25 +180,24 @@ services:
       - CELERY_BROKER_URL=redis://crm_redis:6379/0
       - CELERY_RESULT_BACKEND=redis://crm_redis:6379/0
       - AWS_BUCKET_NAME=${CRM_S3_BUCKET:-talkhub-crm}
-      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY}
-      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY}
-      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://s3.talkhub.me}
+      - AWS_ACCESS_KEY_ID=${CRM_S3_ACCESS_KEY:-Admin}
+      - AWS_SECRET_ACCESS_KEY=${CRM_S3_SECRET_KEY:-Madu*0112talk}
+      - AWS_S3_ENDPOINT_URL=${CRM_S3_ENDPOINT:-https://bucketss3.talkhub.me}
       - EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
       - EMAIL_HOST=smtp.titan.email
       - EMAIL_PORT=465
       - EMAIL_USE_SSL=True
-      - EMAIL_HOST_USER=adm@talkhub.me
-      - EMAIL_HOST_PASSWORD=${CRM_SMTP_PASSWORD:-Madu*0112talk@}
-      - DEFAULT_FROM_EMAIL=TalkHub CRM <adm@talkhub.me>
+      - EMAIL_USE_TLS=False
+      - EMAIL_HOST_USER=talkhub@talkhub.me
+      - EMAIL_HOST_PASSWORD=Madu*0112talk@
+      - DEFAULT_FROM_EMAIL=talkhub@talkhub.me
       - DOMAIN_NAME=https://crm.talkhub.me
       - FRONTEND_URL=https://crm.talkhub.me
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
-      ## Google OAuth
-      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET}
-      ## Fernet encryption
-      - FERNET_KEY=${CRM_FERNET_KEY}
+      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
+      - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
     volumes:
       - crm_media:/app/media
     networks:
@@ -163,6 +218,9 @@ services:
   ## ---- Celery Beat (scheduler) ---- ##
   crm_beat:
     image: talkhub/djangocrm-backend:latest
+    entrypoint: /entrypoint-prod.sh
+    healthcheck:
+      disable: true
     environment:
       - SERVICE_ROLE=beat
       - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
@@ -195,14 +253,16 @@ services:
   ## ---- SvelteKit Frontend ---- ##
   crm_frontend:
     image: talkhub/djangocrm-frontend:latest
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:3000', (r) => { r.resume(); r.on('end', () => process.exit(r.statusCode < 500 ? 0 : 1)) }).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     environment:
       - PUBLIC_DJANGO_API_URL=https://crm.talkhub.me
-      - PUBLIC_SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - NODE_ENV=production
       - ORIGIN=https://crm.talkhub.me
-      ## Google OAuth
-      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID}
-      - GOOGLE_LOGIN_DOMAIN=https://crm.talkhub.me
     networks:
       - talkhub
     deploy:
@@ -219,6 +279,7 @@ services:
           memory: 512M
       labels:
         - traefik.enable=true
+        - traefik.docker.network=talkhub
         ## Frontend catch-all (prioridade baixa — API tem prioridade)
         - traefik.http.routers.crm_frontend.rule=Host(`crm.talkhub.me`)
         - traefik.http.routers.crm_frontend.entrypoints=websecure
@@ -246,6 +307,76 @@ services:
         limits:
           cpus: "0.5"
           memory: 256M
+
+  ## ---- Cowork Socket.io Server ---- ##
+  crm_cowork_backend:
+    image: talkhub/cowork-server:latest
+    environment:
+      - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
+      - ALLOWED_ORIGINS=https://crm.talkhub.me
+      - PROXIMITY_RADIUS=3
+      - PORT=3100
+    networks:
+      - talkhub
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=talkhub
+        ## Cowork WebSocket route (/cowork-ws/)
+        - traefik.http.routers.crm_cowork_ws.rule=Host(`crm.talkhub.me`) && PathPrefix(`/cowork-ws`)
+        - traefik.http.routers.crm_cowork_ws.entrypoints=websecure
+        - traefik.http.routers.crm_cowork_ws.tls=true
+        - traefik.http.routers.crm_cowork_ws.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.crm_cowork_ws.priority=22
+        - traefik.http.services.crm_cowork_ws.loadbalancer.server.port=3100
+        ## Strip /cowork-ws prefix so Socket.io receives /socket.io/
+        - traefik.http.middlewares.cowork_strip.stripprefix.prefixes=/cowork-ws
+        - traefik.http.routers.crm_cowork_ws.middlewares=cowork_strip
+
+  ## ---- Cowork Frontend (Next.js) ---- ##
+  crm_cowork_front:
+    image: talkhub/cowork-app:latest
+    environment:
+      - NODE_ENV=production
+      - PORT=3200
+      - HOSTNAME=0.0.0.0
+    networks:
+      - talkhub
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=talkhub
+        ## Cowork app route (/cowork-app/)
+        - traefik.http.routers.crm_cowork_front.rule=Host(`crm.talkhub.me`) && PathPrefix(`/cowork-app`)
+        - traefik.http.routers.crm_cowork_front.entrypoints=websecure
+        - traefik.http.routers.crm_cowork_front.tls=true
+        - traefik.http.routers.crm_cowork_front.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.crm_cowork_front.priority=100
+        - traefik.http.services.crm_cowork_front.loadbalancer.server.port=3200
+        ## No StripPrefix — Next.js uses basePath: "/cowork-app" natively
 
 ## ========================== VOLUMES ========================== ##
 volumes:

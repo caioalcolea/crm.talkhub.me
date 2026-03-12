@@ -6,32 +6,39 @@ export async function load({ cookies, url }) {
   const status = url.searchParams.get('status') || 'open';
   const assigned_to = url.searchParams.get('assigned_to') || '';
   const search = url.searchParams.get('search') || '';
+  const is_group = url.searchParams.get('is_group') || '';
 
   const params = new URLSearchParams();
   if (channel) params.set('channel', channel);
   if (status) params.set('status', status);
   if (assigned_to) params.set('assigned_to', assigned_to);
   if (search) params.set('search', search);
+  if (is_group) params.set('is_group', is_group);
 
   const qs = params.toString();
 
   try {
-    const [conversations, channels] = await Promise.all([
+    const [convResponse, channels] = await Promise.all([
       apiRequest(`/conversations/${qs ? '?' + qs : ''}`, {}, { cookies }),
       apiRequest('/channels/', {}, { cookies }),
     ]);
 
+    // Support both paginated {results, next_cursor, has_more} and legacy flat array
+    const isPaginated = convResponse?.results && 'next_cursor' in convResponse;
+
     return {
-      conversations: conversations?.results || conversations || [],
+      conversations: isPaginated ? convResponse.results : (convResponse?.results || convResponse || []),
+      nextCursor: isPaginated ? convResponse.next_cursor : null,
+      hasMore: isPaginated ? convResponse.has_more : false,
       channels: channels?.results || channels || [],
-      filters: { channel, status, assigned_to, search },
+      filters: { channel, status, assigned_to, search, is_group },
       error: null,
     };
   } catch (err) {
     return {
       conversations: [],
       channels: [],
-      filters: { channel, status, assigned_to, search },
+      filters: { channel, status, assigned_to, search, is_group },
       error: err?.message || 'Falha ao carregar conversas.',
     };
   }

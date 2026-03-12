@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from common.permissions import HasOrgContext
 from common.utils import STAGES
 from opportunity.models import StageAgingConfig
-from opportunity.serializer import StageAgingConfigSerializer
+from opportunity.serializers import StageAgingConfigSerializer
 from opportunity.workflow import CLOSED_STAGES, DEFAULT_STAGE_EXPECTED_DAYS
 
 
@@ -39,7 +39,7 @@ class StageAgingConfigView(APIView):
 
     def put(self, request):
         """Bulk upsert stage aging configs (admin only)."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": True, "errors": "Only admins can update aging config"},
                 status=status.HTTP_403_FORBIDDEN,

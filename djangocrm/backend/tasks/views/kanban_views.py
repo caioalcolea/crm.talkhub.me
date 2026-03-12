@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 
 from common.permissions import HasOrgContext
 from tasks.models import Task, TaskPipeline, TaskStage
-from tasks.serializer import (
+from tasks.serializers import (
     TaskKanbanCardSerializer,
     TaskMoveSerializer,
     TaskPipelineSerializer,
@@ -118,7 +118,7 @@ class TaskKanbanView(APIView):
         )
 
         # Apply permission filtering
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             queryset = queryset.filter(
                 Q(assigned_to=request.profile) | Q(created_by=request.profile.user)
             )
@@ -257,7 +257,7 @@ class TaskMoveView(APIView):
         task = get_object_or_404(Task, pk=pk, org=org)
 
         # Permission check
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             if not (
                 request.profile.user == task.created_by
                 or request.profile in task.assigned_to.all()
@@ -415,7 +415,7 @@ class TaskPipelineListCreateView(APIView):
         org = request.profile.org
 
         # Only admins can create pipelines
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Only admins can create pipelines"},
                 status=status.HTTP_403_FORBIDDEN,
@@ -491,7 +491,7 @@ class TaskPipelineDetailView(APIView):
     )
     def put(self, request, pk):
         """Update pipeline."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -511,7 +511,7 @@ class TaskPipelineDetailView(APIView):
     @extend_schema(tags=["Task Pipelines"], responses={204: None})
     def delete(self, request, pk):
         """Delete pipeline (soft delete by setting is_active=False)."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -545,7 +545,7 @@ class TaskStageCreateView(APIView):
     )
     def post(self, request, pipeline_pk):
         """Add a new stage to pipeline."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -576,7 +576,7 @@ class TaskStageDetailView(APIView):
     )
     def put(self, request, pk):
         """Update stage."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -596,7 +596,7 @@ class TaskStageDetailView(APIView):
     @extend_schema(tags=["Task Stages"], responses={204: None})
     def delete(self, request, pk):
         """Delete stage."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -632,7 +632,7 @@ class TaskStageReorderView(APIView):
     @transaction.atomic
     def post(self, request, pipeline_pk):
         """Reorder stages by providing ordered list of stage IDs."""
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
+        if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
             )

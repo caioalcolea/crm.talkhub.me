@@ -160,4 +160,4 @@ def create_lead_from_file(validated_rows, invalid_rows, user_id, source, company
                     lead.org = org
                     lead.save()
                 except Exception:
-                    pass
+                    logger.exception("Failed to import lead from CSV row: %s", row)

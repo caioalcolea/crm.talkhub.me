@@ -1,6 +1,6 @@
 <script>
   import { Badge } from '$lib/components/ui/badge/index.js';
-  import { Phone, Instagram, Send, Mail, Globe, MessageSquare } from '@lucide/svelte';
+  import { Phone, Instagram, Send, Mail, Globe, MessageSquare, MessageCircle } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Props
@@ -20,6 +20,8 @@
     telegram: { icon: Send, label: 'Telegram' },
     sms: { icon: MessageSquare, label: 'SMS' },
     email: { icon: Mail, label: 'Email' },
+    smtp_native: { icon: Mail, label: 'Email' },
+    chatwoot: { icon: MessageCircle, label: 'Chatwoot' },
     web_chat: { icon: Globe, label: 'Web Chat' },
   };
 
@@ -33,8 +35,10 @@
     <Instagram class="size-3" />
   {:else if channelType === 'telegram'}
     <Send class="size-3" />
-  {:else if channelType === 'email'}
+  {:else if channelType === 'email' || channelType === 'smtp_native'}
     <Mail class="size-3" />
+  {:else if channelType === 'chatwoot'}
+    <MessageCircle class="size-3" />
   {:else if channelType === 'web_chat'}
     <Globe class="size-3" />
   {:else}

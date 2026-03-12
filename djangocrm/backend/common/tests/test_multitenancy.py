@@ -18,7 +18,7 @@ from rest_framework.test import APIClient
 from accounts.models import Account
 from common.middleware.get_company import GetProfileAndOrg
 from common.models import Address, Attachments, Comment, Org, Profile, Tags, Teams, User
-from common.serializer import OrgAwareRefreshToken
+from common.serializers import OrgAwareRefreshToken
 from leads.models import Lead
 
 

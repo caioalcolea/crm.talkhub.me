@@ -1,27 +1,41 @@
 -- ============================================================
 -- TalkHub CRM — PostgreSQL RLS User Initialization
 -- ============================================================
--- Cria o usuário de aplicação (NON-SUPERUSER) necessário para
--- que Row-Level Security funcione corretamente.
+-- Creates the application user (NON-SUPERUSER) required for
+-- Row-Level Security to work correctly.
 --
--- Este script roda automaticamente no primeiro boot do PostgreSQL
+-- This script runs automatically on first PostgreSQL boot
 -- via /docker-entrypoint-initdb.d/
+--
+-- The password is read from the CRM_DB_PASSWORD environment
+-- variable (passed to the postgres container).
 -- ============================================================
 
--- Criar usuário de aplicação (non-superuser é OBRIGATÓRIO para RLS)
+-- Create application user (non-superuser is REQUIRED for RLS)
 DO $$
+DECLARE
+    db_password TEXT := current_setting('crm.db_password', true);
 BEGIN
+    IF db_password IS NULL OR db_password = '' THEN
+        db_password := 'crm_talkhub_2026';
+        RAISE WARNING 'CRM_DB_PASSWORD not set, using default (NOT recommended for production)';
+    END IF;
+
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'crm_user') THEN
-        CREATE ROLE crm_user WITH LOGIN PASSWORD 'crm_talkhub_2026';
+        EXECUTE format('CREATE ROLE crm_user WITH LOGIN PASSWORD %L', db_password);
+    ELSE
+        EXECUTE format('ALTER ROLE crm_user WITH PASSWORD %L', db_password);
     END IF;
 END
 $$;
 
--- Conceder privilégios no database
+-- Grant privileges on database
 GRANT ALL PRIVILEGES ON DATABASE crm_db TO crm_user;
 
--- Configurar schema public para o app user
-\connect crm_db;
+-- Configure public schema for the app user
+-- NOTE: No \connect needed — this script already runs in crm_db context
+-- (POSTGRES_DB=crm_db). Using \connect would trigger re-authentication
+-- which fails with scram-sha-256 when password isn't available.
 GRANT ALL ON SCHEMA public TO crm_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO crm_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO crm_user;

@@ -416,6 +416,10 @@ class Task(AssignableMixin, OrgScopedMixin, BaseModel):
             )
 
     def save(self, *args, **kwargs):
+        # Validate stage belongs to correct org
+        if self.stage_id and self.stage.org_id != self.org_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Task stage must belong to the same organization")
         self.full_clean()
         super().save(*args, **kwargs)
 

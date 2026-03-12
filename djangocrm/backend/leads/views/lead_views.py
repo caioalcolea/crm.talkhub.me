@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from common.models import Attachments, Comment, Profile, Tags, Teams, User
 from common.permissions import HasOrgContext
-from common.serializer import (
+from common.serializers import (
     AttachmentsSerializer,
     LeadCommentSerializer,
     ProfileSerializer,
@@ -23,7 +23,7 @@ from common.utils import COUNTRIES, INDCHOICES, LEAD_SOURCE, LEAD_STATUS
 from contacts.models import Contact
 from leads import swagger_params
 from leads.models import Lead
-from leads.serializer import (
+from leads.serializers import (
     LeadCreateSerializer,
     LeadCreateSwaggerSerializer,
     LeadDetailEditSwaggerSerializer,
@@ -46,9 +46,10 @@ class LeadListView(APIView, LimitOffsetPagination):
             .prefetch_related(
                 "tags",
                 "assigned_to",
+                "contacts",
             )
         ).order_by("-id")
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             queryset = queryset.filter(
                 Q(assigned_to__in=[self.request.profile])
                 | Q(created_by=self.request.profile.user)
@@ -58,7 +59,7 @@ class LeadListView(APIView, LimitOffsetPagination):
             if params.get("name"):
                 queryset = queryset.filter(
                     Q(first_name__icontains=params.get("name"))
-                    & Q(last_name__icontains=params.get("name"))
+                    | Q(last_name__icontains=params.get("name"))
                 )
             if params.get("salutation"):
                 queryset = queryset.filter(
@@ -68,7 +69,7 @@ class LeadListView(APIView, LimitOffsetPagination):
                 queryset = queryset.filter(source=params.get("source"))
             if params.getlist("assigned_to"):
                 queryset = queryset.filter(
-                    assigned_to__id__in=params.get("assigned_to")
+                    assigned_to__id__in=params.getlist("assigned_to")
                 )
             if params.get("status"):
                 queryset = queryset.filter(status=params.get("status"))
@@ -363,7 +364,7 @@ class LeadDetailView(APIView):
         ]
         if self.request.profile.user == self.lead_obj.created_by:
             user_assgn_list.append(self.request.profile.user)
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if self.request.profile.id not in user_assgn_list:
                 return Response(
                     {
@@ -387,7 +388,7 @@ class LeadDetailView(APIView):
             assigned_dict["name"] = each.user.email
             assigned_data.append(assigned_dict)
 
-        if self.request.user.is_superuser or self.request.profile.role == "ADMIN":
+        if self.request.profile.is_admin or self.request.profile.role == "ADMIN":
             users_mention = list(
                 Profile.objects.filter(
                     is_active=True, org=self.request.profile.org
@@ -408,7 +409,7 @@ class LeadDetailView(APIView):
             object_id=self.lead_obj.id,
             org=self.request.profile.org,
         ).order_by("-id")
-        if self.request.profile.role == "ADMIN" or self.request.user.is_superuser:
+        if self.request.profile.role == "ADMIN" or self.request.profile.is_admin:
             users = Profile.objects.filter(
                 is_active=True, org=self.request.profile.org
             ).order_by("user__email")
@@ -423,7 +424,7 @@ class LeadDetailView(APIView):
 
         if self.request.profile.user == self.lead_obj.created_by:
             user_assgn_list.append(self.request.profile.id)
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if self.request.profile.id not in user_assgn_list:
                 return Response(
                     {
@@ -513,7 +514,7 @@ class LeadDetailView(APIView):
                 {"error": True, "errors": "User company doesnot match with header...."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile.user == self.lead_obj.created_by)
                 or (self.request.profile in self.lead_obj.assigned_to.all())
@@ -756,7 +757,7 @@ class LeadDetailView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if self.request.profile.role != "ADMIN" and not self.request.user.is_superuser:
+        if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile.user == self.lead_obj.created_by)
                 or (self.request.profile in self.lead_obj.assigned_to.all())
@@ -928,3 +929,53 @@ class LeadDetailView(APIView):
             {"error": True, "errors": "you don't have permission to delete this lead"},
             status=status.HTTP_403_FORBIDDEN,
         )
+
+
+class LeadRelatedView(APIView):
+    """
+    GET /api/leads/{id}/related/?include=opportunities,tasks
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        include = set(request.query_params.get("include", "").split(","))
+        context = {}
+
+        if "opportunities" in include:
+            from opportunity.models import Opportunity
+
+            qs = Opportunity.objects.filter(lead_id=pk, org=org)
+            context["opportunities_count"] = qs.count()
+            context["opportunities"] = [
+                {
+                    "id": str(o.id),
+                    "name": o.name,
+                    "stage": o.stage,
+                    "amount": float(o.amount or 0),
+                    "currency": o.currency,
+                    "probability": o.probability,
+                }
+                for o in qs.order_by("-created_at")[:5]
+            ]
+
+        if "tasks" in include:
+            from tasks.models import Task
+
+            qs = Task.objects.filter(lead_id=pk, org=org).exclude(
+                status="Completed"
+            )
+            context["tasks_count"] = qs.count()
+            context["tasks"] = [
+                {
+                    "id": str(t.id),
+                    "title": t.title,
+                    "status": t.status,
+                    "due_date": str(t.due_date) if t.due_date else None,
+                    "priority": t.priority,
+                }
+                for t in qs.order_by("-created_at")[:5]
+            ]
+
+        return Response(context)

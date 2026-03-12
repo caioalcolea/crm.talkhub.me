@@ -10,6 +10,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from common.health import health_check
 from common.views.invitation_views import InvitationAcceptView
 from financeiro.pix_webhook import PixWebhookView
 from campaigns.tracking import TrackingPixelView, UnsubscribeView
@@ -17,6 +18,7 @@ from campaigns.tracking import TrackingPixelView, UnsubscribeView
 app_name = "crm"
 
 urlpatterns = [
+    path("health/", health_check, name="health-check"),
     url(
         r"^healthz/$",
         TemplateView.as_view(template_name="healthz.html"),

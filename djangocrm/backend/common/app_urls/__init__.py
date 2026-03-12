@@ -24,6 +24,7 @@ urlpatterns = [
     path("conversations/", include("conversations.urls", namespace="api_conversations")),
     path("automations/", include("automations.urls", namespace="api_automations")),
     path("campaigns/", include("campaigns.urls", namespace="api_campaigns")),
+    path("cowork/", include("cowork.urls", namespace="api_cowork")),
     path(
         "contacts/<uuid:contact_id>/conversations/",
         ContactConversationsView.as_view(),

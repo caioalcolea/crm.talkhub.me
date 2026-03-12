@@ -433,7 +433,15 @@ class DashboardReportView(APIView):
             )
 
         # Last 10 transactions
-        ultimas = Lancamento.objects.filter(org=org).order_by("-created_at")[:10]
+        ultimas = (
+            Lancamento.objects.filter(org=org)
+            .select_related(
+                "plano_de_contas", "plano_de_contas__grupo",
+                "account", "contact", "forma_pagamento",
+            )
+            .prefetch_related("parcelas")
+            .order_by("-created_at")[:10]
+        )
         ultimas_data = LancamentoListSerializer(ultimas, many=True).data
 
         return Response(
@@ -834,10 +842,27 @@ class PixGenerateView(APIView):
             },
         )
         if invoice_id:
+            from invoices.models import Invoice
+            if not Invoice.objects.filter(id=invoice_id, org=org).exists():
+                return Response(
+                    {"error": True, "errors": "Invoice não encontrada"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             transaction.invoice_id = invoice_id
         if lancamento_id:
+            if not Lancamento.objects.filter(id=lancamento_id, org=org).exists():
+                return Response(
+                    {"error": True, "errors": "Lançamento não encontrado"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             transaction.lancamento_id = lancamento_id
         if contact_id:
+            from contacts.models import Contact
+            if not Contact.objects.filter(id=contact_id, org=org).exists():
+                return Response(
+                    {"error": True, "errors": "Contato não encontrado"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             transaction.contact_id = contact_id
 
         transaction.save()

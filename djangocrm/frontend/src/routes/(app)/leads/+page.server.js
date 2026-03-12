@@ -275,7 +275,7 @@ export const actions = {
       'existing customer',
       'partner',
       'public relations',
-      'compaign',
+      'campaign',
       'other'
     ];
     const validStatuses = ['assigned', 'in process', 'converted', 'recycled', 'closed'];
@@ -419,7 +419,7 @@ export const actions = {
       'existing customer',
       'partner',
       'public relations',
-      'compaign',
+      'campaign',
       'other'
     ];
     const validStatuses = ['assigned', 'in process', 'converted', 'recycled', 'closed'];

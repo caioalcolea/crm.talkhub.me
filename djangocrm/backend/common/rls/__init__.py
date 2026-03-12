@@ -73,8 +73,9 @@ ORG_SCOPED_TABLES = [
     # Orders
     "orders",
     "order_line_item",
-    # Security & Audit
-    "security_audit_log",
+    # NOTE: security_audit_log is intentionally EXCLUDED from RLS.
+    # It has nullable org (platform-level events have org=None).
+    # RLS makes NULL org_id rows permanently inaccessible.
     # TalkHub Omni
     "talkhub_connection",
     "talkhub_sync_job",
@@ -103,8 +104,8 @@ ORG_SCOPED_TABLES = [
     "financeiro_forma_pagamento",
     "financeiro_lancamento",
     "financeiro_parcela",
-    # Invitations
-    "pending_invitation",
+    # NOTE: pending_invitation is intentionally EXCLUDED from RLS.
+    # It must be queried by token without org context (public accept flow).
     # Automations
     "automation",
     "automation_log",
@@ -117,8 +118,11 @@ ORG_SCOPED_TABLES = [
     "campaign_audience",
     "campaign_recipient",
     "campaign_step",
-    # Profile & Pipeline stages (missing RLS - bugfix)
-    "profile",
+    # NOTE: profile is intentionally EXCLUDED from RLS.
+    # It's queried cross-org by GetProfileAndOrg middleware BEFORE RLS context
+    # is set. Application-level security (JWT + middleware) handles access control.
+
+    # Pipeline stages
     "lead_pipeline",
     "lead_stage",
     "case_pipeline",
@@ -129,6 +133,9 @@ ORG_SCOPED_TABLES = [
     "sales_goal",
     "stage_aging_config",
     "opportunity_line_item",
+    # Cowork
+    "cowork_coworkroom",
+    "cowork_coworkinvite",
 ]
 
 # Centralized RLS configuration

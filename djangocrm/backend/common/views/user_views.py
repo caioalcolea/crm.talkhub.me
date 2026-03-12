@@ -12,10 +12,10 @@ from rest_framework.views import APIView
 from common.permissions import HasOrgContext
 
 from cases.models import Case
-from cases.serializer import CaseSerializer
+from cases.serializers import CaseSerializer
 from common import swagger_params
 from common.models import Comment, Profile, Teams
-from common.serializer import (
+from common.serializers import (
     BillingAddressSerializer,
     CommentSerializer,
     CreateProfileSerializer,
@@ -28,9 +28,9 @@ from common.serializer import (
 from common.tasks import send_email_user_delete
 from common.utils import COUNTRIES, ROLES
 from contacts.models import Contact
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 from opportunity.models import Opportunity
-from opportunity.serializer import OpportunitySerializer
+from opportunity.serializers import OpportunitySerializer
 
 
 class GetTeamsAndUsersView(APIView):

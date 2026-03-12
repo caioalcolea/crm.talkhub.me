@@ -1,3 +1,4 @@
+from django.contrib.contenttypes.fields import GenericRelation
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -6,7 +7,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from common.base import AssignableMixin, BaseModel, OrgScopedMixin
-from common.models import Org, Profile, Tags, Teams
+from common.models import Comment, Org, Profile, Tags, Teams
 from common.utils import (
     COUNTRIES,
     CURRENCY_CODES,
@@ -140,6 +141,9 @@ class Lead(AssignableMixin, OrgScopedMixin, BaseModel):
         help_text="Order within the kanban column for drag-drop",
     )
 
+    # Comments (generic relation for LeadSerializer.lead_comments)
+    lead_comments = GenericRelation(Comment)
+
     # TalkHub Omni correlation
     omni_ticket_item_id = models.CharField(
         max_length=255, blank=True, null=True, db_index=True,
@@ -188,7 +192,11 @@ class Lead(AssignableMixin, OrgScopedMixin, BaseModel):
 
     @property
     def primary_contact(self):
-        """Retorna o primeiro Contact vinculado (fonte primária de dados de pessoa)."""
+        """Return the first linked Contact. Use prefetch_related('contacts') on querysets to avoid N+1."""
+        # If contacts have been prefetched, use the cache
+        if 'contacts' in getattr(self, '_prefetched_objects_cache', {}):
+            contacts = self._prefetched_objects_cache['contacts']
+            return contacts[0] if contacts else None
         return self.contacts.first()
 
     def clean(self):
@@ -232,6 +240,13 @@ class Lead(AssignableMixin, OrgScopedMixin, BaseModel):
         if not self.next_follow_up:
             return False
         return timezone.now().date() > self.next_follow_up
+
+    def save(self, *args, **kwargs):
+        # Validate stage belongs to correct pipeline/org
+        if self.stage_id and self.stage.org_id != self.org_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Lead stage must belong to the same organization")
+        super().save(*args, **kwargs)
 
 
 class LeadPipeline(OrgScopedMixin, BaseModel):

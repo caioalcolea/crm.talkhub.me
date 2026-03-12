@@ -133,6 +133,11 @@ class Case(AssignableMixin, OrgScopedMixin, BaseModel):
         """Auto-set SLA values based on priority for new cases."""
         from .workflow import DEFAULT_FIRST_RESPONSE_SLA, DEFAULT_RESOLUTION_SLA
 
+        # Validate stage belongs to correct org
+        if self.stage_id and self.stage.org_id != self.org_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Case stage must belong to the same organization")
+
         # Set default SLA based on priority for new cases
         if not self.pk:
             if self.sla_first_response_hours == 4:  # Default value

@@ -13,18 +13,18 @@ from rest_framework.views import APIView
 from common.permissions import HasOrgContext
 
 from accounts.models import Account
-from accounts.serializer import AccountSerializer
-from common import serializer, swagger_params
+from accounts.serializers import AccountSerializer
+from common import serializers as common_serializers, swagger_params
 from common.models import Activity
 from common.utils import STAGES
 from contacts.models import Contact
-from contacts.serializer import ContactSerializer
+from contacts.serializers import ContactSerializer
 from leads.models import Lead
-from leads.serializer import LeadSerializer
+from leads.serializers import LeadSerializer
 from opportunity.models import Opportunity
-from opportunity.serializer import OpportunitySerializer
+from opportunity.serializers import OpportunitySerializer
 from tasks.models import Task
-from tasks.serializer import TaskSerializer
+from tasks.serializers import TaskSerializer
 
 
 class ApiHomeView(APIView):
@@ -257,7 +257,7 @@ class ApiHomeView(APIView):
             .select_related("user", "user__user")
             .order_by("-created_at")[:10]
         )
-        context["activities"] = serializer.ActivitySerializer(
+        context["activities"] = common_serializers.ActivitySerializer(
             activities, many=True
         ).data
 
@@ -289,7 +289,7 @@ class ActivityListView(APIView):
                 description="Filter by entity type (Account, Lead, Contact, etc.)",
             ),
         ],
-        responses={200: serializer.ActivitySerializer(many=True)},
+        responses={200: common_serializers.ActivitySerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):
         if not request.profile:
@@ -313,7 +313,7 @@ class ActivityListView(APIView):
         activities = queryset.select_related("user", "user__user")[:limit]
 
         # Serialize
-        activities_data = serializer.ActivitySerializer(activities, many=True).data
+        activities_data = common_serializers.ActivitySerializer(activities, many=True).data
 
         return Response(
             {

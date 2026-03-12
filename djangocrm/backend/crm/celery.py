@@ -149,4 +149,9 @@ app.conf.beat_schedule = {
         "task": "campaigns.tasks.check_scheduled_campaigns",
         "schedule": crontab(minute="*"),
     },
+    # Channels — Poll IMAP for new emails every 2 minutes
+    "channels-poll-imap-emails": {
+        "task": "channels.tasks.poll_imap_emails",
+        "schedule": crontab(minute="*/2"),
+    },
 }

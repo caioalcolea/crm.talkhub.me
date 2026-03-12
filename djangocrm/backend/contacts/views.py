@@ -1,7 +1,10 @@
+import datetime
 import json
+from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Q
+from django.db.models import Q, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
     extend_schema,
@@ -16,18 +19,18 @@ from common.permissions import HasOrgContext
 from rest_framework.views import APIView
 
 from common.models import Attachments, Comment, Profile, Tags, Teams
-from common.serializer import AttachmentsSerializer, CommentSerializer
+from common.serializers import AttachmentsSerializer, CommentSerializer
 from common.utils import COUNTRIES
 from contacts import swagger_params
 from contacts.models import Contact
-from contacts.serializer import (
+from contacts.serializers import (
     ContactCommentEditSwaggerSerializer,
     ContactDetailEditSwaggerSerializer,
     ContactSerializer,
     CreateContactSerializer,
 )
 from contacts.tasks import send_email_to_assigned_user
-from tasks.serializer import TaskSerializer
+from tasks.serializers import TaskSerializer
 
 
 class ContactsListView(APIView, LimitOffsetPagination):
@@ -49,7 +52,7 @@ class ContactsListView(APIView, LimitOffsetPagination):
             if params.get("name"):
                 queryset = queryset.filter(first_name__icontains=params.get("name"))
             if params.get("city"):
-                queryset = queryset.filter(address__city__icontains=params.get("city"))
+                queryset = queryset.filter(city__icontains=params.get("city"))
             if params.get("phone"):
                 queryset = queryset.filter(phone__icontains=params.get("phone"))
             if params.get("email"):
@@ -498,7 +501,13 @@ class ContactDetailView(APIView):
     def post(self, request, pk, **kwargs):
         params = request.data
         context = {}
-        self.contact_obj = Contact.objects.get(pk=pk)
+        try:
+            self.contact_obj = Contact.objects.get(pk=pk, org=request.profile.org)
+        except Contact.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Contact not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             if not (
                 (self.request.profile == self.contact_obj.created_by)
@@ -835,7 +844,13 @@ class ContactAttachmentView(APIView):
         },
     )
     def delete(self, request, pk, format=None):
-        self.object = self.model.objects.get(pk=pk)
+        try:
+            self.object = self.model.objects.get(pk=pk, org=request.profile.org)
+        except self.model.DoesNotExist:
+            return Response(
+                {"error": True, "errors": "Attachment not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if (
             request.profile.role == "ADMIN"
             or request.profile.is_admin
@@ -888,4 +903,155 @@ class ContactSearchView(APIView):
             for c in contacts
         ]
         return Response(results)
+
+
+class ContactContextView(APIView):
+    """
+    GET /api/contacts/{id}/context/?include=leads,opportunities,cases,tasks,invoices,financial,conversations
+    Returns cross-module related data for a contact.
+    """
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        include = set(request.query_params.get("include", "").split(","))
+        context = {}
+
+        if "leads" in include:
+            from leads.models import Lead
+
+            qs = Lead.objects.filter(contacts__id=pk, org=org)
+            context["leads_count"] = qs.count()
+            context["leads"] = [
+                {
+                    "id": str(l.id),
+                    "title": str(l),
+                    "status": l.status,
+                    "opportunity_amount": float(l.opportunity_amount or 0),
+                    "currency": l.currency,
+                }
+                for l in qs.order_by("-created_at")[:5]
+            ]
+
+        if "opportunities" in include:
+            from opportunity.models import Opportunity
+
+            qs = Opportunity.objects.filter(contacts__id=pk, org=org)
+            context["opportunities_count"] = qs.count()
+            context["opportunities"] = [
+                {
+                    "id": str(o.id),
+                    "name": o.name,
+                    "stage": o.stage,
+                    "amount": float(o.amount or 0),
+                    "currency": o.currency,
+                    "probability": o.probability,
+                }
+                for o in qs.order_by("-created_at")[:5]
+            ]
+
+        if "cases" in include:
+            from cases.models import Case
+
+            qs = Case.objects.filter(contacts__id=pk, org=org).exclude(
+                status="Closed"
+            )
+            context["cases_count"] = qs.count()
+            context["cases"] = [
+                {
+                    "id": str(c.id),
+                    "name": c.name,
+                    "status": c.status,
+                    "priority": c.priority,
+                }
+                for c in qs.order_by("-created_at")[:5]
+            ]
+
+        if "tasks" in include:
+            from tasks.models import Task
+
+            qs = Task.objects.filter(contacts__id=pk, org=org).exclude(
+                status="Completed"
+            )
+            context["tasks_count"] = qs.count()
+            context["tasks"] = [
+                {
+                    "id": str(t.id),
+                    "title": t.title,
+                    "status": t.status,
+                    "due_date": str(t.due_date) if t.due_date else None,
+                    "priority": t.priority,
+                }
+                for t in qs.order_by("-created_at")[:5]
+            ]
+
+        if "invoices" in include:
+            from invoices.models import Invoice
+
+            qs = Invoice.objects.filter(contact_id=pk, org=org)
+            context["invoices_count"] = qs.count()
+            context["invoices"] = [
+                {
+                    "id": str(i.id),
+                    "invoice_number": i.invoice_number,
+                    "status": i.status,
+                    "total_amount": float(i.total_amount or 0),
+                    "amount_due": float(i.amount_due or 0),
+                    "currency": i.currency,
+                }
+                for i in qs.order_by("-issue_date")[:5]
+            ]
+
+        if "financial" in include:
+            from financeiro.models import Parcela
+
+            parcelas = Parcela.objects.filter(
+                lancamento__contact_id=pk, org=org
+            )
+            zero = Decimal("0")
+            context["financial"] = {
+                "total_receber": float(
+                    parcelas.filter(lancamento__tipo="RECEBER").aggregate(
+                        t=Coalesce(Sum("valor_parcela_convertido"), zero)
+                    )["t"]
+                ),
+                "total_pagar": float(
+                    parcelas.filter(lancamento__tipo="PAGAR").aggregate(
+                        t=Coalesce(Sum("valor_parcela_convertido"), zero)
+                    )["t"]
+                ),
+                "total_aberto": float(
+                    parcelas.filter(status="ABERTO").aggregate(
+                        t=Coalesce(Sum("valor_parcela_convertido"), zero)
+                    )["t"]
+                ),
+                "total_vencido": float(
+                    parcelas.filter(
+                        status="ABERTO",
+                        data_vencimento__lt=datetime.date.today(),
+                    ).aggregate(
+                        t=Coalesce(Sum("valor_parcela_convertido"), zero)
+                    )["t"]
+                ),
+            }
+
+        if "conversations" in include:
+            from conversations.models import Conversation
+
+            qs = Conversation.objects.filter(contact_id=pk, org=org)
+            context["conversations_count"] = qs.count()
+            context["conversations"] = [
+                {
+                    "id": str(c.id),
+                    "channel": c.channel,
+                    "status": c.status,
+                    "last_message_at": c.last_message_at.isoformat()
+                    if c.last_message_at
+                    else None,
+                }
+                for c in qs.order_by("-last_message_at")[:5]
+            ]
+
+        return Response(context)
 

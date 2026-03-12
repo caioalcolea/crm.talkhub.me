@@ -73,7 +73,7 @@ class Migration(migrations.Migration):
         ("financeiro", "0002_initial"),
         ("integrations", "0001_initial"),
         ("talkhub_omni", "0001_initial"),
-        ("channels", "0002_initial"),
+        ("crm_channels", "0002_initial"),
         ("conversations", "0001_initial"),
         ("automations", "0002_initial"),
         ("campaigns", "0002_initial"),

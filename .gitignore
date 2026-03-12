@@ -1,0 +1,6 @@
+docker/.env
+.env
+backups/
+credentials.json
+*.pem
+*.key

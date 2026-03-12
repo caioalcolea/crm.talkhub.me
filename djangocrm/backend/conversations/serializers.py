@@ -2,6 +2,8 @@
 Serializers do app conversations.
 """
 
+import re
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -58,6 +60,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     last_message = serializers.SerializerMethodField()
     contact_name = serializers.SerializerMethodField()
+    is_group = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -69,16 +72,37 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "last_message_at",
             "contact",
             "contact_name",
+            "is_group",
             "last_message",
+            "metadata_json",
             "created_at",
         )
         read_only_fields = fields
 
+    def get_is_group(self, obj):
+        return bool((obj.metadata_json or {}).get("is_group"))
+
     def get_last_message(self, obj):
-        msg = obj.messages.order_by("-timestamp").first()
+        # Use prefetched messages if available (avoids N+1)
+        if hasattr(obj, "_latest_messages") and obj._latest_messages:
+            msg = obj._latest_messages[0]
+        else:
+            msg = obj.messages.order_by("-timestamp").first()
         if msg:
+            content = msg.content or ""
+            meta = msg.metadata_json or {}
+            # For email messages: use stored text_body if available,
+            # otherwise strip HTML from full content BEFORE truncating
+            if meta.get("text_body"):
+                content = meta["text_body"]
+            elif meta.get("content_type") == "html" or (
+                content and re.search(r"<[a-z][\s\S]*>", content[:500], re.IGNORECASE)
+            ):
+                content = re.sub(r"<[^>]+>", "", content)
+                content = re.sub(r"&\w+;", " ", content)
+            content = " ".join(content.split())  # Normalize whitespace
             return {
-                "content": msg.content[:100],
+                "content": content[:100],
                 "direction": msg.direction,
                 "msg_type": msg.msg_type,
                 "timestamp": msg.timestamp,
@@ -97,6 +121,7 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
     contact_name = serializers.SerializerMethodField()
     contact_email = serializers.SerializerMethodField()
     assigned_to_name = serializers.SerializerMethodField()
+    is_group = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -113,10 +138,14 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
             "contact",
             "contact_name",
             "contact_email",
+            "is_group",
             "created_at",
             "updated_at",
         )
         read_only_fields = fields
+
+    def get_is_group(self, obj):
+        return bool((obj.metadata_json or {}).get("is_group"))
 
     def get_contact_name(self, obj):
         if obj.contact:

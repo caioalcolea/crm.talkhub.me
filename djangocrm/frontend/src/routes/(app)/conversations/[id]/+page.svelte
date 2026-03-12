@@ -1,10 +1,13 @@
 <script>
   import { goto } from '$app/navigation';
+  import { onDestroy } from 'svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { PageHeader } from '$lib/components/layout';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
-  import { ArrowLeft } from '@lucide/svelte';
+  import { ArrowLeft, PanelRight } from '@lucide/svelte';
+  import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
+  import { apiRequest } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
 
   /** @type {{ data: any }} */
@@ -16,6 +19,8 @@
   let conversation = $state(null);
   let messages = $state([]);
   let channels = $derived(data.channels || []);
+  let showContextPanel = $state(false);
+  let lastPollTime = $state(new Date().toISOString());
 
   $effect(() => {
     conversation = conversationData;
@@ -28,6 +33,40 @@
   $effect(() => {
     if (data.error) toast.error(data.error);
   });
+
+  // Fast poll for real-time message updates (every 5s)
+  const pollInterval = setInterval(async () => {
+    if (!conversation) return;
+    try {
+      const params = new URLSearchParams({
+        since: lastPollTime,
+        conversation_id: conversation.id
+      });
+      const updates = await apiRequest(`/conversations/updates/?${params}`);
+      if (!updates || updates.error) return;
+
+      if (updates.server_time) lastPollTime = updates.server_time;
+
+      // Merge new messages (dedup by id)
+      if (updates.messages?.length > 0) {
+        const existingIds = new Set(messages.map(m => m.id));
+        const newMsgs = updates.messages.filter(m => !existingIds.has(m.id));
+        if (newMsgs.length > 0) messages = [...messages, ...newMsgs];
+      }
+
+      // Update conversation metadata if changed
+      if (updates.conversations?.length > 0) {
+        const updated = updates.conversations.find(c => c.id === conversation.id);
+        if (updated) {
+          conversation = { ...conversation, status: updated.status, assigned_to: updated.assigned_to, last_message_at: updated.last_message_at };
+        }
+      }
+    } catch {
+      // Silent fail — page reload will catch up
+    }
+  }, 5000);
+
+  onDestroy(() => clearInterval(pollInterval));
 
   /** @param {any} msg */
   function onMessageSent(msg) {
@@ -67,17 +106,48 @@
       </div>
     </div>
   {:else if conversation}
-    <ConversationTimeline
-      {conversation}
-      {messages}
-      onContactChanged={handleConversationContactChanged}
-    />
-    <MessageInput
-      conversationId={conversation.id}
-      {channels}
-      currentChannel={conversation.channel}
-      {onMessageSent}
-    />
+    <div class="flex flex-1 overflow-hidden">
+      <div class="flex flex-1 flex-col">
+        <ConversationTimeline
+          {conversation}
+          {messages}
+          onContactChanged={handleConversationContactChanged}
+          onConversationChanged={(updated) => { conversation = updated; }}
+        >
+          {#snippet headerActions()}
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-8"
+              onclick={() => (showContextPanel = !showContextPanel)}
+              title="Contexto do contato"
+            >
+              <PanelRight class="size-4" />
+            </Button>
+          {/snippet}
+        </ConversationTimeline>
+        <MessageInput
+          conversationId={conversation.id}
+          {channels}
+          currentChannel={conversation.channel}
+          emailSubject={conversation.metadata_json?.email_subject || ''}
+          {onMessageSent}
+        />
+      </div>
+
+      {#if showContextPanel && conversation?.contact}
+        <div class="w-72 shrink-0 overflow-y-auto border-l bg-background p-2">
+          <div class="mb-2 px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Contexto do Contato
+          </div>
+          <RelatedEntitiesPanel
+            contactId={conversation.contact}
+            entityType="contact"
+            sections={['leads', 'opportunities', 'invoices', 'financial', 'tasks', 'cases']}
+          />
+        </div>
+      {/if}
+    </div>
   {:else}
     <div class="flex flex-1 items-center justify-center text-muted-foreground">
       <p class="text-sm">Conversa não encontrada</p>
