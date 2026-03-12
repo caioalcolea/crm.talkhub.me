@@ -1,12 +1,58 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { Video } from '@lucide/svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
+
+  const COWORK_APP_URL = '/cowork-app/';
+  const COWORK_SOCKET_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}/cowork-ws`;
 
   let { data } = $props();
 
   let room = $derived(data.room);
   let guest = $derived(data.guest);
   let coworkToken = $derived(data.coworkToken);
+
+  let iframeRef = $state(null);
+  let iframeReady = $state(false);
+
+  // Listen for postMessage from cowork-app iframe
+  function handleMessage(event) {
+    const { type, payload } = event.data || {};
+    switch (type) {
+      case 'cowork-ready':
+        iframeReady = true;
+        // Send init config to iframe
+        if (iframeRef?.contentWindow && coworkToken && room) {
+          iframeRef.contentWindow.postMessage({
+            type: 'cowork-init',
+            payload: {
+              socketUrl: COWORK_SOCKET_URL,
+              token: coworkToken,
+              roomId: room.id,
+              displayName: guest?.name || 'Visitante',
+              isGuest: true
+            }
+          }, '*');
+        }
+        break;
+      case 'cowork-error':
+        console.error('[Cowork Guest] Error:', payload?.message);
+        break;
+    }
+  }
+
+  // Register/cleanup message listener
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', handleMessage);
+  }
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('message', handleMessage);
+    }
+    if (iframeRef?.contentWindow) {
+      iframeRef.contentWindow.postMessage({ type: 'cowork-destroy' }, '*');
+    }
+  });
 </script>
 
 <svelte:head>
@@ -28,18 +74,23 @@
     </div>
   </header>
 
-  <!-- Cowork area (iframe placeholder) -->
-  <main class="flex-1 flex items-center justify-center bg-muted/30">
-    <div class="text-center space-y-4 p-8">
-      <Video class="mx-auto size-20 text-muted-foreground" strokeWidth={1} />
-      <h2 class="text-xl font-semibold">Sala: {room?.name}</h2>
-      <p class="text-muted-foreground max-w-md">
-        O cowork-app será carregado aqui quando o serviço Socket.io estiver configurado.
-        Você entrou como visitante "{guest?.name}".
-      </p>
-      <Badge variant="outline" class="font-mono text-xs">
-        Mapa: {room?.map_id}
-      </Badge>
-    </div>
+  <!-- Cowork iframe -->
+  <main class="relative flex-1">
+    <iframe
+      bind:this={iframeRef}
+      src={COWORK_APP_URL}
+      title="Sala Cowork"
+      class="h-full w-full border-0"
+      allow="camera; microphone; display-capture"
+      sandbox="allow-scripts allow-same-origin allow-popups"
+    ></iframe>
+    {#if !iframeReady}
+      <div class="absolute inset-0 flex items-center justify-center bg-muted/80">
+        <div class="text-center space-y-2">
+          <div class="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+          <p class="text-muted-foreground text-sm">Carregando sala...</p>
+        </div>
+      </div>
+    {/if}
   </main>
 </div>
