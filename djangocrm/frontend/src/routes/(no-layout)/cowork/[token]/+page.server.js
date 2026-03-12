@@ -2,13 +2,17 @@
  * Public Cowork Guest Page
  *
  * Public view for guests to join a cowork room via invite token.
- * No authentication required.
+ * No authentication required. Uses absolute API URL to avoid SSR
+ * fetch resolution issues with relative paths.
  */
 
 import { error } from '@sveltejs/kit';
+import { env } from '$env/dynamic/public';
+
+const API_BASE_URL = `${env.PUBLIC_DJANGO_API_URL}/api`;
 
 /** @type {import('./$types').PageServerLoad} */
-export async function load({ params, fetch }) {
+export async function load({ params }) {
   const { token } = params;
 
   if (!token) {
@@ -16,7 +20,9 @@ export async function load({ params, fetch }) {
   }
 
   try {
-    const response = await fetch(`/api/public/cowork/join/${token}/`);
+    const response = await fetch(`${API_BASE_URL}/public/cowork/join/${token}/`, {
+      headers: { 'Accept': 'application/json' }
+    });
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -39,6 +45,7 @@ export async function load({ params, fetch }) {
     };
   } catch (err) {
     if (err?.status) throw err;
+    console.error('[cowork guest] Failed to load:', err?.message || err);
     throw error(500, 'Erro ao carregar sala de cowork');
   }
 }
