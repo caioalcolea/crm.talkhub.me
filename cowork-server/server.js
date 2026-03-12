@@ -294,6 +294,25 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ── WebRTC Signaling Relay ─────────────────────────────────
+  socket.on("webrtc-signal", (data) => {
+    if (!currentPlayer) return;
+    const { targetId, signal } = data || {};
+    if (!targetId || !signal) return;
+
+    // Only relay to players in the same room
+    const room = rooms.get(currentPlayer.roomId);
+    if (!room || !room.has(targetId)) return;
+
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (targetSocket) {
+      targetSocket.emit("webrtc-signal", {
+        fromId: socket.id,
+        signal,
+      });
+    }
+  });
+
   socket.on("leave-room", () => {
     handleDisconnect();
   });

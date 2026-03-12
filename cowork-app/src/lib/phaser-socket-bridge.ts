@@ -35,6 +35,7 @@ class PhaserSocketBridge {
       "proximity-update",
       "chat-message",
       "player-sit",
+      "webrtc-signal",
       "error",
     ];
 
@@ -95,6 +96,11 @@ class PhaserSocketBridge {
   /** Notify server of sit/stand state change */
   emitSit(sitting: boolean): void {
     this.socket?.emit("sit-action", { sitting });
+  }
+
+  /** Send WebRTC signaling data to a specific peer via server relay */
+  emitWebRTCSignal(targetId: string, signal: any): void {
+    this.socket?.emit("webrtc-signal", { targetId, signal });
   }
 
   // ── Simple EventEmitter ──────────────────────────────────

@@ -8,7 +8,12 @@ import {
   type CoworkConfig,
 } from "@/lib/socket";
 import { bridge } from "@/lib/phaser-socket-bridge";
+import { ProximityMediaManager } from "@/lib/proximity-media";
 import { listenForParentMessages, sendToParent } from "@/lib/postmessage";
+
+const VideoOverlay = dynamic(() => import("../components/VideoOverlay"), {
+  ssr: false,
+});
 
 /**
  * Load PhaserGame with SSR disabled — Phaser requires window/document/canvas.
@@ -35,6 +40,14 @@ export default function CoworkPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatText, setChatText] = useState("");
   const chatInputRef = useRef<HTMLInputElement>(null);
+
+  // WebRTC proximity A/V state
+  const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [videoEnabled, setVideoEnabled] = useState(true);
+  const [playerNames, setPlayerNames] = useState<Map<string, string>>(new Map());
+  const mediaManagerRef = useRef<ProximityMediaManager | null>(null);
 
   const initCowork = useCallback((cfg: CoworkConfig) => {
     setConfig(cfg);
@@ -116,6 +129,77 @@ export default function CoworkPage() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [status, chatOpen]);
 
+  // WebRTC proximity A/V — connect/disconnect media manager based on status
+  useEffect(() => {
+    if (status !== "connected") return;
+
+    const manager = new ProximityMediaManager();
+    mediaManagerRef.current = manager;
+
+    const socketId = bridge.getSocketId();
+    if (socketId) manager.setMySocketId(socketId);
+
+    manager.setSendSignal((targetId, signal) => {
+      bridge.emitWebRTCSignal(targetId, signal);
+    });
+
+    const onProximity = (data: { nearbyIds: string[] }) => {
+      manager.updateNearby(data.nearbyIds);
+    };
+    bridge.on("proximity-update", onProximity);
+
+    const onSignal = (data: { fromId: string; signal: any }) => {
+      manager.handleSignal(data.fromId, data.signal);
+    };
+    bridge.on("webrtc-signal", onSignal);
+
+    manager.on("stream-added", ({ peerId, stream }: { peerId: string; stream: MediaStream }) => {
+      setRemoteStreams((prev) => new Map(prev).set(peerId, stream));
+    });
+    manager.on("stream-removed", ({ peerId }: { peerId: string }) => {
+      setRemoteStreams((prev) => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
+    });
+    manager.on("local-stream", ({ stream }: { stream: MediaStream }) => {
+      setLocalStream(stream);
+    });
+
+    // Track player names for video labels
+    const onRoomState = (data: { players: Array<{ id: string; displayName: string }> }) => {
+      const names = new Map<string, string>();
+      data.players.forEach((p) => names.set(p.id, p.displayName));
+      setPlayerNames(names);
+    };
+    const onPlayerJoined = (data: { id: string; displayName: string }) => {
+      setPlayerNames((prev) => new Map(prev).set(data.id, data.displayName));
+    };
+    const onPlayerLeft = (data: { id: string }) => {
+      setPlayerNames((prev) => {
+        const next = new Map(prev);
+        next.delete(data.id);
+        return next;
+      });
+    };
+    bridge.on("room-state", onRoomState);
+    bridge.on("player-joined", onPlayerJoined);
+    bridge.on("player-left", onPlayerLeft);
+
+    return () => {
+      bridge.off("proximity-update", onProximity);
+      bridge.off("webrtc-signal", onSignal);
+      bridge.off("room-state", onRoomState);
+      bridge.off("player-joined", onPlayerJoined);
+      bridge.off("player-left", onPlayerLeft);
+      manager.destroy();
+      mediaManagerRef.current = null;
+      setRemoteStreams(new Map());
+      setLocalStream(null);
+    };
+  }, [status]);
+
   const sendChat = useCallback(() => {
     const msg = chatText.trim();
     if (msg) {
@@ -181,6 +265,28 @@ export default function CoworkPage() {
       }}
     >
       <PhaserGame />
+      {/* WebRTC proximity video overlay */}
+      <VideoOverlay
+        remoteStreams={remoteStreams}
+        localStream={localStream}
+        audioEnabled={audioEnabled}
+        videoEnabled={videoEnabled}
+        onToggleAudio={() => {
+          const enabled = mediaManagerRef.current?.toggleAudio() ?? true;
+          setAudioEnabled(enabled);
+        }}
+        onToggleVideo={() => {
+          const enabled = mediaManagerRef.current?.toggleVideo() ?? true;
+          setVideoEnabled(enabled);
+        }}
+        onDisconnect={() => {
+          mediaManagerRef.current?.destroy();
+          mediaManagerRef.current = null;
+          setRemoteStreams(new Map());
+          setLocalStream(null);
+        }}
+        playerNames={playerNames}
+      />
       {/* Chat input — opens on ENTER, sends on ENTER, closes on ESC */}
       {chatOpen && (
         <div style={chatInputContainerStyle}>
