@@ -52,7 +52,7 @@ def check_sla_breaches():
 
     # Iterar por org para manter isolamento multi-tenant
     orgs_with_cases = Org.objects.filter(
-        case_set__status__in=["New", "In Progress", "Pending", "Assigned"],
+        cases__status__in=["New", "In Progress", "Pending", "Assigned"],
     ).distinct()
 
     total_escalated = 0
