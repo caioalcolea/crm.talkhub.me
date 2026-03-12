@@ -1,7 +1,7 @@
 /**
  * ProximityMediaManager — WebRTC A/V connections triggered by proximity.
  *
- * When players are within PROXIMITY_RADIUS (3 tiles), the server sends
+ * When players are within PROXIMITY_ENTER (3 tiles), the server sends
  * proximity-update { nearbyIds }. This manager creates/destroys peer
  * connections accordingly using native WebRTC (no PeerJS dependency).
  *
@@ -11,11 +11,13 @@
  * Initiator rule: the peer with the lexicographically smaller socketId
  * creates the offer. This prevents simultaneous offer collisions.
  *
- * Key fixes (v2):
+ * Key features (v3):
  *   - Shared promise for stream acquisition (no race conditions)
  *   - Tracks added to peer connection AFTER stream is ready
  *   - Support for pre-acquired stream (from user gesture on overlay click)
- *   - Comprehensive diagnostic logging
+ *   - ICE candidate buffering (candidates arriving before remoteDescription)
+ *   - Grace period before closing peers (prevents proximity flapping)
+ *   - STUN + TURN servers for production reliability
  */
 
 type MediaEventType = "stream-added" | "stream-removed" | "local-stream" | "error";
@@ -25,10 +27,27 @@ const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: "turn:a.relay.metered.ca:80",
+      username: "free",
+      credential: "free",
+    },
+    {
+      urls: "turn:a.relay.metered.ca:443",
+      username: "free",
+      credential: "free",
+    },
+    {
+      urls: "turn:a.relay.metered.ca:443?transport=tcp",
+      username: "free",
+      credential: "free",
+    },
   ],
+  iceTransportPolicy: "all",
 };
 
 const DEBOUNCE_MS = 500;
+const GRACE_MS = 3000; // 3s grace before closing peer on proximity loss
 
 export class ProximityMediaManager {
   private localStream: MediaStream | null = null;
@@ -47,6 +66,12 @@ export class ProximityMediaManager {
   // Shared promise — prevents race condition when multiple proximity updates
   // arrive while getUserMedia is still pending
   private streamPromise: Promise<MediaStream | null> | null = null;
+
+  // ICE candidate buffer — candidates arriving before remoteDescription is set
+  private candidateBuffers = new Map<string, RTCIceCandidateInit[]>();
+
+  // Grace period timers — delay peer closure to prevent proximity flapping
+  private gracePeriods = new Map<string, ReturnType<typeof setTimeout>>();
 
   setMySocketId(id: string): void {
     this.mySocketId = id;
@@ -75,9 +100,7 @@ export class ProximityMediaManager {
   async acquireLocalStream(): Promise<MediaStream | null> {
     if (this.localStream) return this.localStream;
 
-    // Return existing promise if acquisition is in progress — this is the
-    // key fix for the race condition. Previous code returned null here,
-    // causing processNearbyUpdate to bail out and never create peer connections.
+    // Return existing promise if acquisition is in progress
     if (this.streamPromise) {
       console.log("[ProximityMedia] Waiting for in-progress stream acquisition...");
       return this.streamPromise;
@@ -92,7 +115,6 @@ export class ProximityMediaManager {
   private async _doAcquireStream(): Promise<MediaStream | null> {
     console.log("[ProximityMedia] Requesting camera/mic permissions...");
     try {
-      // Try video + audio first, fall back to audio-only
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -149,11 +171,25 @@ export class ProximityMediaManager {
   private async processNearbyUpdate(nearbyIds: string[]): Promise<void> {
     const newNearby = new Set(nearbyIds);
 
-    // Remove peers no longer nearby
+    // Cancel grace periods for peers that came back
+    for (const id of newNearby) {
+      if (this.gracePeriods.has(id)) {
+        clearTimeout(this.gracePeriods.get(id));
+        this.gracePeriods.delete(id);
+      }
+    }
+
+    // Start grace period for peers no longer nearby (don't close immediately)
     for (const id of this.currentNearbyIds) {
-      if (!newNearby.has(id)) {
-        console.log("[ProximityMedia] Peer left proximity:", id);
-        this.closePeer(id);
+      if (!newNearby.has(id) && !this.gracePeriods.has(id)) {
+        this.gracePeriods.set(id, setTimeout(() => {
+          this.gracePeriods.delete(id);
+          // Only close if still not in nearby set after grace period
+          if (!this.currentNearbyIds.has(id)) {
+            console.log("[ProximityMedia] Peer left proximity (after grace):", id);
+            this.closePeer(id);
+          }
+        }, GRACE_MS));
       }
     }
 
@@ -196,8 +232,7 @@ export class ProximityMediaManager {
 
     // NOTE: We do NOT add tracks here. Tracks are added explicitly by the
     // caller (createPeerAndOffer or handleSignal) AFTER ensuring the local
-    // stream is ready. This fixes the bug where tracks were added before
-    // getUserMedia completed, resulting in empty SDP offers.
+    // stream is ready.
 
     // ICE candidates → relay to peer
     pc.onicecandidate = (event) => {
@@ -212,7 +247,6 @@ export class ProximityMediaManager {
       if (remoteStream) {
         console.log("[ProximityMedia] ontrack: received remote stream from", peerId,
           "tracks:", remoteStream.getTracks().map(t => t.kind).join(", "));
-        // Always update — a peer might renegotiate with new tracks
         this.remoteStreams.set(peerId, remoteStream);
         this.emit("stream-added", { peerId, stream: remoteStream });
       }
@@ -222,9 +256,10 @@ export class ProximityMediaManager {
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
       console.log(`[ProximityMedia] Peer ${peerId} connection state: ${state}`);
-      if (state === "disconnected" || state === "failed" || state === "closed") {
+      if (state === "failed" || state === "closed") {
         this.closePeer(peerId);
       }
+      // Note: "disconnected" is transient — don't close immediately, ICE may recover
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -246,7 +281,6 @@ export class ProximityMediaManager {
   private addLocalTracks(pc: RTCPeerConnection): void {
     if (!this.localStream) return;
 
-    // Check if tracks already added (renegotiation safety)
     const senders = pc.getSenders();
     if (senders.length > 0) return;
 
@@ -259,13 +293,10 @@ export class ProximityMediaManager {
   private async createPeerAndOffer(peerId: string): Promise<void> {
     if (this.destroyed || this.peers.has(peerId)) return;
 
-    // Ensure we have a local stream BEFORE creating the peer connection
     const stream = await this.acquireLocalStream();
     if (!stream || this.destroyed) return;
 
     const pc = this.createPeerConnection(peerId);
-
-    // Add tracks AFTER stream is ready (fix: was adding before stream existed)
     this.addLocalTracks(pc);
 
     try {
@@ -291,7 +322,7 @@ export class ProximityMediaManager {
   async handleSignal(fromId: string, signal: any): Promise<void> {
     if (this.destroyed || !signal) return;
 
-    // ICE candidate
+    // ICE candidate — buffer if remoteDescription not yet set
     if (signal.candidate) {
       const pc = this.peers.get(fromId);
       if (pc && pc.remoteDescription) {
@@ -300,6 +331,12 @@ export class ProximityMediaManager {
         } catch (err) {
           console.warn("[ProximityMedia] Failed to add ICE candidate:", err);
         }
+      } else {
+        // Buffer for later — will be flushed after setRemoteDescription
+        if (!this.candidateBuffers.has(fromId)) {
+          this.candidateBuffers.set(fromId, []);
+        }
+        this.candidateBuffers.get(fromId)!.push(signal.candidate);
       }
       return;
     }
@@ -308,7 +345,6 @@ export class ProximityMediaManager {
     if (signal.type === "offer") {
       console.log("[ProximityMedia] Received offer from:", fromId);
 
-      // Acquire local stream before answering (ensures tracks are ready)
       const stream = await this.acquireLocalStream();
       if (!stream || this.destroyed) {
         console.warn("[ProximityMedia] Cannot answer offer — no local stream");
@@ -321,12 +357,14 @@ export class ProximityMediaManager {
       }
 
       const pc = this.createPeerConnection(fromId);
-
-      // Add tracks AFTER stream is ready (fix: was adding before stream existed)
       this.addLocalTracks(pc);
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(signal));
+
+        // Flush buffered ICE candidates
+        await this.flushCandidateBuffer(fromId, pc);
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -351,6 +389,10 @@ export class ProximityMediaManager {
       if (pc && pc.signalingState === "have-local-offer") {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(signal));
+
+          // Flush buffered ICE candidates
+          await this.flushCandidateBuffer(fromId, pc);
+
           console.log("[ProximityMedia] Remote description set for peer:", fromId);
         } catch (err) {
           console.error("[ProximityMedia] Failed to handle answer from", fromId, err);
@@ -358,6 +400,24 @@ export class ProximityMediaManager {
       }
       return;
     }
+  }
+
+  /**
+   * Flush ICE candidates that arrived before remoteDescription was set.
+   */
+  private async flushCandidateBuffer(peerId: string, pc: RTCPeerConnection): Promise<void> {
+    const buffered = this.candidateBuffers.get(peerId);
+    if (!buffered || buffered.length === 0) return;
+
+    console.log("[ProximityMedia] Flushing", buffered.length, "buffered ICE candidates for", peerId);
+    for (const candidate of buffered) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("[ProximityMedia] Failed to add buffered ICE candidate:", err);
+      }
+    }
+    this.candidateBuffers.delete(peerId);
   }
 
   // ── Controls ─────────────────────────────────────────────
@@ -396,6 +456,15 @@ export class ProximityMediaManager {
       console.log("[ProximityMedia] Closed peer connection:", peerId);
     }
 
+    // Clean up candidate buffer
+    this.candidateBuffers.delete(peerId);
+
+    // Cancel grace period timer if any
+    if (this.gracePeriods.has(peerId)) {
+      clearTimeout(this.gracePeriods.get(peerId));
+      this.gracePeriods.delete(peerId);
+    }
+
     if (this.remoteStreams.has(peerId)) {
       this.remoteStreams.delete(peerId);
       this.emit("stream-removed", { peerId });
@@ -410,6 +479,12 @@ export class ProximityMediaManager {
       this.debounceTimer = null;
     }
 
+    // Cancel all grace period timers
+    for (const timer of this.gracePeriods.values()) {
+      clearTimeout(timer);
+    }
+    this.gracePeriods.clear();
+
     // Close all peer connections
     for (const peerId of [...this.peers.keys()]) {
       this.closePeer(peerId);
@@ -423,6 +498,7 @@ export class ProximityMediaManager {
 
     this.currentNearbyIds.clear();
     this.remoteStreams.clear();
+    this.candidateBuffers.clear();
     this.listeners.clear();
     this.sendSignalFn = null;
     console.log("[ProximityMedia] Destroyed");

@@ -34,7 +34,9 @@ const SECRET_KEY = process.env.SECRET_KEY;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "https://crm.talkhub.me").split(",");
 const MAP_WIDTH = parseInt(process.env.MAP_WIDTH || "40", 10);   // tiles (SkyOffice map)
 const MAP_HEIGHT = parseInt(process.env.MAP_HEIGHT || "30", 10);  // tiles (SkyOffice map)
-const PROXIMITY_RADIUS = parseInt(process.env.PROXIMITY_RADIUS || "3", 10); // tiles
+// Hysteresis: enter at 3 tiles, exit at 5 tiles — prevents proximity flapping
+const PROXIMITY_ENTER = parseInt(process.env.PROXIMITY_ENTER || "3", 10);
+const PROXIMITY_EXIT = parseInt(process.env.PROXIMITY_EXIT || "5", 10);
 const TICK_RATE_MS = parseInt(process.env.TICK_RATE_MS || "100", 10);
 
 if (!SECRET_KEY) {
@@ -107,29 +109,50 @@ function verifyToken(token) {
   }
 }
 
-// ── Proximity Calculation ───────────────────────────────────
+// ── Proximity Calculation (with hysteresis) ─────────────────
+// Uses different enter/exit radii to prevent flapping at boundaries.
+// Once connected (peer in lastNearbyIds), uses larger EXIT radius.
+// New peers must be within smaller ENTER radius to connect.
 function getPlayersInProximity(roomId, player) {
   const room = rooms.get(roomId);
   if (!room) return [];
 
+  const currentNearby = new Set(player.lastNearbyIds || []);
   const nearby = [];
   for (const [, other] of room) {
     if (other.id === player.id) continue;
     const dx = Math.abs(other.x - player.x);
     const dy = Math.abs(other.y - player.y);
-    if (dx <= PROXIMITY_RADIUS && dy <= PROXIMITY_RADIUS) {
-      nearby.push(other.id);
+    const dist = Math.max(dx, dy); // Chebyshev distance
+    if (currentNearby.has(other.id)) {
+      // Already connected — use larger EXIT radius (stay connected longer)
+      if (dist <= PROXIMITY_EXIT) nearby.push(other.id);
+    } else {
+      // Not connected — use smaller ENTER radius
+      if (dist <= PROXIMITY_ENTER) nearby.push(other.id);
     }
   }
   return nearby;
 }
 
+// Only emits proximity-update when the nearby list actually changes (diffing).
 function broadcastProximityUpdates(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
 
   for (const [socketId, player] of room) {
     const nearbyIds = getPlayersInProximity(roomId, player);
+    const prev = player.lastNearbyIds || [];
+    // Sort for deterministic comparison
+    const sortedNew = [...nearbyIds].sort();
+    const sortedPrev = [...prev].sort();
+    if (
+      sortedNew.length === sortedPrev.length &&
+      sortedNew.every((id, i) => id === sortedPrev[i])
+    ) {
+      continue; // No change — skip emission
+    }
+    player.lastNearbyIds = nearbyIds;
     const socket = io.sockets.sockets.get(socketId);
     if (socket) {
       socket.emit("proximity-update", { nearbyIds });
@@ -213,6 +236,7 @@ io.on("connection", (socket) => {
       direction: "down",
       avatarUrl: "",
       joinedAt: Date.now(),
+      lastNearbyIds: [], // for proximity hysteresis diffing
     };
 
     room.set(socket.id, currentPlayer);
