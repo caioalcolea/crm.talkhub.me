@@ -121,6 +121,11 @@ export default function CoworkPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Stop pre-acquired media tracks to release camera/mic
+      if (preAcquiredStreamRef.current) {
+        preAcquiredStreamRef.current.getTracks().forEach((t) => t.stop());
+        preAcquiredStreamRef.current = null;
+      }
       bridge.destroy();
       disconnectSocket();
     };
