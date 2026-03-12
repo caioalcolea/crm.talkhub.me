@@ -118,7 +118,7 @@ class CoworkAuthTokenView(APIView):
             "user_id": str(request.user.id),
             "org_id": str(request.org.id),
             "room_id": str(room.id),
-            "display_name": request.user.get_full_name() or request.user.email,
+            "display_name": request.user.email,
             "email": request.user.email,
             "is_guest": False,
             "iat": int(now.timestamp()),
