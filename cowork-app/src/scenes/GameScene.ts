@@ -48,10 +48,12 @@ if (typeof window !== "undefined") {
 export default class GameScene extends Phaser.Scene {
   private myPlayer!: Phaser.Physics.Arcade.Sprite;
   private myNameLabel!: Phaser.GameObjects.Text;
+  private debugText!: Phaser.GameObjects.Text;
   private otherPlayers = new Map<string, OtherPlayerData>();
   private mySocketId: string | null = null;
   private currentDirection = "down";
   private myAvatar = "adam";
+  private updateCount = 0;
 
   // Movement emission throttle
   private lastEmitTime = 0;
@@ -79,17 +81,19 @@ export default class GameScene extends Phaser.Scene {
     const map = this.make.tilemap({ key: "tilemap" });
     const floorTileset = map.addTilesetImage("FloorAndGround", "tiles_wall")!;
 
-    // Ground layer (tile-based, has collision)
+    // Ground layer (tile-based — collision DISABLED for debugging)
     this.groundLayer = map.createLayer("Ground", floorTileset)!;
-    this.groundLayer.setCollisionByProperty({ collides: true });
+    // DEBUG: collision disabled to test if it's trapping player
+    // this.groundLayer.setCollisionByProperty({ collides: true });
 
     // Object layers (sprite-based, from Tiled object groups)
+    // DEBUG: ALL collision disabled (passing false for collidable)
     this.addObjectGroup(map, "Wall", "tiles_wall", "FloorAndGround", false);
     this.addObjectGroup(map, "Objects", "office", "Modern_Office_Black_Shadow", false);
-    this.addObjectGroup(map, "ObjectsOnCollide", "office", "Modern_Office_Black_Shadow", true);
+    this.addObjectGroup(map, "ObjectsOnCollide", "office", "Modern_Office_Black_Shadow", false);
     this.addObjectGroup(map, "GenericObjects", "generic", "Generic", false);
-    this.addObjectGroup(map, "GenericObjectsOnCollide", "generic", "Generic", true);
-    this.addObjectGroup(map, "Basement", "basement", "Basement", true);
+    this.addObjectGroup(map, "GenericObjectsOnCollide", "generic", "Generic", false);
+    this.addObjectGroup(map, "Basement", "basement", "Basement", false);
 
     // Interactive object groups (chairs, computers, whiteboards, vending machines)
     this.addItemGroup(map, "Chair", "chairs", "chair");
@@ -107,15 +111,8 @@ export default class GameScene extends Phaser.Scene {
     this.myPlayer.setSize(16, 16); // smaller collision box
     this.myPlayer.setOffset(8, 28); // offset to feet
 
-    // Collision with ground — delayed to prevent spawn-inside-wall trap
-    const body = this.myPlayer.body as Phaser.Physics.Arcade.Body;
-    body.checkCollision.none = true;
-    this.time.delayedCall(500, () => {
-      if (this.myPlayer?.body) {
-        (this.myPlayer.body as Phaser.Physics.Arcade.Body).checkCollision.none = false;
-      }
-    });
-    this.physics.add.collider(this.myPlayer, this.groundLayer);
+    // DEBUG: All collision disabled for testing
+    // this.physics.add.collider(this.myPlayer, this.groundLayer);
 
     // Name label
     this.myNameLabel = this.add.text(spawnX, spawnY - 30, "", {
@@ -132,6 +129,17 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.zoom = 1.5;
     this.cameras.main.startFollow(this.myPlayer, true);
     this.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
+
+    // ── Debug HUD (temporary — shows key state + player info) ──
+    this.debugText = this.add.text(10, 10, "DEBUG: loading...", {
+      fontSize: "12px",
+      color: "#00ff00",
+      backgroundColor: "#000000cc",
+      padding: { x: 6, y: 4 },
+      fontFamily: "monospace",
+    });
+    this.debugText.setScrollFactor(0); // fixed to camera
+    this.debugText.setDepth(99999);
 
     // ── Keyboard input ──────────────────────────────────────
     // We use raw DOM key tracking (keysDown set above) instead of Phaser's
@@ -171,6 +179,23 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(time: number): void {
+    this.updateCount++;
+
+    // DEBUG: Show state even if player body is missing
+    if (this.debugText) {
+      const hasBody = !!this.myPlayer?.body;
+      const isActive = !!this.myPlayer?.active;
+      const keys = Array.from(keysDown).join(", ") || "(none)";
+      const pos = this.myPlayer
+        ? `${Math.round(this.myPlayer.x)},${Math.round(this.myPlayer.y)}`
+        : "N/A";
+      this.debugText.setText(
+        `frame:${this.updateCount} | body:${hasBody} active:${isActive}\n` +
+        `keys: ${keys}\n` +
+        `pos: ${pos} | sock:${this.mySocketId || "null"}`
+      );
+    }
+
     if (!this.myPlayer?.body || !this.myPlayer.active) return;
 
     // ── Process input (raw DOM keys — works in iframes) ────
