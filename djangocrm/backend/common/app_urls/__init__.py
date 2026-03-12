@@ -1,6 +1,5 @@
 from django.urls import include, path
 
-from conversations.views import ContactConversationsView
 from tasks.urls import board_urlpatterns
 
 app_name = "common_urls"
@@ -25,9 +24,4 @@ urlpatterns = [
     path("automations/", include("automations.urls", namespace="api_automations")),
     path("campaigns/", include("campaigns.urls", namespace="api_campaigns")),
     path("cowork/", include("cowork.urls", namespace="api_cowork")),
-    path(
-        "contacts/<uuid:contact_id>/conversations/",
-        ContactConversationsView.as_view(),
-        name="contact-conversations",
-    ),
 ]
