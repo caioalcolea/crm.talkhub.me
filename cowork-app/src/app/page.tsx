@@ -31,6 +31,7 @@ export default function CoworkPage() {
   const [status, setStatus] = useState<"waiting" | "connecting" | "connected" | "error">("waiting");
   const [errorMsg, setErrorMsg] = useState("");
   const [config, setConfig] = useState<CoworkConfig | null>(null);
+  const [showOverlay, setShowOverlay] = useState(true); // A3: click-to-play overlay
 
   const initCowork = useCallback((cfg: CoworkConfig) => {
     setConfig(cfg);
@@ -146,9 +147,41 @@ export default function CoworkPage() {
         width: "100vw",
         height: "100vh",
         backgroundColor: "#1e293b",
+        position: "relative",
       }}
     >
       <PhaserGame />
+      {/* A3: Click-to-play overlay — grabs focus from parent iframe */}
+      {showOverlay && (
+        <div
+          onClick={() => {
+            setShowOverlay(false);
+            // Focus the iframe window + game canvas
+            window.focus();
+            const canvas = document.querySelector("canvas");
+            if (canvas) canvas.focus();
+          }}
+          style={overlayStyle}
+        >
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "8px",
+            padding: "32px 48px",
+            borderRadius: "12px",
+            backgroundColor: "rgba(30, 41, 59, 0.9)",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.3)",
+          }}>
+            <p style={{ color: "#e2e8f0", fontSize: "16px", fontWeight: 600, margin: 0 }}>
+              Sala Cowork
+            </p>
+            <p style={{ color: "#94a3b8", fontSize: "13px", margin: 0 }}>
+              Clique para entrar
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -190,4 +223,15 @@ const buttonStyle: React.CSSProperties = {
   backgroundColor: "#fff",
   cursor: "pointer",
   fontSize: "13px",
+};
+
+const overlayStyle: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "rgba(15, 23, 42, 0.7)",
+  cursor: "pointer",
+  zIndex: 10000,
 };

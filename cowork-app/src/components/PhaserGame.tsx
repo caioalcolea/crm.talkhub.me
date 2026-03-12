@@ -50,12 +50,19 @@ export default function PhaserGame() {
             capture: [],
           },
         },
+        // A3 fix: Auto-focus canvas on boot (important for iframe)
+        autoFocus: true,
         // Render settings
         render: {
           antialias: false,
           pixelArt: true,
           roundPixels: true,
         },
+      });
+
+      // A3 fix: Don't pause rendering when iframe loses focus
+      game.events.on("blur", () => {
+        game.loop.wake();
       });
 
       gameRef.current = game;

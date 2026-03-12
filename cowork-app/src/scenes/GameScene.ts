@@ -49,6 +49,9 @@ export default class GameScene extends Phaser.Scene {
   // Ground layer for collision
   private groundLayer!: Phaser.Tilemaps.TilemapLayer;
 
+  // Bound handlers for proper cleanup (bind() creates new refs — must store them)
+  private boundHandlers!: Record<string, (...args: any[]) => void>;
+
   constructor() {
     super("GameScene");
   }
@@ -122,11 +125,22 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ── Bridge event listeners (multiplayer) ────────────────
-    bridge.on("room-state", this.handleRoomState.bind(this));
-    bridge.on("player-joined", this.handlePlayerJoined.bind(this));
-    bridge.on("player-moved", this.handlePlayerMoved.bind(this));
-    bridge.on("player-left", this.handlePlayerLeft.bind(this));
-    bridge.on("proximity-update", this.handleProximityUpdate.bind(this));
+    // Store bound refs so shutdown() can remove the exact same functions
+    this.boundHandlers = {
+      roomState: this.handleRoomState.bind(this),
+      playerJoined: this.handlePlayerJoined.bind(this),
+      playerMoved: this.handlePlayerMoved.bind(this),
+      playerLeft: this.handlePlayerLeft.bind(this),
+      proximityUpdate: this.handleProximityUpdate.bind(this),
+    };
+    bridge.on("room-state", this.boundHandlers.roomState);
+    bridge.on("player-joined", this.boundHandlers.playerJoined);
+    bridge.on("player-moved", this.boundHandlers.playerMoved);
+    bridge.on("player-left", this.boundHandlers.playerLeft);
+    bridge.on("proximity-update", this.boundHandlers.proximityUpdate);
+
+    // Register shutdown handler so Phaser calls it when scene stops
+    this.events.on("shutdown", this.shutdown, this);
   }
 
   update(time: number): void {
@@ -206,6 +220,13 @@ export default class GameScene extends Phaser.Scene {
       } else {
         data.sprite.x = data.targetX;
         data.sprite.y = data.targetY;
+        // A1 fix: Stop walk animation when arrived — prevents "running in place"
+        const currentAnim = data.sprite.anims.currentAnim?.key || "";
+        if (currentAnim.includes("_run_")) {
+          const avatarKey = data.sprite.texture.key;
+          const dir = currentAnim.split("_run_")[1];
+          data.sprite.anims.play(`${avatarKey}_idle_${dir}`, true);
+        }
       }
 
       // Update name label
@@ -449,13 +470,16 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Called when the scene is shut down */
+  /** Called when the scene is shut down (registered via this.events.on("shutdown")) */
   shutdown(): void {
-    bridge.off("room-state", this.handleRoomState.bind(this));
-    bridge.off("player-joined", this.handlePlayerJoined.bind(this));
-    bridge.off("player-moved", this.handlePlayerMoved.bind(this));
-    bridge.off("player-left", this.handlePlayerLeft.bind(this));
-    bridge.off("proximity-update", this.handleProximityUpdate.bind(this));
+    // A4 fix: Use stored bound refs — same references that were registered
+    if (this.boundHandlers) {
+      bridge.off("room-state", this.boundHandlers.roomState);
+      bridge.off("player-joined", this.boundHandlers.playerJoined);
+      bridge.off("player-moved", this.boundHandlers.playerMoved);
+      bridge.off("player-left", this.boundHandlers.playerLeft);
+      bridge.off("proximity-update", this.boundHandlers.proximityUpdate);
+    }
 
     for (const [, data] of this.otherPlayers) {
       data.sprite.destroy();
