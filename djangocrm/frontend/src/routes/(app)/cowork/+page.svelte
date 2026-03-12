@@ -10,7 +10,7 @@
   } from '@lucide/svelte';
 
   /** @type {{ COWORK_APP_URL?: string }} */
-  const COWORK_APP_URL = '/cowork-app';
+  const COWORK_APP_URL = '/cowork-app/';
   const COWORK_SOCKET_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}/cowork-ws`;
 
   let { data, form } = $props();

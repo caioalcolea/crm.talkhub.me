@@ -40,6 +40,6 @@ RUN chown -R app:app /app
 USER app
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD node -e "const http = require('http'); http.get('http://localhost:3200', (r) => { r.resume(); r.on('end', () => process.exit(r.statusCode < 500 ? 0 : 1)) }).on('error', () => process.exit(1))" || exit 1
+    CMD node -e "const http = require('http'); http.get('http://localhost:3200/cowork-app/', (r) => { r.resume(); r.on('end', () => process.exit(r.statusCode < 500 ? 0 : 1)) }).on('error', () => process.exit(1))" || exit 1
 
 CMD ["node", "server.js"]
