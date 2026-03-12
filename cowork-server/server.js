@@ -32,6 +32,8 @@ const { Server } = require("socket.io");
 const PORT = parseInt(process.env.PORT || "3100", 10);
 const SECRET_KEY = process.env.SECRET_KEY;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "https://crm.talkhub.me").split(",");
+const MAP_WIDTH = parseInt(process.env.MAP_WIDTH || "40", 10);   // tiles (SkyOffice map)
+const MAP_HEIGHT = parseInt(process.env.MAP_HEIGHT || "30", 10);  // tiles (SkyOffice map)
 const PROXIMITY_RADIUS = parseInt(process.env.PROXIMITY_RADIUS || "3", 10); // tiles
 const TICK_RATE_MS = parseInt(process.env.TICK_RATE_MS || "100", 10);
 
@@ -125,15 +127,18 @@ function broadcastProximityUpdates(roomId) {
 
 // ── Spawn Position ──────────────────────────────────────────
 function getSpawnPosition(roomId) {
-  // Spread players across a 20x15 grid area
+  // Spawn players in the center area of the SkyOffice map (around tile 22,15)
+  // which corresponds to pixel 705,500 — the main open area
   const room = rooms.get(roomId);
   const playerCount = room ? room.size : 0;
-  // Simple grid placement: row-major, 5 per row
-  const col = playerCount % 5;
-  const row = Math.floor(playerCount / 5);
+  // Spread players in a small grid around center
+  const centerX = Math.floor(MAP_WIDTH / 2);  // 20
+  const centerY = Math.floor(MAP_HEIGHT / 2);  // 15
+  const col = playerCount % 4;
+  const row = Math.floor(playerCount / 4);
   return {
-    x: 3 + col * 3,  // start at col 3, spacing of 3
-    y: 3 + row * 3,  // start at row 3, spacing of 3
+    x: Math.min(MAP_WIDTH - 1, centerX - 2 + col * 2),
+    y: Math.min(MAP_HEIGHT - 1, centerY - 1 + row * 2),
   };
 }
 
@@ -222,9 +227,9 @@ io.on("connection", (socket) => {
     const { x, y, direction } = data || {};
     if (typeof x !== "number" || typeof y !== "number") return;
 
-    // Clamp to reasonable bounds (0-50 tiles)
-    currentPlayer.x = Math.max(0, Math.min(50, x));
-    currentPlayer.y = Math.max(0, Math.min(50, y));
+    // Clamp to map bounds
+    currentPlayer.x = Math.max(0, Math.min(MAP_WIDTH - 1, x));
+    currentPlayer.y = Math.max(0, Math.min(MAP_HEIGHT - 1, y));
     if (direction) currentPlayer.direction = direction;
 
     // Broadcast movement to others in the room

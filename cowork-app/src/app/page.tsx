@@ -1,15 +1,22 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import CoworkCanvas from "@/components/CoworkCanvas";
+import dynamic from "next/dynamic";
 import {
   connectSocket,
   disconnectSocket,
-  getSocket,
   type CoworkConfig,
 } from "@/lib/socket";
+import { bridge } from "@/lib/phaser-socket-bridge";
 import { listenForParentMessages, sendToParent } from "@/lib/postmessage";
-import type { Socket } from "socket.io-client";
+
+/**
+ * Load PhaserGame with SSR disabled — Phaser requires window/document/canvas.
+ * All Phaser imports are contained inside PhaserGame.tsx and its scene imports.
+ */
+const PhaserGame = dynamic(() => import("../components/PhaserGame"), {
+  ssr: false,
+});
 
 /**
  * Cowork App Main Page
@@ -21,7 +28,6 @@ import type { Socket } from "socket.io-client";
  *   ?token=<jwt>&socketUrl=<url>
  */
 export default function CoworkPage() {
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [status, setStatus] = useState<"waiting" | "connecting" | "connected" | "error">("waiting");
   const [errorMsg, setErrorMsg] = useState("");
   const [config, setConfig] = useState<CoworkConfig | null>(null);
@@ -33,18 +39,19 @@ export default function CoworkPage() {
     try {
       const sock = connectSocket(cfg);
 
+      // Give the socket to the bridge so Phaser can receive events
+      bridge.setSocket(sock);
+
       sock.on("room-state", () => {
         setStatus("connected");
         sendToParent({ type: "cowork-status", payload: { roomId: cfg.roomId } });
       });
 
-      sock.on("connect_error", (err) => {
+      sock.on("connect_error", (err: Error) => {
         setStatus("error");
         setErrorMsg(`Connection failed: ${err.message}`);
         sendToParent({ type: "cowork-error", payload: { message: err.message } });
       });
-
-      setSocket(sock);
     } catch (err) {
       setStatus("error");
       setErrorMsg(String(err));
@@ -52,8 +59,8 @@ export default function CoworkPage() {
   }, []);
 
   const destroyCowork = useCallback(() => {
+    bridge.destroy();
     disconnectSocket();
-    setSocket(null);
     setStatus("waiting");
     setConfig(null);
   }, []);
@@ -84,7 +91,10 @@ export default function CoworkPage() {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => disconnectSocket();
+    return () => {
+      bridge.destroy();
+      disconnectSocket();
+    };
   }, []);
 
   if (status === "waiting") {
@@ -129,18 +139,16 @@ export default function CoworkPage() {
     );
   }
 
+  // status === "connected" — render Phaser game
   return (
     <div
       style={{
         width: "100vw",
         height: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "#f1f5f9",
+        backgroundColor: "#1e293b",
       }}
     >
-      <CoworkCanvas socket={socket} />
+      <PhaserGame />
     </div>
   );
 }

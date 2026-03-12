@@ -372,7 +372,7 @@ services:
         - traefik.http.routers.crm_cowork_front.entrypoints=websecure
         - traefik.http.routers.crm_cowork_front.tls=true
         - traefik.http.routers.crm_cowork_front.tls.certresolver=letsencryptresolver
-        - traefik.http.routers.crm_cowork_front.priority=18
+        - traefik.http.routers.crm_cowork_front.priority=100
         - traefik.http.services.crm_cowork_front.loadbalancer.server.port=3200
         ## No StripPrefix — Next.js uses basePath: "/cowork-app" natively
 
