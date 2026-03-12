@@ -142,6 +142,21 @@ function getSpawnPosition(roomId) {
   };
 }
 
+// ── Chat Rate Limiting ──────────────────────────────────────
+// Max 5 messages per second per player
+const chatRateLimit = new Map(); // socketId → { count, resetAt }
+function canSendChat(socketId) {
+  const now = Date.now();
+  const entry = chatRateLimit.get(socketId);
+  if (!entry || now > entry.resetAt) {
+    chatRateLimit.set(socketId, { count: 1, resetAt: now + 1000 });
+    return true;
+  }
+  if (entry.count >= 5) return false;
+  entry.count++;
+  return true;
+}
+
 // ── Socket Handlers ─────────────────────────────────────────
 io.on("connection", (socket) => {
   let currentPlayer = null;
@@ -244,6 +259,26 @@ io.on("connection", (socket) => {
     broadcastProximityUpdates(currentPlayer.roomId);
   });
 
+  // ── Chat ────────────────────────────────────────────────
+  socket.on("send-chat", (data) => {
+    if (!currentPlayer) return;
+    const { message } = data || {};
+    if (!message || typeof message !== "string") return;
+    const trimmed = message.trim().slice(0, 200);
+    if (!trimmed) return;
+
+    // Rate limit
+    if (!canSendChat(socket.id)) return;
+
+    // Broadcast to entire room (including sender, so their bubble shows too)
+    io.to(currentPlayer.roomId).emit("chat-message", {
+      id: currentPlayer.id,
+      displayName: currentPlayer.displayName,
+      message: trimmed,
+      timestamp: Date.now(),
+    });
+  });
+
   socket.on("leave-room", () => {
     handleDisconnect();
   });
@@ -273,6 +308,7 @@ io.on("connection", (socket) => {
       }
     }
 
+    chatRateLimit.delete(socket.id);
     currentPlayer = null;
   }
 });

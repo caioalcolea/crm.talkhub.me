@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import {
   connectSocket,
@@ -32,6 +32,9 @@ export default function CoworkPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [config, setConfig] = useState<CoworkConfig | null>(null);
   const [showOverlay, setShowOverlay] = useState(true); // A3: click-to-play overlay
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatText, setChatText] = useState("");
+  const chatInputRef = useRef<HTMLInputElement>(null);
 
   const initCowork = useCallback((cfg: CoworkConfig) => {
     setConfig(cfg);
@@ -98,6 +101,33 @@ export default function CoworkPage() {
     };
   }, []);
 
+  // Open chat input on ENTER key (only when game is active and chat is closed)
+  useEffect(() => {
+    if (status !== "connected") return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.code === "Enter" && !chatOpen) {
+        e.preventDefault();
+        setChatOpen(true);
+        // Focus input after React renders it
+        setTimeout(() => chatInputRef.current?.focus(), 50);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [status, chatOpen]);
+
+  const sendChat = useCallback(() => {
+    const msg = chatText.trim();
+    if (msg) {
+      bridge.emitChat(msg);
+    }
+    setChatText("");
+    setChatOpen(false);
+    // Return focus to game canvas
+    const canvas = document.querySelector("canvas");
+    if (canvas) canvas.focus();
+  }, [chatText]);
+
   if (status === "waiting") {
     return (
       <div style={centerStyle}>
@@ -151,6 +181,40 @@ export default function CoworkPage() {
       }}
     >
       <PhaserGame />
+      {/* Chat input — opens on ENTER, sends on ENTER, closes on ESC */}
+      {chatOpen && (
+        <div style={chatInputContainerStyle}>
+          <input
+            ref={chatInputRef}
+            type="text"
+            value={chatText}
+            onChange={(e) => setChatText(e.target.value.slice(0, 200))}
+            onKeyDown={(e) => {
+              // Stop WASD keys from reaching the game while typing
+              e.stopPropagation();
+              if (e.code === "Enter") {
+                e.preventDefault();
+                sendChat();
+              } else if (e.code === "Escape") {
+                setChatText("");
+                setChatOpen(false);
+                const canvas = document.querySelector("canvas");
+                if (canvas) canvas.focus();
+              }
+            }}
+            placeholder="Digite uma mensagem... (ESC para cancelar)"
+            style={chatInputStyle}
+            maxLength={200}
+            autoComplete="off"
+          />
+        </div>
+      )}
+      {/* Hint to open chat */}
+      {!chatOpen && !showOverlay && (
+        <div style={chatHintStyle}>
+          ENTER para chat
+        </div>
+      )}
       {/* A3: Click-to-play overlay — grabs focus from parent iframe */}
       {showOverlay && (
         <div
@@ -226,6 +290,40 @@ const buttonStyle: React.CSSProperties = {
   backgroundColor: "#fff",
   cursor: "pointer",
   fontSize: "13px",
+};
+
+const chatInputContainerStyle: React.CSSProperties = {
+  position: "absolute",
+  bottom: "16px",
+  left: "50%",
+  transform: "translateX(-50%)",
+  zIndex: 9999,
+  width: "min(400px, 90vw)",
+};
+
+const chatInputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 14px",
+  borderRadius: "8px",
+  border: "1px solid #475569",
+  backgroundColor: "#1e293bee",
+  color: "#e2e8f0",
+  fontSize: "14px",
+  outline: "none",
+  fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+  boxSizing: "border-box",
+};
+
+const chatHintStyle: React.CSSProperties = {
+  position: "absolute",
+  bottom: "8px",
+  left: "50%",
+  transform: "translateX(-50%)",
+  color: "#64748b",
+  fontSize: "11px",
+  fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+  pointerEvents: "none",
+  zIndex: 100,
 };
 
 const overlayStyle: React.CSSProperties = {

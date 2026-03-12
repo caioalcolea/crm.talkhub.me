@@ -33,6 +33,7 @@ class PhaserSocketBridge {
       "player-moved",
       "player-left",
       "proximity-update",
+      "chat-message",
       "error",
     ];
 
@@ -83,6 +84,11 @@ class PhaserSocketBridge {
   /** Phaser calls this when the local player moves */
   emitMove(x: number, y: number, direction: string): void {
     this.socket?.emit("move", { x, y, direction });
+  }
+
+  /** Send a chat message to the room */
+  emitChat(message: string): void {
+    this.socket?.emit("send-chat", { message });
   }
 
   // ── Simple EventEmitter ──────────────────────────────────

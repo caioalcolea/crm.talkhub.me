@@ -66,6 +66,9 @@ export default class GameScene extends Phaser.Scene {
   // Proximity glow
   private nearbyIds = new Set<string>();
 
+  // Chat bubbles above player heads
+  private chatBubbles = new Map<string, Phaser.GameObjects.Text>();
+
   // Ground layer for collision
   private groundLayer!: Phaser.Tilemaps.TilemapLayer;
 
@@ -160,12 +163,14 @@ export default class GameScene extends Phaser.Scene {
       playerMoved: this.handlePlayerMoved.bind(this),
       playerLeft: this.handlePlayerLeft.bind(this),
       proximityUpdate: this.handleProximityUpdate.bind(this),
+      chatMessage: this.handleChatMessage.bind(this),
     };
     bridge.on("room-state", this.boundHandlers.roomState);
     bridge.on("player-joined", this.boundHandlers.playerJoined);
     bridge.on("player-moved", this.boundHandlers.playerMoved);
     bridge.on("player-left", this.boundHandlers.playerLeft);
     bridge.on("proximity-update", this.boundHandlers.proximityUpdate);
+    bridge.on("chat-message", this.boundHandlers.chatMessage);
 
     // Register shutdown handler so Phaser calls it when scene stops
     this.events.on("shutdown", this.shutdown, this);
@@ -239,8 +244,10 @@ export default class GameScene extends Phaser.Scene {
     // Depth sort (Y-based)
     this.myPlayer.setDepth(this.myPlayer.y);
 
-    // ── Update name label position ──────────────────────────
+    // ── Update name label + chat bubble position ───────────
     this.myNameLabel.setPosition(this.myPlayer.x, this.myPlayer.y - 30);
+    const myBubble = this.chatBubbles.get(this.mySocketId || "");
+    if (myBubble) myBubble.setPosition(this.myPlayer.x, this.myPlayer.y - 48);
 
     // ── Emit movement to server (throttled) ─────────────────
     const tileX = Math.floor(this.myPlayer.x / TILE_SIZE);
@@ -257,7 +264,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ── Update other player positions (interpolation) ───────
-    for (const [, data] of this.otherPlayers) {
+    for (const [id, data] of this.otherPlayers) {
       // Smoothly interpolate toward target position
       const dx = data.targetX - data.sprite.x;
       const dy = data.targetY - data.sprite.y;
@@ -278,10 +285,12 @@ export default class GameScene extends Phaser.Scene {
         }
       }
 
-      // Update name label
+      // Update name label + chat bubble
       data.nameLabel.setPosition(data.sprite.x, data.sprite.y - 30);
       data.sprite.setDepth(data.sprite.y);
       data.nameLabel.setDepth(9999);
+      const otherBubble = this.chatBubbles.get(id);
+      if (otherBubble) otherBubble.setPosition(data.sprite.x, data.sprite.y - 48);
     }
   }
 
@@ -351,6 +360,8 @@ export default class GameScene extends Phaser.Scene {
 
     other.sprite.destroy();
     other.nameLabel.destroy();
+    this.chatBubbles.get(data.id)?.destroy();
+    this.chatBubbles.delete(data.id);
     this.otherPlayers.delete(data.id);
     this.nearbyIds.delete(data.id);
   }
@@ -373,6 +384,50 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.nearbyIds = newNearby;
+  }
+
+  private handleChatMessage(data: {
+    id: string;
+    displayName: string;
+    message: string;
+  }): void {
+    // Determine which sprite to place the bubble above
+    let x: number;
+    let y: number;
+
+    if (data.id === this.mySocketId) {
+      x = this.myPlayer.x;
+      y = this.myPlayer.y - 48;
+    } else {
+      const other = this.otherPlayers.get(data.id);
+      if (!other) return;
+      x = other.sprite.x;
+      y = other.sprite.y - 48;
+    }
+
+    // Destroy previous bubble for this player
+    this.chatBubbles.get(data.id)?.destroy();
+
+    // Create chat bubble
+    const bubble = this.add.text(x, y, data.message, {
+      fontSize: "10px",
+      color: "#1e293b",
+      backgroundColor: "#ffffffee",
+      padding: { x: 6, y: 3 },
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+      wordWrap: { width: 150 },
+    });
+    bubble.setOrigin(0.5, 1);
+    bubble.setDepth(10000);
+    this.chatBubbles.set(data.id, bubble);
+
+    // Auto-fade after 5 seconds
+    this.time.delayedCall(5000, () => {
+      if (this.chatBubbles.get(data.id) === bubble) {
+        bubble.destroy();
+        this.chatBubbles.delete(data.id);
+      }
+    });
   }
 
   // ── Helper methods ──────────────────────────────────────────
@@ -530,6 +585,7 @@ export default class GameScene extends Phaser.Scene {
       bridge.off("player-moved", this.boundHandlers.playerMoved);
       bridge.off("player-left", this.boundHandlers.playerLeft);
       bridge.off("proximity-update", this.boundHandlers.proximityUpdate);
+      bridge.off("chat-message", this.boundHandlers.chatMessage);
     }
 
     for (const [, data] of this.otherPlayers) {
@@ -537,6 +593,8 @@ export default class GameScene extends Phaser.Scene {
       data.nameLabel.destroy();
     }
     this.otherPlayers.clear();
+    for (const [, bubble] of this.chatBubbles) bubble.destroy();
+    this.chatBubbles.clear();
     this.colliderRefs = [];
   }
 }
