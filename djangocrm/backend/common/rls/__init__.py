@@ -133,6 +133,9 @@ ORG_SCOPED_TABLES = [
     "sales_goal",
     "stage_aging_config",
     "opportunity_line_item",
+    # Cowork
+    "cowork_coworkroom",
+    "cowork_coworkinvite",
 ]
 
 # Centralized RLS configuration
