@@ -2,6 +2,7 @@ import logging
 import time
 
 import requests
+from django.conf import settings
 from rest_framework import serializers
 
 from cowork.models import CoworkInvite, CoworkRoom
@@ -92,10 +93,7 @@ class CoworkInviteSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "token", "use_count", "created_at"]
 
     def get_invite_url(self, obj):
-        request = self.context.get("request")
-        if request:
-            return f"{request.scheme}://{request.get_host()}/cowork/{obj.token}"
-        return f"/cowork/{obj.token}"
+        return f"{settings.DOMAIN_NAME}/cowork/{obj.token}"
 
 
 class CoworkInviteCreateSerializer(serializers.ModelSerializer):

@@ -68,11 +68,25 @@ class CoworkInviteListCreateView(ListCreateAPIView):
             room_id=room_id, room__org=self.request.org
         ).select_related("room")
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        # Re-serialize with read serializer so response includes invite_url, token, etc.
+        read_serializer = CoworkInviteSerializer(
+            serializer.instance, context={"request": request}
+        )
+        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
+
     def perform_create(self, serializer):
         room = CoworkRoom.objects.get(
             id=self.kwargs["room_id"], org=self.request.org
         )
-        serializer.save(org=self.request.org, room=room)
+        invite = serializer.save(org=self.request.org, room=room)
+        if invite.guest_email:
+            from cowork.tasks import send_cowork_invite_email
+
+            send_cowork_invite_email.delay(str(invite.id))
 
 
 class CoworkInviteRevokeView(APIView):
