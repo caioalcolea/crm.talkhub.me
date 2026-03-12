@@ -36,6 +36,9 @@ class PhaserSocketBridge {
       "chat-message",
       "player-sit",
       "webrtc-signal",
+      "whiteboard-draw",
+      "whiteboard-clear",
+      "whiteboard-state",
       "error",
     ];
 
@@ -101,6 +104,21 @@ class PhaserSocketBridge {
   /** Send WebRTC signaling data to a specific peer via server relay */
   emitWebRTCSignal(targetId: string, signal: any): void {
     this.socket?.emit("webrtc-signal", { targetId, signal });
+  }
+
+  /** Send a whiteboard stroke to the room */
+  emitWhiteboardDraw(whiteboardId: string, stroke: any): void {
+    this.socket?.emit("whiteboard-draw", { whiteboardId, stroke });
+  }
+
+  /** Clear all strokes on a whiteboard */
+  emitWhiteboardClear(whiteboardId: string): void {
+    this.socket?.emit("whiteboard-clear", { whiteboardId });
+  }
+
+  /** Request existing whiteboard strokes for replay */
+  emitWhiteboardOpen(whiteboardId: string): void {
+    this.socket?.emit("whiteboard-open", { whiteboardId });
   }
 
   // ── Simple EventEmitter ──────────────────────────────────

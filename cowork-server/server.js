@@ -142,6 +142,10 @@ function getSpawnPosition(roomId) {
   };
 }
 
+// ── Whiteboard State ────────────────────────────────────────
+// whiteboardState: Map<roomId, Map<whiteboardId, stroke[]>>
+const whiteboardState = new Map();
+
 // ── Chat Rate Limiting ──────────────────────────────────────
 // Max 5 messages per second per player
 const chatRateLimit = new Map(); // socketId → { count, resetAt }
@@ -313,6 +317,49 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ── Whiteboard ─────────────────────────────────────────────
+  socket.on("whiteboard-draw", (data) => {
+    if (!currentPlayer) return;
+    const { whiteboardId, stroke } = data || {};
+    if (!whiteboardId || !stroke) return;
+
+    const roomKey = currentPlayer.roomId;
+    if (!whiteboardState.has(roomKey)) whiteboardState.set(roomKey, new Map());
+    const roomBoards = whiteboardState.get(roomKey);
+    if (!roomBoards.has(whiteboardId)) roomBoards.set(whiteboardId, []);
+    const strokes = roomBoards.get(whiteboardId);
+    strokes.push(stroke);
+    // Cap at 5000 strokes per board to prevent memory bloat
+    if (strokes.length > 5000) strokes.splice(0, strokes.length - 5000);
+
+    socket.to(roomKey).emit("whiteboard-draw", {
+      whiteboardId,
+      stroke,
+      playerId: socket.id,
+    });
+  });
+
+  socket.on("whiteboard-clear", (data) => {
+    if (!currentPlayer) return;
+    const { whiteboardId } = data || {};
+    if (!whiteboardId) return;
+
+    const roomBoards = whiteboardState.get(currentPlayer.roomId);
+    if (roomBoards) roomBoards.set(whiteboardId, []);
+
+    socket.to(currentPlayer.roomId).emit("whiteboard-clear", { whiteboardId });
+  });
+
+  socket.on("whiteboard-open", (data) => {
+    if (!currentPlayer) return;
+    const { whiteboardId } = data || {};
+    if (!whiteboardId) return;
+
+    const roomBoards = whiteboardState.get(currentPlayer.roomId);
+    const strokes = roomBoards?.get(whiteboardId) || [];
+    socket.emit("whiteboard-state", { whiteboardId, strokes });
+  });
+
   socket.on("leave-room", () => {
     handleDisconnect();
   });
@@ -336,6 +383,7 @@ io.on("connection", (socket) => {
       // Clean up empty rooms
       if (room.size === 0) {
         rooms.delete(roomId);
+        whiteboardState.delete(roomId);
         console.log(`[${roomId}] Room destroyed (empty)`);
       } else {
         broadcastProximityUpdates(roomId);

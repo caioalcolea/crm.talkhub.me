@@ -75,6 +75,12 @@ export default class GameScene extends Phaser.Scene {
   private nearbyChair: Phaser.GameObjects.Sprite | null = null;
   private sitHintText!: Phaser.GameObjects.Text;
   private eKeyWasDown = false; // edge detection for E key
+  private rKeyWasDown = false; // edge detection for R key
+
+  // Whiteboard interaction
+  private whiteboardGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private nearbyWhiteboard: Phaser.GameObjects.Sprite | null = null;
+  private whiteboardHintText!: Phaser.GameObjects.Text;
 
   // Ground layer for collision
   private groundLayer!: Phaser.Tilemaps.TilemapLayer;
@@ -112,7 +118,7 @@ export default class GameScene extends Phaser.Scene {
     // Interactive object groups (chairs, computers, whiteboards, vending machines)
     this.chairGroup = this.addItemGroup(map, "Chair", "chairs", "chair");
     this.addItemGroup(map, "Computer", "computers", "computer");
-    this.addItemGroup(map, "Whiteboard", "whiteboards", "whiteboard");
+    this.whiteboardGroup = this.addItemGroup(map, "Whiteboard", "whiteboards", "whiteboard");
     this.addItemGroup(map, "VendingMachine", "vendingmachines", "vendingmachine");
 
     // ── Create local player ─────────────────────────────────
@@ -149,6 +155,25 @@ export default class GameScene extends Phaser.Scene {
     this.sitHintText.setOrigin(0.5);
     this.sitHintText.setDepth(10001);
     this.sitHintText.setVisible(false);
+
+    // Whiteboard overlap detection — triggers whiteboard hint
+    if (this.whiteboardGroup.getLength() > 0) {
+      this.physics.add.overlap(this.myPlayer, this.whiteboardGroup, (_player, wb) => {
+        this.nearbyWhiteboard = wb as Phaser.GameObjects.Sprite;
+      });
+    }
+
+    // Whiteboard hint text (hidden by default)
+    this.whiteboardHintText = this.add.text(0, 0, "Pressione R para whiteboard", {
+      fontSize: "9px",
+      color: "#e2e8f0",
+      backgroundColor: "#334155cc",
+      padding: { x: 4, y: 2 },
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    });
+    this.whiteboardHintText.setOrigin(0.5);
+    this.whiteboardHintText.setDepth(10001);
+    this.whiteboardHintText.setVisible(false);
 
     // Name label
     this.myNameLabel = this.add.text(spawnX, spawnY - 30, "", {
@@ -220,6 +245,16 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     this.eKeyWasDown = eDown;
+
+    // ── Whiteboard toggle (R key — edge-triggered) ───────────
+    const rDown = keysDown.has("KeyR");
+    if (rDown && !this.rKeyWasDown) {
+      if (this.nearbyWhiteboard && this.playerState === "walking") {
+        const wbId = `wb_${Math.floor(this.nearbyWhiteboard.x)}_${Math.floor(this.nearbyWhiteboard.y)}`;
+        bridge.emit("whiteboard-open-request", { whiteboardId: wbId });
+      }
+    }
+    this.rKeyWasDown = rDown;
 
     // ── Process input (raw DOM keys — works in iframes) ────
     const body = this.myPlayer.body as Phaser.Physics.Arcade.Body;
@@ -307,6 +342,18 @@ export default class GameScene extends Phaser.Scene {
     // Reset nearbyChair — overlap callback will re-set it next frame if still overlapping
     if (this.playerState !== "sitting") {
       this.nearbyChair = null;
+    }
+
+    // ── Whiteboard hint ────────────────────────────────────────
+    if (this.nearbyWhiteboard && this.playerState === "walking") {
+      this.whiteboardHintText.setPosition(this.nearbyWhiteboard.x, this.nearbyWhiteboard.y - 40);
+      this.whiteboardHintText.setVisible(true);
+    } else {
+      this.whiteboardHintText.setVisible(false);
+    }
+    // Reset nearbyWhiteboard — overlap callback will re-set it next frame
+    if (this.playerState !== "sitting") {
+      this.nearbyWhiteboard = null;
     }
 
     // ── Emit movement to server (throttled) ─────────────────

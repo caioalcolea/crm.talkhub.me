@@ -15,6 +15,10 @@ const VideoOverlay = dynamic(() => import("../components/VideoOverlay"), {
   ssr: false,
 });
 
+const WhiteboardOverlay = dynamic(() => import("../components/WhiteboardOverlay"), {
+  ssr: false,
+});
+
 /**
  * Load PhaserGame with SSR disabled — Phaser requires window/document/canvas.
  * All Phaser imports are contained inside PhaserGame.tsx and its scene imports.
@@ -48,6 +52,10 @@ export default function CoworkPage() {
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [playerNames, setPlayerNames] = useState<Map<string, string>>(new Map());
   const mediaManagerRef = useRef<ProximityMediaManager | null>(null);
+
+  // Whiteboard state
+  const [whiteboardOpen, setWhiteboardOpen] = useState(false);
+  const [activeWhiteboardId, setActiveWhiteboardId] = useState<string | null>(null);
 
   const initCowork = useCallback((cfg: CoworkConfig) => {
     setConfig(cfg);
@@ -187,12 +195,20 @@ export default function CoworkPage() {
     bridge.on("player-joined", onPlayerJoined);
     bridge.on("player-left", onPlayerLeft);
 
+    // Whiteboard open request from GameScene (R key near whiteboard)
+    const onWhiteboardOpenRequest = (data: { whiteboardId: string }) => {
+      setActiveWhiteboardId(data.whiteboardId);
+      setWhiteboardOpen(true);
+    };
+    bridge.on("whiteboard-open-request", onWhiteboardOpenRequest);
+
     return () => {
       bridge.off("proximity-update", onProximity);
       bridge.off("webrtc-signal", onSignal);
       bridge.off("room-state", onRoomState);
       bridge.off("player-joined", onPlayerJoined);
       bridge.off("player-left", onPlayerLeft);
+      bridge.off("whiteboard-open-request", onWhiteboardOpenRequest);
       manager.destroy();
       mediaManagerRef.current = null;
       setRemoteStreams(new Map());
@@ -287,6 +303,18 @@ export default function CoworkPage() {
         }}
         playerNames={playerNames}
       />
+      {/* Whiteboard overlay */}
+      {whiteboardOpen && activeWhiteboardId && (
+        <WhiteboardOverlay
+          whiteboardId={activeWhiteboardId}
+          onClose={() => {
+            setWhiteboardOpen(false);
+            setActiveWhiteboardId(null);
+            const canvas = document.querySelector("canvas");
+            if (canvas) canvas.focus();
+          }}
+        />
+      )}
       {/* Chat input — opens on ENTER, sends on ENTER, closes on ESC */}
       {chatOpen && (
         <div style={chatInputContainerStyle}>
