@@ -27,7 +27,7 @@ export default function PhaserGame() {
       if (destroyed) return;
 
       const game = new Phaser.Game({
-        type: Phaser.AUTO,
+        type: Phaser.CANVAS, // CANVAS avoids WebGL sub-pixel tile seam artifacts
         parent: containerRef.current || "game-container",
         width: 800,
         height: 600,
