@@ -136,6 +136,16 @@ export default class GameScene extends Phaser.Scene {
     this.chairGroup = this.addItemGroup(map, "Chair", "chairs", "chair");
     this.addItemGroup(map, "Computer", "computers", "computer");
     this.whiteboardGroup = this.addItemGroup(map, "Whiteboard", "whiteboards", "whiteboard");
+    // Shift whiteboard physics bodies downward so the interaction zone is
+    // in FRONT of the board (below it), not behind it (on the wall).
+    for (const child of this.whiteboardGroup.getChildren()) {
+      const sprite = child as Phaser.Physics.Arcade.Sprite;
+      const body = sprite.body as Phaser.Physics.Arcade.StaticBody;
+      if (body) {
+        body.setOffset(0, body.height);
+        body.updateFromGameObject();
+      }
+    }
     this.addItemGroup(map, "VendingMachine", "vendingmachines", "vendingmachine");
 
     // Ground layer collider — starts INACTIVE, enabled on first movement
