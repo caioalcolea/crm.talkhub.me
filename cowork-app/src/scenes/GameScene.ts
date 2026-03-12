@@ -28,11 +28,26 @@ interface OtherPlayerData {
   targetY: number;
 }
 
+// Raw key state tracker — bypasses Phaser's KeyboardPlugin which has
+// known issues inside iframes (focus/capture doesn't bind to DOM properly).
+const keysDown = new Set<string>();
+
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", (e) => {
+    keysDown.add(e.code);
+  });
+  window.addEventListener("keyup", (e) => {
+    keysDown.delete(e.code);
+  });
+  // Clear all keys when window loses focus (prevents stuck keys)
+  window.addEventListener("blur", () => {
+    keysDown.clear();
+  });
+}
+
 export default class GameScene extends Phaser.Scene {
   private myPlayer!: Phaser.Physics.Arcade.Sprite;
   private myNameLabel!: Phaser.GameObjects.Text;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd!: Record<string, Phaser.Input.Keyboard.Key>;
   private otherPlayers = new Map<string, OtherPlayerData>();
   private mySocketId: string | null = null;
   private currentDirection = "down";
@@ -119,27 +134,18 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
 
     // ── Keyboard input ──────────────────────────────────────
-    this.cursors = this.input.keyboard!.createCursorKeys();
-    this.wasd = this.input.keyboard!.addKeys("W,A,S,D") as Record<string, Phaser.Input.Keyboard.Key>;
-
-    // Focus handling for iframe — critical for keyboard to work
-    // Ensure canvas is focusable and grabs focus on click
+    // We use raw DOM key tracking (keysDown set above) instead of Phaser's
+    // KeyboardPlugin because it doesn't work reliably inside iframes.
+    // Focus the canvas so the iframe's window receives key events.
     this.game.canvas.setAttribute("tabindex", "1");
     this.game.canvas.style.outline = "none";
     this.input.on("pointerdown", () => {
       window.focus();
       this.game.canvas.focus();
     });
-    // Auto-focus on scene start
     if (typeof window !== "undefined") {
       window.focus();
-      setTimeout(() => {
-        this.game.canvas.focus();
-        // Re-enable keyboard manager in case it was dormant
-        if (this.input.keyboard) {
-          this.input.keyboard.enabled = true;
-        }
-      }, 200);
+      setTimeout(() => this.game.canvas.focus(), 200);
     }
 
     // ── Bridge event listeners (multiplayer) ────────────────
@@ -167,28 +173,33 @@ export default class GameScene extends Phaser.Scene {
   update(time: number): void {
     if (!this.myPlayer?.body || !this.myPlayer.active) return;
 
-    // ── Process input ───────────────────────────────────────
+    // ── Process input (raw DOM keys — works in iframes) ────
     const body = this.myPlayer.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(0);
 
     let moving = false;
     let dir = this.currentDirection;
 
-    if (this.cursors.left.isDown || this.wasd.A.isDown) {
+    const left = keysDown.has("ArrowLeft") || keysDown.has("KeyA");
+    const right = keysDown.has("ArrowRight") || keysDown.has("KeyD");
+    const up = keysDown.has("ArrowUp") || keysDown.has("KeyW");
+    const down = keysDown.has("ArrowDown") || keysDown.has("KeyS");
+
+    if (left) {
       body.setVelocityX(-PLAYER_SPEED);
       dir = "left";
       moving = true;
-    } else if (this.cursors.right.isDown || this.wasd.D.isDown) {
+    } else if (right) {
       body.setVelocityX(PLAYER_SPEED);
       dir = "right";
       moving = true;
     }
 
-    if (this.cursors.up.isDown || this.wasd.W.isDown) {
+    if (up) {
       body.setVelocityY(-PLAYER_SPEED);
       dir = "up";
       moving = true;
-    } else if (this.cursors.down.isDown || this.wasd.S.isDown) {
+    } else if (down) {
       body.setVelocityY(PLAYER_SPEED);
       dir = "down";
       moving = true;

@@ -44,15 +44,10 @@ export default function PhaserGame() {
           mode: Phaser.Scale.RESIZE,
           autoCenter: Phaser.Scale.CENTER_BOTH,
         },
-        // Capture WASD + arrow keys so Phaser processes them (critical for iframe)
-        // Using raw keycodes since Phaser is dynamically imported
+        // Keyboard input is handled via raw DOM listeners in GameScene.ts
+        // (Phaser's KeyboardPlugin doesn't work reliably inside iframes)
         input: {
-          keyboard: {
-            capture: [
-              87, 65, 83, 68,   // W, A, S, D
-              37, 38, 39, 40,   // LEFT, UP, RIGHT, DOWN arrows
-            ],
-          },
+          keyboard: false,
         },
         // A3 fix: Auto-focus canvas on boot (important for iframe)
         autoFocus: true,
