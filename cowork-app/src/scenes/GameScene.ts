@@ -112,6 +112,18 @@ export default class GameScene extends Phaser.Scene {
     // Fix black lines between tiles: snap pixels on the camera
     this.cameras.main.setRoundPixels(true);
 
+    // ── Create local player ─────────────────────────────────
+    // MUST be created BEFORE addObjectGroup() calls, because collidable
+    // groups create physics.add.collider(this.myPlayer, group) internally.
+    // Spawn in the main corridor area (tile 16, 13 — known open area)
+    // Server will reposition via room-state, but this must be collision-free
+    const spawnX = 16 * TILE_SIZE + TILE_SIZE / 2; // 528
+    const spawnY = 13 * TILE_SIZE + TILE_SIZE / 2; // 432
+    this.myPlayer = this.physics.add.sprite(spawnX, spawnY, this.myAvatar);
+    this.myPlayer.setDepth(spawnY);
+    this.myPlayer.setSize(16, 16); // smaller collision box
+    this.myPlayer.setOffset(8, 28); // offset to feet
+
     // Object layers (sprite-based, from Tiled object groups)
     this.addObjectGroup(map, "Wall", "tiles_wall", "FloorAndGround", false);
     this.addObjectGroup(map, "Objects", "office", "Modern_Office_Black_Shadow", false);
@@ -126,18 +138,7 @@ export default class GameScene extends Phaser.Scene {
     this.whiteboardGroup = this.addItemGroup(map, "Whiteboard", "whiteboards", "whiteboard");
     this.addItemGroup(map, "VendingMachine", "vendingmachines", "vendingmachine");
 
-    // ── Create local player ─────────────────────────────────
-    // Spawn in the main corridor area (tile 16, 13 — known open area)
-    // Server will reposition via room-state, but this must be collision-free
-    const spawnX = 16 * TILE_SIZE + TILE_SIZE / 2; // 528
-    const spawnY = 13 * TILE_SIZE + TILE_SIZE / 2; // 432
-    this.myPlayer = this.physics.add.sprite(spawnX, spawnY, this.myAvatar);
-    this.myPlayer.setDepth(spawnY);
-    this.myPlayer.setSize(16, 16); // smaller collision box
-    this.myPlayer.setOffset(8, 28); // offset to feet
-
-    // Collision: register colliders but start INACTIVE.
-    // They activate on first player movement to prevent spawn-inside-wall trap.
+    // Ground layer collider — starts INACTIVE, enabled on first movement
     const groundCollider = this.physics.add.collider(this.myPlayer, this.groundLayer);
     groundCollider.active = false;
     this.colliderRefs.push(groundCollider);
@@ -859,6 +860,9 @@ export default class GameScene extends Phaser.Scene {
     this.otherPlayers.clear();
     for (const [, bubble] of this.chatBubbles) bubble.destroy();
     this.chatBubbles.clear();
+    for (const col of this.colliderRefs) {
+      try { col.destroy(); } catch (_) { /* already destroyed */ }
+    }
     this.colliderRefs = [];
   }
 }
