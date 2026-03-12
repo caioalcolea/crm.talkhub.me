@@ -70,6 +70,10 @@ export default class GameScene extends Phaser.Scene {
   // Chat bubbles above player heads
   private chatBubbles = new Map<string, Phaser.GameObjects.Text>();
 
+  // Animation tracking — skip redundant play() calls that can overwhelm Phaser's animation manager
+  private currentAnimKey = "";
+  private _firstMoveLogged = false;
+
   // Sit-on-chair system
   private playerState: "walking" | "sitting" = "walking";
   private chairGroup!: Phaser.Physics.Arcade.StaticGroup;
@@ -355,6 +359,20 @@ export default class GameScene extends Phaser.Scene {
       );
       body.setVelocity(0);
       return;
+    }
+
+    // ── First movement diagnostic ──────────────────────────
+    if (moving && !this._firstMoveLogged) {
+      const animKey = `${this.myAvatar}_run_${dir}`;
+      console.log("[GameScene] First move detected", {
+        dir,
+        avatar: this.myAvatar,
+        animKey,
+        animExists: this.anims.exists(animKey),
+        textureExists: this.textures.exists(this.myAvatar),
+        playerPos: { x: this.myPlayer.x, y: this.myPlayer.y },
+      });
+      this._firstMoveLogged = true;
     }
 
     // ── Animation ───────────────────────────────────────────
@@ -649,9 +667,12 @@ export default class GameScene extends Phaser.Scene {
     key: string,
     ignoreIfPlaying = true
   ): void {
+    // Skip redundant play() calls — avoids Phaser animation manager overhead
+    if (sprite === this.myPlayer && key === this.currentAnimKey) return;
     try {
       if (this.anims.exists(key)) {
         sprite.anims.play(key, ignoreIfPlaying);
+        if (sprite === this.myPlayer) this.currentAnimKey = key;
       } else {
         console.warn(`[GameScene] Animation not found: ${key}`);
       }
@@ -754,10 +775,16 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private createAnimations(): void {
+    try {
     const frameRate = 15;
     const idleRate = frameRate * 0.6;
 
     for (const char of AVATARS) {
+      // Validate texture is loaded before creating animations
+      if (!this.textures.exists(char)) {
+        console.error(`[GameScene] Texture "${char}" not loaded, skipping animations`);
+        continue;
+      }
       // Idle animations: 0-5 right, 6-11 up, 12-17 left, 18-23 down
       const idleDirs = [
         { dir: "right", start: 0, end: 5 },
@@ -805,6 +832,10 @@ export default class GameScene extends Phaser.Scene {
           frameRate,
         });
       }
+    }
+    console.log(`[GameScene] Animations created for ${AVATARS.length} characters`);
+    } catch (err) {
+      console.error("[GameScene] Failed to create animations:", err);
     }
   }
 

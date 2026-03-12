@@ -53,6 +53,10 @@ export default function CoworkPage() {
   const [playerNames, setPlayerNames] = useState<Map<string, string>>(new Map());
   const mediaManagerRef = useRef<ProximityMediaManager | null>(null);
 
+  // Pre-acquired media stream from user gesture (overlay click).
+  // Stored here so it can be passed to ProximityMediaManager when it's created.
+  const preAcquiredStreamRef = useRef<MediaStream | null>(null);
+
   // Whiteboard state
   const [whiteboardOpen, setWhiteboardOpen] = useState(false);
   const [activeWhiteboardId, setActiveWhiteboardId] = useState<string | null>(null);
@@ -150,6 +154,11 @@ export default function CoworkPage() {
     manager.setSendSignal((targetId, signal) => {
       bridge.emitWebRTCSignal(targetId, signal);
     });
+
+    // Pass pre-acquired stream from overlay click gesture
+    if (preAcquiredStreamRef.current) {
+      manager.setPreAcquiredStream(preAcquiredStreamRef.current);
+    }
 
     const onProximity = (data: { nearbyIds: string[] }) => {
       manager.updateNearby(data.nearbyIds);
@@ -360,6 +369,28 @@ export default function CoworkPage() {
             if (canvas) {
               canvas.setAttribute("tabindex", "1");
               canvas.focus();
+            }
+
+            // Pre-acquire media on user gesture — critical for iframe permission.
+            // Browsers require getUserMedia to be called in response to a user
+            // interaction (click/tap). If we wait until proximity triggers it,
+            // the browser may silently deny the request inside an iframe.
+            if (!preAcquiredStreamRef.current) {
+              navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { max: 15 } },
+              })
+                .then((stream) => {
+                  console.log("[Cowork] Pre-acquired media stream on user gesture");
+                  preAcquiredStreamRef.current = stream;
+                  // If manager already exists, pass the stream immediately
+                  if (mediaManagerRef.current) {
+                    mediaManagerRef.current.setPreAcquiredStream(stream);
+                  }
+                })
+                .catch(() => {
+                  console.log("[Cowork] Media permission denied on overlay click (will retry on proximity)");
+                });
             }
           }}
           style={overlayStyle}

@@ -190,7 +190,6 @@
           <div class="flex items-start justify-between">
             <div>
               <h3 class="font-semibold">{room.name}</h3>
-              <p class="text-muted-foreground text-xs mt-1">Mapa: {room.map_id}</p>
             </div>
             <Badge variant="outline" class="gap-1 text-xs">
               <Users class="size-3" />
@@ -257,18 +256,7 @@
             class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>
-        <div>
-          <label for="room-map" class="text-sm font-medium">Mapa</label>
-          <select
-            id="room-map"
-            name="map_id"
-            class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-          >
-            <option value="office_default">Escritório Padrão</option>
-            <option value="open_space">Open Space</option>
-            <option value="meeting_room">Sala de Reunião</option>
-          </select>
-        </div>
+        <input type="hidden" name="map_id" value="office_default" />
         <div>
           <label for="room-max" class="text-sm font-medium">Máx. Participantes</label>
           <input

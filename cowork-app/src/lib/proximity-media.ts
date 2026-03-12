@@ -10,6 +10,12 @@
  *
  * Initiator rule: the peer with the lexicographically smaller socketId
  * creates the offer. This prevents simultaneous offer collisions.
+ *
+ * Key fixes (v2):
+ *   - Shared promise for stream acquisition (no race conditions)
+ *   - Tracks added to peer connection AFTER stream is ready
+ *   - Support for pre-acquired stream (from user gesture on overlay click)
+ *   - Comprehensive diagnostic logging
  */
 
 type MediaEventType = "stream-added" | "stream-removed" | "local-stream" | "error";
@@ -37,23 +43,54 @@ export class ProximityMediaManager {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingNearbyIds: string[] | null = null;
   private destroyed = false;
-  private acquiringStream = false;
+
+  // Shared promise — prevents race condition when multiple proximity updates
+  // arrive while getUserMedia is still pending
+  private streamPromise: Promise<MediaStream | null> | null = null;
 
   setMySocketId(id: string): void {
     this.mySocketId = id;
+    console.log("[ProximityMedia] My socket ID:", id);
   }
 
   setSendSignal(fn: (targetId: string, signal: any) => void): void {
     this.sendSignalFn = fn;
   }
 
+  /**
+   * Accept a pre-acquired MediaStream (from user gesture on overlay click).
+   * This avoids permission issues in iframes where getUserMedia requires
+   * an immediate user interaction context.
+   */
+  setPreAcquiredStream(stream: MediaStream | null): void {
+    if (stream && !this.localStream) {
+      console.log("[ProximityMedia] Using pre-acquired stream with", stream.getTracks().length, "tracks");
+      this.localStream = stream;
+      this.emit("local-stream", { stream });
+    }
+  }
+
   // ── Local Stream ─────────────────────────────────────────
 
   async acquireLocalStream(): Promise<MediaStream | null> {
     if (this.localStream) return this.localStream;
-    if (this.acquiringStream) return null;
 
-    this.acquiringStream = true;
+    // Return existing promise if acquisition is in progress — this is the
+    // key fix for the race condition. Previous code returned null here,
+    // causing processNearbyUpdate to bail out and never create peer connections.
+    if (this.streamPromise) {
+      console.log("[ProximityMedia] Waiting for in-progress stream acquisition...");
+      return this.streamPromise;
+    }
+
+    this.streamPromise = this._doAcquireStream();
+    const stream = await this.streamPromise;
+    this.streamPromise = null;
+    return stream;
+  }
+
+  private async _doAcquireStream(): Promise<MediaStream | null> {
+    console.log("[ProximityMedia] Requesting camera/mic permissions...");
     try {
       // Try video + audio first, fall back to audio-only
       let stream: MediaStream;
@@ -62,10 +99,13 @@ export class ProximityMediaManager {
           audio: true,
           video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { max: 15 } },
         });
+        console.log("[ProximityMedia] Got video+audio stream");
       } catch {
         try {
           stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          console.log("[ProximityMedia] Got audio-only stream (video denied/unavailable)");
         } catch {
+          console.error("[ProximityMedia] Camera and microphone access denied");
           this.emit("error", { message: "Camera and microphone access denied" });
           return null;
         }
@@ -77,10 +117,14 @@ export class ProximityMediaManager {
       }
 
       this.localStream = stream;
+      console.log("[ProximityMedia] Local stream ready with", stream.getTracks().length, "tracks:",
+        stream.getTracks().map(t => `${t.kind}:${t.enabled ? "on" : "off"}`).join(", "));
       this.emit("local-stream", { stream });
       return stream;
-    } finally {
-      this.acquiringStream = false;
+    } catch (err) {
+      console.error("[ProximityMedia] Unexpected error acquiring stream:", err);
+      this.emit("error", { message: "Failed to acquire media stream" });
+      return null;
     }
   }
 
@@ -108,6 +152,7 @@ export class ProximityMediaManager {
     // Remove peers no longer nearby
     for (const id of this.currentNearbyIds) {
       if (!newNearby.has(id)) {
+        console.log("[ProximityMedia] Peer left proximity:", id);
         this.closePeer(id);
       }
     }
@@ -124,16 +169,23 @@ export class ProximityMediaManager {
 
     if (added.length === 0) return;
 
+    console.log("[ProximityMedia] New peers in proximity:", added);
+
     // Acquire local stream lazily on first proximity contact
     const stream = await this.acquireLocalStream();
-    if (!stream || this.destroyed) return;
+    if (!stream || this.destroyed) {
+      console.warn("[ProximityMedia] Cannot establish connections — no local stream");
+      return;
+    }
 
     // Only the initiator (smaller socketId) creates the offer
     for (const peerId of added) {
       if (this.mySocketId < peerId) {
+        console.log("[ProximityMedia] I am initiator for peer:", peerId);
         this.createPeerAndOffer(peerId);
+      } else {
+        console.log("[ProximityMedia] Waiting for offer from peer:", peerId);
       }
-      // else: wait for their offer
     }
   }
 
@@ -142,12 +194,10 @@ export class ProximityMediaManager {
   private createPeerConnection(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection(RTC_CONFIG);
 
-    // Add local tracks
-    if (this.localStream) {
-      for (const track of this.localStream.getTracks()) {
-        pc.addTrack(track, this.localStream);
-      }
-    }
+    // NOTE: We do NOT add tracks here. Tracks are added explicitly by the
+    // caller (createPeerAndOffer or handleSignal) AFTER ensuring the local
+    // stream is ready. This fixes the bug where tracks were added before
+    // getUserMedia completed, resulting in empty SDP offers.
 
     // ICE candidates → relay to peer
     pc.onicecandidate = (event) => {
@@ -159,7 +209,10 @@ export class ProximityMediaManager {
     // Remote stream received
     pc.ontrack = (event) => {
       const [remoteStream] = event.streams;
-      if (remoteStream && !this.remoteStreams.has(peerId)) {
+      if (remoteStream) {
+        console.log("[ProximityMedia] ontrack: received remote stream from", peerId,
+          "tracks:", remoteStream.getTracks().map(t => t.kind).join(", "));
+        // Always update — a peer might renegotiate with new tracks
         this.remoteStreams.set(peerId, remoteStream);
         this.emit("stream-added", { peerId, stream: remoteStream });
       }
@@ -168,14 +221,16 @@ export class ProximityMediaManager {
     // Connection state changes
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
+      console.log(`[ProximityMedia] Peer ${peerId} connection state: ${state}`);
       if (state === "disconnected" || state === "failed" || state === "closed") {
         this.closePeer(peerId);
       }
     };
 
     pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === "failed") {
-        // Try ICE restart
+      const state = pc.iceConnectionState;
+      console.log(`[ProximityMedia] Peer ${peerId} ICE state: ${state}`);
+      if (state === "failed") {
         pc.restartIce();
       }
     };
@@ -184,12 +239,37 @@ export class ProximityMediaManager {
     return pc;
   }
 
+  /**
+   * Add local tracks to a peer connection.
+   * Must be called AFTER localStream is acquired.
+   */
+  private addLocalTracks(pc: RTCPeerConnection): void {
+    if (!this.localStream) return;
+
+    // Check if tracks already added (renegotiation safety)
+    const senders = pc.getSenders();
+    if (senders.length > 0) return;
+
+    for (const track of this.localStream.getTracks()) {
+      pc.addTrack(track, this.localStream);
+    }
+    console.log("[ProximityMedia] Added", this.localStream.getTracks().length, "local tracks to peer connection");
+  }
+
   private async createPeerAndOffer(peerId: string): Promise<void> {
     if (this.destroyed || this.peers.has(peerId)) return;
 
+    // Ensure we have a local stream BEFORE creating the peer connection
+    const stream = await this.acquireLocalStream();
+    if (!stream || this.destroyed) return;
+
     const pc = this.createPeerConnection(peerId);
 
+    // Add tracks AFTER stream is ready (fix: was adding before stream existed)
+    this.addLocalTracks(pc);
+
     try {
+      console.log("[ProximityMedia] Creating offer for peer:", peerId);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -198,6 +278,7 @@ export class ProximityMediaManager {
           type: pc.localDescription.type,
           sdp: pc.localDescription.sdp,
         });
+        console.log("[ProximityMedia] Offer sent to peer:", peerId);
       }
     } catch (err) {
       console.error("[ProximityMedia] Failed to create offer for", peerId, err);
@@ -225,9 +306,14 @@ export class ProximityMediaManager {
 
     // SDP offer
     if (signal.type === "offer") {
-      // Acquire local stream before answering
+      console.log("[ProximityMedia] Received offer from:", fromId);
+
+      // Acquire local stream before answering (ensures tracks are ready)
       const stream = await this.acquireLocalStream();
-      if (!stream || this.destroyed) return;
+      if (!stream || this.destroyed) {
+        console.warn("[ProximityMedia] Cannot answer offer — no local stream");
+        return;
+      }
 
       // Close existing peer if any (renegotiation)
       if (this.peers.has(fromId)) {
@@ -235,6 +321,9 @@ export class ProximityMediaManager {
       }
 
       const pc = this.createPeerConnection(fromId);
+
+      // Add tracks AFTER stream is ready (fix: was adding before stream existed)
+      this.addLocalTracks(pc);
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(signal));
@@ -246,6 +335,7 @@ export class ProximityMediaManager {
             type: pc.localDescription.type,
             sdp: pc.localDescription.sdp,
           });
+          console.log("[ProximityMedia] Answer sent to peer:", fromId);
         }
       } catch (err) {
         console.error("[ProximityMedia] Failed to handle offer from", fromId, err);
@@ -256,10 +346,12 @@ export class ProximityMediaManager {
 
     // SDP answer
     if (signal.type === "answer") {
+      console.log("[ProximityMedia] Received answer from:", fromId);
       const pc = this.peers.get(fromId);
       if (pc && pc.signalingState === "have-local-offer") {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          console.log("[ProximityMedia] Remote description set for peer:", fromId);
         } catch (err) {
           console.error("[ProximityMedia] Failed to handle answer from", fromId, err);
         }
@@ -301,6 +393,7 @@ export class ProximityMediaManager {
       pc.oniceconnectionstatechange = null;
       pc.close();
       this.peers.delete(peerId);
+      console.log("[ProximityMedia] Closed peer connection:", peerId);
     }
 
     if (this.remoteStreams.has(peerId)) {
@@ -332,6 +425,7 @@ export class ProximityMediaManager {
     this.remoteStreams.clear();
     this.listeners.clear();
     this.sendSignalFn = null;
+    console.log("[ProximityMedia] Destroyed");
   }
 
   // ── Simple EventEmitter ──────────────────────────────────
@@ -351,7 +445,11 @@ export class ProximityMediaManager {
     const fns = this.listeners.get(event);
     if (fns) {
       for (const fn of fns) {
-        fn(data);
+        try {
+          fn(data);
+        } catch (err) {
+          console.error(`[ProximityMedia] Error in listener for "${event}":`, err);
+        }
       }
     }
   }

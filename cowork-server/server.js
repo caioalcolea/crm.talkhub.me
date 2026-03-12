@@ -49,6 +49,18 @@ const httpServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ status: "ok", rooms: rooms.size }));
     return;
   }
+
+  // Room participant counts — used by Django serializer to show real-time counts
+  if (req.url === "/rooms/status" && req.method === "GET") {
+    const roomCounts = {};
+    for (const [roomId, room] of rooms) {
+      roomCounts[roomId] = room.size;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ rooms: roomCounts }));
+    return;
+  }
+
   res.writeHead(404);
   res.end();
 });
