@@ -57,6 +57,7 @@ export default class GameScene extends Phaser.Scene {
   // This prevents the "trapped in wall" bug when spawning inside colliders
   private collisionEnabled = false;
   private colliderRefs: Phaser.Physics.Arcade.Collider[] = [];
+  private stuckFrames = 0;
 
   // Movement emission throttle
   private lastEmitTime = 0;
@@ -300,15 +301,36 @@ export default class GameScene extends Phaser.Scene {
 
     // ── Enable collision after first movement ────────────────
     // Player must move first to escape any spawn-inside-wall position.
-    // Once they move, collision activates so they can't walk through walls.
+    // Set flag immediately to prevent creating multiple delayed calls.
+    // Short 50ms delay (~3 frames) gives player time to separate from spawn.
     if (moving && !this.collisionEnabled) {
-      // Delay by 300ms so the player moves a few pixels away from spawn first
-      this.time.delayedCall(300, () => {
+      this.collisionEnabled = true;
+      this.time.delayedCall(50, () => {
         for (const col of this.colliderRefs) {
           col.active = true;
         }
-        this.collisionEnabled = true;
       });
+    }
+
+    // ── Stuck-in-wall detector ──────────────────────────────
+    // If collision is active and player is pressing movement keys but
+    // velocity is zero (blocked by collider), count frames. After 10
+    // consecutive stuck frames (~167ms), teleport to safe spawn position.
+    if (this.collisionEnabled) {
+      const postVx = body.velocity.x;
+      const postVy = body.velocity.y;
+      if (moving && postVx === 0 && postVy === 0) {
+        this.stuckFrames++;
+        if (this.stuckFrames > 10) {
+          this.myPlayer.setPosition(
+            16 * TILE_SIZE + TILE_SIZE / 2,
+            13 * TILE_SIZE + TILE_SIZE / 2
+          );
+          this.stuckFrames = 0;
+        }
+      } else {
+        this.stuckFrames = 0;
+      }
     }
 
     // ── Animation ───────────────────────────────────────────

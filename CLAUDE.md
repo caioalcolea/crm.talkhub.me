@@ -11,6 +11,7 @@ Production: https://crm.talkhub.me
 
 - **Backend**: Django 5.2, DRF 3.16, Celery 5.6, Redis 7, PostgreSQL 16
 - **Frontend**: SvelteKit 2, Svelte 5 (runes), TailwindCSS 4, shadcn-svelte, bits-ui
+- **Cowork Virtual Office**: Phaser 3 (Next.js) + Socket.io (Node.js) + WebRTC
 - **Deploy**: Docker Swarm + Traefik (HTTPS Let's Encrypt)
 - **Auth**: JWT (SimpleJWT) + Google OAuth + Magic Link
 
@@ -19,9 +20,9 @@ Production: https://crm.talkhub.me
 ```
 crm.talkhub.me/
 ├── djangocrm/
-│   ├── backend/              # Django REST API (16 apps)
+│   ├── backend/              # Django REST API (18 apps)
 │   │   ├── crm/              # Settings, URLs, Celery, WSGI
-│   │   ├── common/           # Auth, RLS, middleware, permissions, admin panel
+│   │   ├── common/           # Auth, RLS, middleware, permissions, admin panel, invitations
 │   │   ├── accounts/         # Companies
 │   │   ├── contacts/         # Contacts (with TalkHub Omni fields)
 │   │   ├── leads/            # Leads + kanban pipeline
@@ -36,6 +37,7 @@ crm.talkhub.me/
 │   │   ├── conversations/    # Omnichannel inbox (real-time via fast polling)
 │   │   ├── chatwoot/         # Chatwoot connector + channel provider
 │   │   ├── talkhub_omni/     # TalkHub Omni connector
+│   │   ├── cowork/           # Sala Cowork Django models + API
 │   │   ├── automations/      # Workflow automations
 │   │   ├── campaigns/        # Marketing campaigns
 │   │   └── requirements.txt
@@ -48,26 +50,29 @@ crm.talkhub.me/
 │       │       ├── api-helpers.js # Server-side API (JWT from cookies)
 │       │       └── components/
 │       └── package.json
+├── cowork-server/             # Socket.io real-time server (Node.js)
+│   ├── server.js             # Room state, JWT validation, proximity calc, WebRTC signaling
+│   └── package.json
+├── cowork-app/                # Phaser 3 virtual office (Next.js)
+│   ├── src/app/              # App router (page.tsx = Phaser game)
+│   ├── src/components/       # PhaserGame, Whiteboard
+│   ├── src/game/             # Phaser scenes, player, chair, chat, whiteboard
+│   ├── src/lib/              # Socket.io client + postMessage bridge
+│   └── package.json
 ├── docker/
 │   ├── djangocrm.yaml        # Docker Swarm stack definition
 │   ├── Dockerfile.backend    # Python 3.12-slim + Gunicorn
 │   ├── Dockerfile.frontend   # Node 22 multi-stage build
 │   ├── Dockerfile.cowork-server # Socket.io cowork server
-│   ├── Dockerfile.cowork-app # Next.js cowork frontend
+│   ├── Dockerfile.cowork-app # Next.js cowork frontend (Phaser 3)
 │   ├── entrypoint-prod.sh    # DB wait + migrations + RLS + collectstatic + admin
 │   ├── init-rls-user.sql     # Creates non-superuser for RLS
 │   ├── fix-deploy.sh         # Quick redeploy (no rebuild)
 │   ├── fix-db-user.sh        # Reset DB user password
+│   ├── debug-traefik.sh      # Traefik routing diagnostic script
 │   └── backup-db.sh          # pg_dump + optional S3 upload
-├── cowork-server/             # Socket.io real-time server (Node.js)
-│   ├── server.js             # Room state, JWT validation, proximity calc
-│   └── package.json
-├── cowork-app/                # Next.js virtual office frontend
-│   ├── src/app/              # App router (page.tsx = canvas room)
-│   ├── src/components/       # CoworkCanvas (2D tile grid renderer)
-│   ├── src/lib/              # Socket.io client + postMessage bridge
-│   └── package.json
 ├── redeploy.sh               # Full clean deploy script
+├── DIAGRAMA_CRM_NATIVO.md    # Complete architecture diagram
 ├── README.md                 # Complete project documentation
 └── CLAUDE.md                 # This file
 ```
@@ -80,6 +85,7 @@ crm.talkhub.me/
 - DB user MUST be non-superuser (`crm_user`) for RLS to work
 - **Fail-safe**: if `app.current_org` not set, zero rows returned
 - **Celery tasks**: MUST call `set_rls_context(org_id)` at start (from `common.tasks`)
+- **RLS-exempt tables**: `pending_invitation` has RLS DISABLED (migration 0003) — ORM queries work without org context
 
 ### Authentication Flow
 ```
@@ -87,6 +93,20 @@ Login (Google/MagicLink) -> JWT WITHOUT org_id
   -> /org page (select organization)
   -> switch-org -> new JWT WITH org_id
   -> all API calls work with RLS
+```
+
+### Invitation Flow
+```
+Admin sends invite (/users page)
+  -> PendingInvitation created with UUID token
+  -> Email sent with link: {FRONTEND_URL}/invite/accept/{token}/
+  -> Django InvitationAcceptView validates token
+  -> Redirects to /login?invite={token}
+  -> Login page saves invite_token cookie
+  -> After auth, POST /api/auth/accept-invite/ with token
+  -> Backend creates Profile in invited org
+  -> invite_org_id cookie set
+  -> /org page auto-selects the org
 ```
 
 ### Frontend API Pattern
@@ -137,6 +157,8 @@ docker service logs djangocrm_crm_backend --tail 50 --follow
 docker service logs djangocrm_crm_worker --tail 50 --follow
 docker service logs djangocrm_crm_beat --tail 30
 docker service logs djangocrm_crm_frontend --tail 30
+docker service logs djangocrm_crm_cowork_backend --tail 30 --follow
+docker service logs djangocrm_crm_cowork_front --tail 30 --follow
 
 # Shell access
 BACKEND=$(docker ps -q -f name=djangocrm_crm_backend)
@@ -148,6 +170,9 @@ docker exec -it $(docker ps -q -f name=djangocrm_crm_db) psql -U crm_user -d crm
 
 # Services status
 docker stack services djangocrm
+
+# Debug Traefik routing
+bash docker/debug-traefik.sh
 ```
 
 ## Svelte 5 Rules
@@ -171,6 +196,23 @@ docker stack services djangocrm
 10. **Chatwoot sync all statuses**: Chatwoot API `GET /conversations` defaults to `status=open` only. The sync must iterate all statuses (open, pending, resolved, snoozed) to get all conversations
 11. **Conversation ordering**: `ConversationListView` uses `Coalesce(last_message_at, created_at)` to ensure conversations without messages (freshly synced) appear in the list
 12. **Webhook multi-tenant**: Each `IntegrationConnection` has a unique `webhook_token`. Token-based URLs (`/webhooks/<slug>/<token>/`) prevent cross-tenant leakage when orgs share the same external service (e.g., same Chatwoot account_id). Legacy URL without token still works as fallback.
+13. **Cowork iframe**: Next.js app runs with `basePath: '/cowork-app'`. Traefik does NOT strip prefix — Next.js handles it natively via basePath.
+14. **Cowork keyboard**: Phaser keyboard input is bypassed — uses raw DOM `keydown`/`keyup` events via `KeyTracker` to avoid iframe focus issues.
+15. **Cowork tile seams**: CANVAS renderer (not WebGL) is required to eliminate black lines between tiles at fractional zoom levels.
+
+## Invitation System
+
+**Status**: Fixed — Traefik now routes `/invite/` to Django backend.
+
+**Flow**: Admin invites via `/users` → `PendingInvitation` created → email with `/invite/accept/<token>/` → Django validates and redirects to `/login?invite=<token>` → after auth, `POST /api/auth/accept-invite/` → Profile created in invited org → `/org` auto-selects.
+
+**Files involved**:
+- `docker/djangocrm.yaml` (Traefik routing — `/invite` in PathPrefix rule)
+- `djangocrm/backend/common/views/invitation_views.py` (InvitationAcceptView, InvitationAcceptAPIView)
+- `djangocrm/frontend/src/routes/(no-layout)/login/+page.server.js` (invite_token cookie handling)
+- `djangocrm/frontend/src/routes/(no-layout)/login/verify/+page.server.js` (magic link invite flow)
+- `djangocrm/frontend/src/routes/(no-layout)/org/+page.server.js` (invite_org_id auto-select)
+- `djangocrm/frontend/src/routes/(no-layout)/org/+page.svelte` (auto-submit form)
 
 ## Services (Docker Swarm)
 
@@ -183,26 +225,35 @@ docker stack services djangocrm
 | crm_frontend | djangocrm-frontend | 3000 | SvelteKit SSR |
 | crm_redis | redis:7-alpine | 6379 | Broker + Cache |
 | crm_cowork_backend | cowork-server | 3100 | Socket.io (cowork rooms) |
-| crm_cowork_front | cowork-app | 3200 | Next.js (virtual office) |
+| crm_cowork_front | cowork-app | 3200 | Next.js + Phaser 3 (virtual office) |
 
 ## Traefik Routing
 
 - Priority 25: `/ws/` -> crm_ws:8001 (Django WebSocket)
 - Priority 22: `/cowork-ws/` -> cowork_backend:3100 (Socket.io, strip prefix)
-- Priority 20: `/api`, `/admin`, `/static`, `/swagger`, `/media` -> backend:8000
-- Priority 18: `/cowork-app/` -> cowork_front:3200 (Next.js, strip prefix)
+- Priority 20: `/api`, `/admin`, `/static`, `/swagger`, `/media`, `/invite`, `/health`, `/track`, `/webhooks`, `/logout`, `/schema` -> backend:8000
+- Priority 18: `/cowork-app/` -> cowork_front:3200 (Next.js, no strip prefix — uses basePath)
 - Priority 10: `/*` (catch-all) -> frontend:3000
 
-## Sala Cowork Architecture
+## Sala Cowork — Virtual Office
 
-### Data Flow
+### Architecture
 ```
 SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
-  → iframe loads /cowork-app/ (Next.js)
+  → iframe loads /cowork-app/ (Next.js + Phaser 3)
   → parent postMessage({ type: "cowork-init", payload: { token, socketUrl } })
   → Next.js connects to /cowork-ws/ (Socket.io)
   → join-room → room-state → real-time presence + movement
 ```
+
+### Features
+- **Phaser 3 game engine**: SkyOffice-style 2D tilemap with collision layers, chairs, desks
+- **Real-time multiplayer**: Socket.io room state with player movement broadcast
+- **Proximity-based WebRTC audio/video**: Server calculates players within PROXIMITY_RADIUS tiles → emits `proximity-update` → peers connect via native RTCPeerConnection (no external libs)
+- **Sit on chairs**: Press E key near a chair to sit → broadcasts sitting state to all players
+- **Real-time chat**: Type messages → speech bubbles appear above player avatar for all to see
+- **Collaborative whiteboard**: Toggle whiteboard overlay → draw together in real-time via Socket.io events
+- **Guest access**: Public endpoint `/api/public/cowork/join/<token>/` generates guest JWT (30min, no org auth)
 
 ### Key Patterns
 - **In-memory state (V1)**: Room/player state stored in JS Map on cowork-server (no Redis needed for single replica)
@@ -210,9 +261,23 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 - **postMessage protocol**: Parent (SvelteKit) ↔ iframe (Next.js) communication:
   - Parent → Iframe: `cowork-init` (config), `cowork-destroy` (cleanup)
   - Iframe → Parent: `cowork-ready`, `cowork-status`, `cowork-error`
-- **Proximity-based A/V**: Server calculates players within PROXIMITY_RADIUS tiles → emits `proximity-update`
-- **Guest access**: Public endpoint `/api/public/cowork/join/<token>/` generates guest JWT (30min, no org auth)
-- **Future**: Replace Canvas renderer with Phaser/Pixi.js from trevorwrightdev/gather-clone (strip Supabase, use postMessage + Redis state)
+- **CANVAS renderer**: Required to avoid tile seam artifacts at fractional zoom levels
+- **Raw DOM keyboard**: Bypasses Phaser's keyboard system for reliable iframe key capture
+
+### Cowork File Map
+| Component | Files |
+|-----------|-------|
+| Django models/API | `backend/cowork/` (Room, RoomMember, models, views, serializers) |
+| Socket.io server | `cowork-server/server.js` (room state, proximity, JWT, WebRTC relay, chat, whiteboard) |
+| Next.js shell | `cowork-app/src/app/page.tsx` (loads Phaser game) |
+| Phaser game scene | `cowork-app/src/game/OfficeScene.ts` (tilemap, players, chairs, collision) |
+| Player controller | `cowork-app/src/game/Player.ts` (movement, animation, sit, chat bubble) |
+| Chair interaction | `cowork-app/src/game/Chair.ts` (sit detection, E key prompt) |
+| Chat system | `cowork-app/src/game/ChatManager.ts` (input, speech bubbles) |
+| Whiteboard | `cowork-app/src/components/Whiteboard.tsx` (canvas overlay, real-time drawing) |
+| WebRTC manager | `cowork-app/src/lib/webrtc.ts` (peer connections, media streams) |
+| Socket client | `cowork-app/src/lib/socket.ts` (Socket.io connection, event handlers) |
+| postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
 
 ## Key Files for Common Tasks
 
@@ -230,9 +295,11 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 | Chatwoot channel provider | `backend/chatwoot/provider.py` (send/receive messages) |
 | Conversation real-time | `backend/conversations/views.py` (`ConversationUpdatesView`) |
 | Webhook routing | `backend/integrations/views.py` (`webhook_receiver`), `backend/integrations/tasks.py` |
+| Invitation system | `backend/common/views/invitation_views.py`, `frontend/.../login/+page.server.js` |
+| User management | `frontend/src/routes/(app)/users/+page.svelte`, `+page.server.js` |
 | Cowork rooms (Django) | `backend/cowork/` (models, views, serializers, urls) |
-| Cowork Socket.io server | `cowork-server/server.js` (room state, proximity, JWT) |
-| Cowork virtual office | `cowork-app/src/` (Next.js + Canvas renderer) |
+| Cowork Socket.io server | `cowork-server/server.js` |
+| Cowork Phaser game | `cowork-app/src/game/` (OfficeScene, Player, Chair, ChatManager) |
 | Cowork postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
 
 ## Chatwoot Integration
@@ -271,6 +338,24 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - **Fast poll** (5s): `GET /conversations/updates/?since=<ISO>&conversation_id=<UUID>` — returns only deltas
 - **Full refresh** (60s): Fallback full list + messages reload
 - Messages and conversations merge incrementally (dedup by ID)
+
+## SMTP Email Integration
+
+### Architecture
+- SMTP as a full conversation channel (send/receive via Conversations inbox)
+- Outbound: Django `send_mail()` via configured SMTP server
+- Inbound: IMAP polling via Celery Beat every 2 minutes (`poll_imap_emails` task)
+- HTML email rendering with text/HTML toggle in conversation timeline
+- Reply threading via `In-Reply-To` / `References` headers
+
+## Security Audit Fixes Applied
+
+- RLS bypass in data views: replaced `user.is_superuser` with `profile.is_admin`
+- Race conditions in conversation creation: atomic operations
+- Filter injection: validated all user-supplied filter parameters
+- XSS: hardened `linkify()` regex + `noreferrer` on generated links
+- Webhook HMAC: updated to new Chatwoot signature format
+- Multi-tenant webhook URLs: per-connection `webhook_token` prevents cross-tenant leakage
 
 ## Credentials (Development)
 
