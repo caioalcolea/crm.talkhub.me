@@ -48,12 +48,15 @@ if (typeof window !== "undefined") {
 export default class GameScene extends Phaser.Scene {
   private myPlayer!: Phaser.Physics.Arcade.Sprite;
   private myNameLabel!: Phaser.GameObjects.Text;
-  private debugText!: Phaser.GameObjects.Text;
   private otherPlayers = new Map<string, OtherPlayerData>();
   private mySocketId: string | null = null;
   private currentDirection = "down";
   private myAvatar = "adam";
-  private updateCount = 0;
+
+  // Collision is disabled at spawn, enabled after first player movement
+  // This prevents the "trapped in wall" bug when spawning inside colliders
+  private collisionEnabled = false;
+  private colliderRefs: Phaser.Physics.Arcade.Collider[] = [];
 
   // Movement emission throttle
   private lastEmitTime = 0;
@@ -81,19 +84,20 @@ export default class GameScene extends Phaser.Scene {
     const map = this.make.tilemap({ key: "tilemap" });
     const floorTileset = map.addTilesetImage("FloorAndGround", "tiles_wall")!;
 
-    // Ground layer (tile-based — collision DISABLED for debugging)
+    // Ground layer (tile-based, has collision)
     this.groundLayer = map.createLayer("Ground", floorTileset)!;
-    // DEBUG: collision disabled to test if it's trapping player
-    // this.groundLayer.setCollisionByProperty({ collides: true });
+    this.groundLayer.setCollisionByProperty({ collides: true });
+
+    // Fix black lines between tiles: snap pixels on the camera
+    this.cameras.main.setRoundPixels(true);
 
     // Object layers (sprite-based, from Tiled object groups)
-    // DEBUG: ALL collision disabled (passing false for collidable)
     this.addObjectGroup(map, "Wall", "tiles_wall", "FloorAndGround", false);
     this.addObjectGroup(map, "Objects", "office", "Modern_Office_Black_Shadow", false);
-    this.addObjectGroup(map, "ObjectsOnCollide", "office", "Modern_Office_Black_Shadow", false);
+    this.addObjectGroup(map, "ObjectsOnCollide", "office", "Modern_Office_Black_Shadow", true);
     this.addObjectGroup(map, "GenericObjects", "generic", "Generic", false);
-    this.addObjectGroup(map, "GenericObjectsOnCollide", "generic", "Generic", false);
-    this.addObjectGroup(map, "Basement", "basement", "Basement", false);
+    this.addObjectGroup(map, "GenericObjectsOnCollide", "generic", "Generic", true);
+    this.addObjectGroup(map, "Basement", "basement", "Basement", true);
 
     // Interactive object groups (chairs, computers, whiteboards, vending machines)
     this.addItemGroup(map, "Chair", "chairs", "chair");
@@ -111,8 +115,11 @@ export default class GameScene extends Phaser.Scene {
     this.myPlayer.setSize(16, 16); // smaller collision box
     this.myPlayer.setOffset(8, 28); // offset to feet
 
-    // DEBUG: All collision disabled for testing
-    // this.physics.add.collider(this.myPlayer, this.groundLayer);
+    // Collision: register colliders but start INACTIVE.
+    // They activate on first player movement to prevent spawn-inside-wall trap.
+    const groundCollider = this.physics.add.collider(this.myPlayer, this.groundLayer);
+    groundCollider.active = false;
+    this.colliderRefs.push(groundCollider);
 
     // Name label
     this.myNameLabel = this.add.text(spawnX, spawnY - 30, "", {
@@ -125,21 +132,10 @@ export default class GameScene extends Phaser.Scene {
     this.myNameLabel.setOrigin(0.5);
     this.myNameLabel.setDepth(9999);
 
-    // Camera
-    this.cameras.main.zoom = 1.5;
+    // Camera — use integer zoom (2x) to prevent sub-pixel tile seams (black lines)
+    this.cameras.main.zoom = 2;
     this.cameras.main.startFollow(this.myPlayer, true);
     this.cameras.main.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
-
-    // ── Debug HUD (temporary — shows key state + player info) ──
-    this.debugText = this.add.text(10, 10, "DEBUG: loading...", {
-      fontSize: "12px",
-      color: "#00ff00",
-      backgroundColor: "#000000cc",
-      padding: { x: 6, y: 4 },
-      fontFamily: "monospace",
-    });
-    this.debugText.setScrollFactor(0); // fixed to camera
-    this.debugText.setDepth(99999);
 
     // ── Keyboard input ──────────────────────────────────────
     // We use raw DOM key tracking (keysDown set above) instead of Phaser's
@@ -179,23 +175,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(time: number): void {
-    this.updateCount++;
-
-    // DEBUG: Show state even if player body is missing
-    if (this.debugText) {
-      const hasBody = !!this.myPlayer?.body;
-      const isActive = !!this.myPlayer?.active;
-      const keys = Array.from(keysDown).join(", ") || "(none)";
-      const pos = this.myPlayer
-        ? `${Math.round(this.myPlayer.x)},${Math.round(this.myPlayer.y)}`
-        : "N/A";
-      this.debugText.setText(
-        `frame:${this.updateCount} | body:${hasBody} active:${isActive}\n` +
-        `keys: ${keys}\n` +
-        `pos: ${pos} | sock:${this.mySocketId || "null"}`
-      );
-    }
-
     if (!this.myPlayer?.body || !this.myPlayer.active) return;
 
     // ── Process input (raw DOM keys — works in iframes) ────
@@ -236,6 +215,19 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.currentDirection = dir;
+
+    // ── Enable collision after first movement ────────────────
+    // Player must move first to escape any spawn-inside-wall position.
+    // Once they move, collision activates so they can't walk through walls.
+    if (moving && !this.collisionEnabled) {
+      // Delay by 300ms so the player moves a few pixels away from spawn first
+      this.time.delayedCall(300, () => {
+        for (const col of this.colliderRefs) {
+          col.active = true;
+        }
+        this.collisionEnabled = true;
+      });
+    }
 
     // ── Animation ───────────────────────────────────────────
     if (moving) {
@@ -281,8 +273,8 @@ export default class GameScene extends Phaser.Scene {
         const currentAnim = data.sprite.anims.currentAnim?.key || "";
         if (currentAnim.includes("_run_")) {
           const avatarKey = data.sprite.texture.key;
-          const dir = currentAnim.split("_run_")[1];
-          data.sprite.anims.play(`${avatarKey}_idle_${dir}`, true);
+          const animDir = currentAnim.split("_run_")[1];
+          data.sprite.anims.play(`${avatarKey}_idle_${animDir}`, true);
         }
       }
 
@@ -446,7 +438,9 @@ export default class GameScene extends Phaser.Scene {
     });
 
     if (collidable) {
-      this.physics.add.collider(this.myPlayer, group);
+      const col = this.physics.add.collider(this.myPlayer, group);
+      col.active = false; // starts inactive, enabled on first movement
+      this.colliderRefs.push(col);
     }
   }
 
@@ -543,5 +537,6 @@ export default class GameScene extends Phaser.Scene {
       data.nameLabel.destroy();
     }
     this.otherPlayers.clear();
+    this.colliderRefs = [];
   }
 }
