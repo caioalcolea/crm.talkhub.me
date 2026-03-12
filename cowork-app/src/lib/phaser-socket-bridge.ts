@@ -137,7 +137,11 @@ class PhaserSocketBridge {
     const fns = this.listeners.get(event);
     if (fns) {
       for (const fn of fns) {
-        fn(...args);
+        try {
+          fn(...args);
+        } catch (err) {
+          console.error(`[bridge] Error in listener for "${event}":`, err);
+        }
       }
     }
   }

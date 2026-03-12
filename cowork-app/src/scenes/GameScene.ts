@@ -235,7 +235,14 @@ export default class GameScene extends Phaser.Scene {
 
   update(time: number): void {
     if (!this.myPlayer?.body || !this.myPlayer.active) return;
+    try {
+      this.updateLoop(time);
+    } catch (err) {
+      console.error("[GameScene] Error in update loop:", err);
+    }
+  }
 
+  private updateLoop(time: number): void {
     // ── Sit/Stand toggle (E key — edge-triggered) ──────────
     const eDown = keysDown.has("KeyE");
     if (eDown && !this.eKeyWasDown) {
@@ -306,8 +313,14 @@ export default class GameScene extends Phaser.Scene {
     if (moving && !this.collisionEnabled) {
       this.collisionEnabled = true;
       this.time.delayedCall(50, () => {
-        for (const col of this.colliderRefs) {
-          col.active = true;
+        try {
+          for (const col of this.colliderRefs) {
+            if (col?.active !== undefined) {
+              col.active = true;
+            }
+          }
+        } catch (err) {
+          console.error("[GameScene] Error enabling colliders:", err);
         }
       });
     }
@@ -333,13 +346,24 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    // ── NaN position recovery ─────────────────────────────────
+    if (isNaN(this.myPlayer.x) || isNaN(this.myPlayer.y)) {
+      console.warn("[GameScene] NaN position detected, resetting to safe spawn");
+      this.myPlayer.setPosition(
+        16 * TILE_SIZE + TILE_SIZE / 2,
+        13 * TILE_SIZE + TILE_SIZE / 2
+      );
+      body.setVelocity(0);
+      return;
+    }
+
     // ── Animation ───────────────────────────────────────────
     if (this.playerState === "sitting") {
-      this.myPlayer.anims.play(`${this.myAvatar}_sit_${dir}`, true);
+      this.safePlayAnim(this.myPlayer, `${this.myAvatar}_sit_${dir}`);
     } else if (moving) {
-      this.myPlayer.anims.play(`${this.myAvatar}_run_${dir}`, true);
+      this.safePlayAnim(this.myPlayer, `${this.myAvatar}_run_${dir}`);
     } else {
-      this.myPlayer.anims.play(`${this.myAvatar}_idle_${dir}`, true);
+      this.safePlayAnim(this.myPlayer, `${this.myAvatar}_idle_${dir}`);
     }
 
     // Depth sort (Y-based)
@@ -386,7 +410,11 @@ export default class GameScene extends Phaser.Scene {
       (tileX !== this.lastEmittedTileX || tileY !== this.lastEmittedTileY) &&
       time - this.lastEmitTime > EMIT_THROTTLE_MS
     ) {
-      bridge.emitMove(tileX, tileY, this.currentDirection);
+      try {
+        bridge.emitMove(tileX, tileY, this.currentDirection);
+      } catch (err) {
+        console.error("[GameScene] Error emitting move:", err);
+      }
       this.lastEmittedTileX = tileX;
       this.lastEmittedTileY = tileY;
       this.lastEmitTime = time;
@@ -394,32 +422,38 @@ export default class GameScene extends Phaser.Scene {
 
     // ── Update other player positions (interpolation) ───────
     for (const [id, data] of this.otherPlayers) {
-      // Smoothly interpolate toward target position
-      const dx = data.targetX - data.sprite.x;
-      const dy = data.targetY - data.sprite.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      try {
+        // Smoothly interpolate toward target position
+        const dx = data.targetX - data.sprite.x;
+        const dy = data.targetY - data.sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist > 2) {
-        data.sprite.x += dx * 0.15;
-        data.sprite.y += dy * 0.15;
-      } else {
-        data.sprite.x = data.targetX;
-        data.sprite.y = data.targetY;
-        // A1 fix: Stop walk animation when arrived — prevents "running in place"
-        const currentAnim = data.sprite.anims.currentAnim?.key || "";
-        if (currentAnim.includes("_run_")) {
-          const avatarKey = data.sprite.texture.key;
-          const animDir = currentAnim.split("_run_")[1];
-          data.sprite.anims.play(`${avatarKey}_idle_${animDir}`, true);
+        if (dist > 2) {
+          data.sprite.x += dx * 0.15;
+          data.sprite.y += dy * 0.15;
+        } else {
+          data.sprite.x = data.targetX;
+          data.sprite.y = data.targetY;
+          // A1 fix: Stop walk animation when arrived — prevents "running in place"
+          const currentAnim = data.sprite.anims.currentAnim?.key || "";
+          if (currentAnim.includes("_run_")) {
+            const avatarKey = data.sprite.texture?.key;
+            if (avatarKey) {
+              const animDir = currentAnim.split("_run_")[1];
+              this.safePlayAnim(data.sprite, `${avatarKey}_idle_${animDir}`);
+            }
+          }
         }
-      }
 
-      // Update name label + chat bubble
-      data.nameLabel.setPosition(data.sprite.x, data.sprite.y - 30);
-      data.sprite.setDepth(data.sprite.y);
-      data.nameLabel.setDepth(9999);
-      const otherBubble = this.chatBubbles.get(id);
-      if (otherBubble) otherBubble.setPosition(data.sprite.x, data.sprite.y - 48);
+        // Update name label + chat bubble
+        data.nameLabel.setPosition(data.sprite.x, data.sprite.y - 30);
+        data.sprite.setDepth(data.sprite.y);
+        data.nameLabel.setDepth(9999);
+        const otherBubble = this.chatBubbles.get(id);
+        if (otherBubble) otherBubble.setPosition(data.sprite.x, data.sprite.y - 48);
+      } catch (err) {
+        console.error(`[GameScene] Error updating player ${id}:`, err);
+      }
     }
   }
 
@@ -479,8 +513,10 @@ export default class GameScene extends Phaser.Scene {
     other.targetY = targetY;
 
     // Play walk animation in the correct direction
-    const avatarKey = other.sprite.texture.key;
-    other.sprite.anims.play(`${avatarKey}_run_${data.direction}`, true);
+    const avatarKey = other.sprite.texture?.key;
+    if (avatarKey) {
+      this.safePlayAnim(other.sprite, `${avatarKey}_run_${data.direction || "down"}`);
+    }
   }
 
   private handlePlayerLeft(data: { id: string }): void {
@@ -520,7 +556,7 @@ export default class GameScene extends Phaser.Scene {
     this.playerState = "sitting";
     // Snap player to chair center
     this.myPlayer.setPosition(this.nearbyChair.x, this.nearbyChair.y);
-    this.myPlayer.anims.play(`${this.myAvatar}_sit_${this.currentDirection}`, true);
+    this.safePlayAnim(this.myPlayer, `${this.myAvatar}_sit_${this.currentDirection}`);
     // Notify server
     bridge.emitMove(
       Math.floor(this.nearbyChair.x / TILE_SIZE),
@@ -534,7 +570,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.playerState !== "sitting") return;
     this.playerState = "walking";
     this.nearbyChair = null;
-    this.myPlayer.anims.play(`${this.myAvatar}_idle_${this.currentDirection}`, true);
+    this.safePlayAnim(this.myPlayer, `${this.myAvatar}_idle_${this.currentDirection}`);
     bridge.emitSit(false);
   }
 
@@ -592,16 +628,35 @@ export default class GameScene extends Phaser.Scene {
     const other = this.otherPlayers.get(data.id);
     if (!other) return;
 
-    const avatarKey = other.sprite.texture.key;
+    const avatarKey = other.sprite.texture?.key;
+    if (!avatarKey) return;
     if (data.sitting) {
       const px = data.x * TILE_SIZE + TILE_SIZE / 2;
       const py = data.y * TILE_SIZE + TILE_SIZE / 2;
       other.sprite.setPosition(px, py);
       other.targetX = px;
       other.targetY = py;
-      other.sprite.anims.play(`${avatarKey}_sit_${data.direction || "down"}`, true);
+      this.safePlayAnim(other.sprite, `${avatarKey}_sit_${data.direction || "down"}`);
     } else {
-      other.sprite.anims.play(`${avatarKey}_idle_${data.direction || "down"}`, true);
+      this.safePlayAnim(other.sprite, `${avatarKey}_idle_${data.direction || "down"}`);
+    }
+  }
+
+  // ── Safe animation helper ──────────────────────────────────
+
+  private safePlayAnim(
+    sprite: Phaser.Physics.Arcade.Sprite,
+    key: string,
+    ignoreIfPlaying = true
+  ): void {
+    try {
+      if (this.anims.exists(key)) {
+        sprite.anims.play(key, ignoreIfPlaying);
+      } else {
+        console.warn(`[GameScene] Animation not found: ${key}`);
+      }
+    } catch (err) {
+      console.error(`[GameScene] Error playing animation "${key}":`, err);
     }
   }
 
@@ -625,7 +680,7 @@ export default class GameScene extends Phaser.Scene {
 
     const sprite = this.physics.add.sprite(px, py, avatar);
     sprite.setDepth(py);
-    sprite.anims.play(`${avatar}_idle_${player.direction || "down"}`, true);
+    this.safePlayAnim(sprite, `${avatar}_idle_${player.direction || "down"}`);
 
     const nameLabel = this.add.text(px, py - 30, player.displayName || "?", {
       fontSize: "11px",
