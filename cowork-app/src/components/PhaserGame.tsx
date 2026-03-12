@@ -44,10 +44,14 @@ export default function PhaserGame() {
           mode: Phaser.Scale.RESIZE,
           autoCenter: Phaser.Scale.CENTER_BOTH,
         },
-        // Prevent Phaser from capturing all keyboard input globally
+        // Capture WASD + arrow keys so Phaser processes them (critical for iframe)
+        // Using raw keycodes since Phaser is dynamically imported
         input: {
           keyboard: {
-            capture: [],
+            capture: [
+              87, 65, 83, 68,   // W, A, S, D
+              37, 38, 39, 40,   // LEFT, UP, RIGHT, DOWN arrows
+            ],
           },
         },
         // A3 fix: Auto-focus canvas on boot (important for iframe)

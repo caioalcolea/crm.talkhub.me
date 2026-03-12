@@ -127,18 +127,18 @@ function broadcastProximityUpdates(roomId) {
 
 // ── Spawn Position ──────────────────────────────────────────
 function getSpawnPosition(roomId) {
-  // Spawn players in the center area of the SkyOffice map (around tile 22,15)
-  // which corresponds to pixel 705,500 — the main open area
+  // Spawn in the main corridor area (tile 16,13) — known collision-free zone.
+  // Previous spawn at center (20,15) could land inside furniture/walls,
+  // causing the Arcade Physics engine to trap the player at velocity 0.
   const room = rooms.get(roomId);
   const playerCount = room ? room.size : 0;
-  // Spread players in a small grid around center
-  const centerX = Math.floor(MAP_WIDTH / 2);  // 20
-  const centerY = Math.floor(MAP_HEIGHT / 2);  // 15
+  const centerX = 16;
+  const centerY = 13;
   const col = playerCount % 4;
   const row = Math.floor(playerCount / 4);
   return {
-    x: Math.min(MAP_WIDTH - 1, centerX - 2 + col * 2),
-    y: Math.min(MAP_HEIGHT - 1, centerY - 1 + row * 2),
+    x: Math.min(MAP_WIDTH - 1, centerX + col),
+    y: Math.min(MAP_HEIGHT - 1, centerY + row),
   };
 }
 

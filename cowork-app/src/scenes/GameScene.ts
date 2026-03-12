@@ -83,15 +83,23 @@ export default class GameScene extends Phaser.Scene {
     this.addItemGroup(map, "VendingMachine", "vendingmachines", "vendingmachine");
 
     // ── Create local player ─────────────────────────────────
-    // Spawn at center of map initially (server will provide actual position)
-    const spawnX = 705;
-    const spawnY = 500;
+    // Spawn in the main corridor area (tile 16, 13 — known open area)
+    // Server will reposition via room-state, but this must be collision-free
+    const spawnX = 16 * TILE_SIZE + TILE_SIZE / 2; // 528
+    const spawnY = 13 * TILE_SIZE + TILE_SIZE / 2; // 432
     this.myPlayer = this.physics.add.sprite(spawnX, spawnY, this.myAvatar);
     this.myPlayer.setDepth(spawnY);
     this.myPlayer.setSize(16, 16); // smaller collision box
     this.myPlayer.setOffset(8, 28); // offset to feet
 
-    // Collision with ground
+    // Collision with ground — delayed to prevent spawn-inside-wall trap
+    const body = this.myPlayer.body as Phaser.Physics.Arcade.Body;
+    body.checkCollision.none = true;
+    this.time.delayedCall(500, () => {
+      if (this.myPlayer?.body) {
+        (this.myPlayer.body as Phaser.Physics.Arcade.Body).checkCollision.none = false;
+      }
+    });
     this.physics.add.collider(this.myPlayer, this.groundLayer);
 
     // Name label
@@ -114,14 +122,24 @@ export default class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys("W,A,S,D") as Record<string, Phaser.Input.Keyboard.Key>;
 
-    // Focus handling for iframe
+    // Focus handling for iframe — critical for keyboard to work
+    // Ensure canvas is focusable and grabs focus on click
+    this.game.canvas.setAttribute("tabindex", "1");
+    this.game.canvas.style.outline = "none";
     this.input.on("pointerdown", () => {
+      window.focus();
       this.game.canvas.focus();
     });
     // Auto-focus on scene start
     if (typeof window !== "undefined") {
       window.focus();
-      setTimeout(() => this.game.canvas.focus(), 100);
+      setTimeout(() => {
+        this.game.canvas.focus();
+        // Re-enable keyboard manager in case it was dormant
+        if (this.input.keyboard) {
+          this.input.keyboard.enabled = true;
+        }
+      }, 200);
     }
 
     // ── Bridge event listeners (multiplayer) ────────────────
@@ -141,10 +159,13 @@ export default class GameScene extends Phaser.Scene {
 
     // Register shutdown handler so Phaser calls it when scene stops
     this.events.on("shutdown", this.shutdown, this);
+
+    // Replay room-state — it fires BEFORE GameScene exists (race condition fix)
+    bridge.replayRoomState();
   }
 
   update(time: number): void {
-    if (!this.myPlayer?.body) return;
+    if (!this.myPlayer?.body || !this.myPlayer.active) return;
 
     // ── Process input ───────────────────────────────────────
     const body = this.myPlayer.body as Phaser.Physics.Arcade.Body;

@@ -156,10 +156,13 @@ export default function CoworkPage() {
         <div
           onClick={() => {
             setShowOverlay(false);
-            // Focus the iframe window + game canvas
+            // Focus the iframe window + game canvas (critical for keyboard in iframe)
             window.focus();
             const canvas = document.querySelector("canvas");
-            if (canvas) canvas.focus();
+            if (canvas) {
+              canvas.setAttribute("tabindex", "1");
+              canvas.focus();
+            }
           }}
           style={overlayStyle}
         >

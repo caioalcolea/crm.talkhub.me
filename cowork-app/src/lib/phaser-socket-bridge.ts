@@ -17,12 +17,14 @@ class PhaserSocketBridge {
   private listeners = new Map<string, Set<Listener>>();
   private socket: any = null;
   private socketListeners: Array<{ event: string; fn: Listener }> = [];
+  private lastRoomState: any = null;
 
   /** React calls this after Socket.io connects */
   setSocket(socket: any): void {
     // Clean up previous socket listeners
     this.clearSocketListeners();
     this.socket = socket;
+    this.lastRoomState = null;
 
     // Forward server events to Phaser
     const serverEvents = [
@@ -35,7 +37,11 @@ class PhaserSocketBridge {
     ];
 
     for (const event of serverEvents) {
-      const fn = (data: any) => this.emit(event, data);
+      const fn = (data: any) => {
+        // Buffer room-state so GameScene can replay it after late registration
+        if (event === "room-state") this.lastRoomState = data;
+        this.emit(event, data);
+      };
       socket.on(event, fn);
       this.socketListeners.push({ event, fn });
     }
@@ -56,6 +62,18 @@ class PhaserSocketBridge {
     this.clearSocketListeners();
     this.socket = null;
     this.listeners.clear();
+    this.lastRoomState = null;
+  }
+
+  /**
+   * Replay the last room-state event.
+   * GameScene calls this after registering its listeners, because
+   * room-state fires BEFORE Phaser finishes loading assets.
+   */
+  replayRoomState(): void {
+    if (this.lastRoomState) {
+      this.emit("room-state", this.lastRoomState);
+    }
   }
 
   getSocketId(): string | null {
