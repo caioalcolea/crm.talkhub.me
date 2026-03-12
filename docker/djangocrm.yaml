@@ -374,9 +374,7 @@ services:
         - traefik.http.routers.crm_cowork_front.tls.certresolver=letsencryptresolver
         - traefik.http.routers.crm_cowork_front.priority=18
         - traefik.http.services.crm_cowork_front.loadbalancer.server.port=3200
-        ## Strip /cowork-app prefix
-        - traefik.http.middlewares.cowork_app_strip.stripprefix.prefixes=/cowork-app
-        - traefik.http.routers.crm_cowork_front.middlewares=cowork_app_strip
+        ## No StripPrefix — Next.js uses basePath: "/cowork-app" natively
 
 ## ========================== VOLUMES ========================== ##
 volumes:
