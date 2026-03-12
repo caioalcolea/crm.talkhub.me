@@ -106,7 +106,7 @@ services:
         - traefik.enable=true
         - traefik.docker.network=talkhub
         ## Rota API/Admin/Static (prioridade alta)
-        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite`) || PathPrefix(`/health`) || PathPrefix(`/track`) || PathPrefix(`/webhooks`) || PathPrefix(`/logout`) || PathPrefix(`/schema`))
+        - traefik.http.routers.crm_api.rule=Host(`crm.talkhub.me`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/swagger`) || PathPrefix(`/media`) || PathPrefix(`/invite`) || PathPrefix(`/health`) || PathPrefix(`/track`) || PathPrefix(`/webhooks`) || PathPrefix(`/schema`))
         - traefik.http.routers.crm_api.entrypoints=websecure
         - traefik.http.routers.crm_api.tls=true
         - traefik.http.routers.crm_api.tls.certresolver=letsencryptresolver

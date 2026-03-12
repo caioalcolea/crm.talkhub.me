@@ -231,7 +231,7 @@ bash docker/debug-traefik.sh
 
 - Priority 25: `/ws/` -> crm_ws:8001 (Django WebSocket)
 - Priority 22: `/cowork-ws/` -> cowork_backend:3100 (Socket.io, strip prefix)
-- Priority 20: `/api`, `/admin`, `/static`, `/swagger`, `/media`, `/invite`, `/health`, `/track`, `/webhooks`, `/logout`, `/schema` -> backend:8000
+- Priority 20: `/api`, `/admin`, `/static`, `/swagger`, `/media`, `/invite`, `/health`, `/track`, `/webhooks`, `/schema` -> backend:8000
 - Priority 18: `/cowork-app/` -> cowork_front:3200 (Next.js, no strip prefix — uses basePath)
 - Priority 10: `/*` (catch-all) -> frontend:3000
 
