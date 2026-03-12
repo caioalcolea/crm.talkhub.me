@@ -20,7 +20,7 @@
  *     player-joined { player }      → new player entered
  *     player-moved { id, x, y, direction }
  *     player-left { id }            → player disconnected
- *     proximity-update { nearbyIds } → players within PROXIMITY_RADIUS
+ *     proximity-update { nearbyIds } → players within PROXIMITY_ENTER/EXIT
  *     error { message }
  */
 
@@ -466,7 +466,7 @@ setInterval(() => {
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`🏢 Cowork Server listening on port ${PORT}`);
   console.log(`   Allowed origins: ${ALLOWED_ORIGINS.join(", ")}`);
-  console.log(`   Proximity radius: ${PROXIMITY_RADIUS} tiles`);
+  console.log(`   Proximity enter: ${PROXIMITY_ENTER} tiles, exit: ${PROXIMITY_EXIT} tiles`);
 });
 
 // Graceful shutdown
