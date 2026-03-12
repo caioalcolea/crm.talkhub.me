@@ -279,6 +279,21 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ── Sit/Stand ───────────────────────────────────────────
+  socket.on("sit-action", (data) => {
+    if (!currentPlayer) return;
+    const { sitting } = data || {};
+    currentPlayer.sitting = !!sitting;
+
+    socket.to(currentPlayer.roomId).emit("player-sit", {
+      id: currentPlayer.id,
+      sitting: currentPlayer.sitting,
+      x: currentPlayer.x,
+      y: currentPlayer.y,
+      direction: currentPlayer.direction,
+    });
+  });
+
   socket.on("leave-room", () => {
     handleDisconnect();
   });

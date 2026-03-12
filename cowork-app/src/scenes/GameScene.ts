@@ -69,6 +69,13 @@ export default class GameScene extends Phaser.Scene {
   // Chat bubbles above player heads
   private chatBubbles = new Map<string, Phaser.GameObjects.Text>();
 
+  // Sit-on-chair system
+  private playerState: "walking" | "sitting" = "walking";
+  private chairGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private nearbyChair: Phaser.GameObjects.Sprite | null = null;
+  private sitHintText!: Phaser.GameObjects.Text;
+  private eKeyWasDown = false; // edge detection for E key
+
   // Ground layer for collision
   private groundLayer!: Phaser.Tilemaps.TilemapLayer;
 
@@ -103,7 +110,7 @@ export default class GameScene extends Phaser.Scene {
     this.addObjectGroup(map, "Basement", "basement", "Basement", true);
 
     // Interactive object groups (chairs, computers, whiteboards, vending machines)
-    this.addItemGroup(map, "Chair", "chairs", "chair");
+    this.chairGroup = this.addItemGroup(map, "Chair", "chairs", "chair");
     this.addItemGroup(map, "Computer", "computers", "computer");
     this.addItemGroup(map, "Whiteboard", "whiteboards", "whiteboard");
     this.addItemGroup(map, "VendingMachine", "vendingmachines", "vendingmachine");
@@ -123,6 +130,25 @@ export default class GameScene extends Phaser.Scene {
     const groundCollider = this.physics.add.collider(this.myPlayer, this.groundLayer);
     groundCollider.active = false;
     this.colliderRefs.push(groundCollider);
+
+    // Chair overlap detection — triggers sit hint
+    if (this.chairGroup.getLength() > 0) {
+      this.physics.add.overlap(this.myPlayer, this.chairGroup, (_player, chair) => {
+        this.nearbyChair = chair as Phaser.GameObjects.Sprite;
+      });
+    }
+
+    // Sit hint text (hidden by default)
+    this.sitHintText = this.add.text(0, 0, "Pressione E para sentar", {
+      fontSize: "9px",
+      color: "#e2e8f0",
+      backgroundColor: "#334155cc",
+      padding: { x: 4, y: 2 },
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    });
+    this.sitHintText.setOrigin(0.5);
+    this.sitHintText.setDepth(10001);
+    this.sitHintText.setVisible(false);
 
     // Name label
     this.myNameLabel = this.add.text(spawnX, spawnY - 30, "", {
@@ -164,6 +190,7 @@ export default class GameScene extends Phaser.Scene {
       playerLeft: this.handlePlayerLeft.bind(this),
       proximityUpdate: this.handleProximityUpdate.bind(this),
       chatMessage: this.handleChatMessage.bind(this),
+      playerSit: this.handlePlayerSit.bind(this),
     };
     bridge.on("room-state", this.boundHandlers.roomState);
     bridge.on("player-joined", this.boundHandlers.playerJoined);
@@ -171,6 +198,7 @@ export default class GameScene extends Phaser.Scene {
     bridge.on("player-left", this.boundHandlers.playerLeft);
     bridge.on("proximity-update", this.boundHandlers.proximityUpdate);
     bridge.on("chat-message", this.boundHandlers.chatMessage);
+    bridge.on("player-sit", this.boundHandlers.playerSit);
 
     // Register shutdown handler so Phaser calls it when scene stops
     this.events.on("shutdown", this.shutdown, this);
@@ -182,6 +210,17 @@ export default class GameScene extends Phaser.Scene {
   update(time: number): void {
     if (!this.myPlayer?.body || !this.myPlayer.active) return;
 
+    // ── Sit/Stand toggle (E key — edge-triggered) ──────────
+    const eDown = keysDown.has("KeyE");
+    if (eDown && !this.eKeyWasDown) {
+      if (this.playerState === "sitting") {
+        this.standUp();
+      } else if (this.nearbyChair) {
+        this.sitDown();
+      }
+    }
+    this.eKeyWasDown = eDown;
+
     // ── Process input (raw DOM keys — works in iframes) ────
     const body = this.myPlayer.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(0);
@@ -189,29 +228,32 @@ export default class GameScene extends Phaser.Scene {
     let moving = false;
     let dir = this.currentDirection;
 
-    const left = keysDown.has("ArrowLeft") || keysDown.has("KeyA");
-    const right = keysDown.has("ArrowRight") || keysDown.has("KeyD");
-    const up = keysDown.has("ArrowUp") || keysDown.has("KeyW");
-    const down = keysDown.has("ArrowDown") || keysDown.has("KeyS");
+    // Block movement while sitting
+    if (this.playerState !== "sitting") {
+      const left = keysDown.has("ArrowLeft") || keysDown.has("KeyA");
+      const right = keysDown.has("ArrowRight") || keysDown.has("KeyD");
+      const up = keysDown.has("ArrowUp") || keysDown.has("KeyW");
+      const down = keysDown.has("ArrowDown") || keysDown.has("KeyS");
 
-    if (left) {
-      body.setVelocityX(-PLAYER_SPEED);
-      dir = "left";
-      moving = true;
-    } else if (right) {
-      body.setVelocityX(PLAYER_SPEED);
-      dir = "right";
-      moving = true;
-    }
+      if (left) {
+        body.setVelocityX(-PLAYER_SPEED);
+        dir = "left";
+        moving = true;
+      } else if (right) {
+        body.setVelocityX(PLAYER_SPEED);
+        dir = "right";
+        moving = true;
+      }
 
-    if (up) {
-      body.setVelocityY(-PLAYER_SPEED);
-      dir = "up";
-      moving = true;
-    } else if (down) {
-      body.setVelocityY(PLAYER_SPEED);
-      dir = "down";
-      moving = true;
+      if (up) {
+        body.setVelocityY(-PLAYER_SPEED);
+        dir = "up";
+        moving = true;
+      } else if (down) {
+        body.setVelocityY(PLAYER_SPEED);
+        dir = "down";
+        moving = true;
+      }
     }
 
     // Normalize diagonal movement
@@ -235,7 +277,9 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ── Animation ───────────────────────────────────────────
-    if (moving) {
+    if (this.playerState === "sitting") {
+      this.myPlayer.anims.play(`${this.myAvatar}_sit_${dir}`, true);
+    } else if (moving) {
       this.myPlayer.anims.play(`${this.myAvatar}_run_${dir}`, true);
     } else {
       this.myPlayer.anims.play(`${this.myAvatar}_idle_${dir}`, true);
@@ -248,6 +292,22 @@ export default class GameScene extends Phaser.Scene {
     this.myNameLabel.setPosition(this.myPlayer.x, this.myPlayer.y - 30);
     const myBubble = this.chatBubbles.get(this.mySocketId || "");
     if (myBubble) myBubble.setPosition(this.myPlayer.x, this.myPlayer.y - 48);
+
+    // ── Chair sit hint ───────────────────────────────────────
+    if (this.nearbyChair && this.playerState === "walking") {
+      this.sitHintText.setPosition(this.nearbyChair.x, this.nearbyChair.y - 20);
+      this.sitHintText.setVisible(true);
+    } else if (this.playerState === "sitting") {
+      this.sitHintText.setText("Pressione E para levantar");
+      this.sitHintText.setPosition(this.myPlayer.x, this.myPlayer.y - 48);
+      this.sitHintText.setVisible(true);
+    } else {
+      this.sitHintText.setVisible(false);
+    }
+    // Reset nearbyChair — overlap callback will re-set it next frame if still overlapping
+    if (this.playerState !== "sitting") {
+      this.nearbyChair = null;
+    }
 
     // ── Emit movement to server (throttled) ─────────────────
     const tileX = Math.floor(this.myPlayer.x / TILE_SIZE);
@@ -386,6 +446,29 @@ export default class GameScene extends Phaser.Scene {
     this.nearbyIds = newNearby;
   }
 
+  private sitDown(): void {
+    if (!this.nearbyChair || this.playerState === "sitting") return;
+    this.playerState = "sitting";
+    // Snap player to chair center
+    this.myPlayer.setPosition(this.nearbyChair.x, this.nearbyChair.y);
+    this.myPlayer.anims.play(`${this.myAvatar}_sit_${this.currentDirection}`, true);
+    // Notify server
+    bridge.emitMove(
+      Math.floor(this.nearbyChair.x / TILE_SIZE),
+      Math.floor(this.nearbyChair.y / TILE_SIZE),
+      this.currentDirection
+    );
+    bridge.emitSit(true);
+  }
+
+  private standUp(): void {
+    if (this.playerState !== "sitting") return;
+    this.playerState = "walking";
+    this.nearbyChair = null;
+    this.myPlayer.anims.play(`${this.myAvatar}_idle_${this.currentDirection}`, true);
+    bridge.emitSit(false);
+  }
+
   private handleChatMessage(data: {
     id: string;
     displayName: string;
@@ -428,6 +511,29 @@ export default class GameScene extends Phaser.Scene {
         this.chatBubbles.delete(data.id);
       }
     });
+  }
+
+  private handlePlayerSit(data: {
+    id: string;
+    sitting: boolean;
+    x: number;
+    y: number;
+    direction: string;
+  }): void {
+    const other = this.otherPlayers.get(data.id);
+    if (!other) return;
+
+    const avatarKey = other.sprite.texture.key;
+    if (data.sitting) {
+      const px = data.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = data.y * TILE_SIZE + TILE_SIZE / 2;
+      other.sprite.setPosition(px, py);
+      other.targetX = px;
+      other.targetY = py;
+      other.sprite.anims.play(`${avatarKey}_sit_${data.direction || "down"}`, true);
+    } else {
+      other.sprite.anims.play(`${avatarKey}_idle_${data.direction || "down"}`, true);
+    }
   }
 
   // ── Helper methods ──────────────────────────────────────────
@@ -504,13 +610,13 @@ export default class GameScene extends Phaser.Scene {
     layerName: string,
     spriteKey: string,
     tilesetName: string
-  ): void {
-    const objectLayer = map.getObjectLayer(layerName);
-    if (!objectLayer) return;
-
+  ): Phaser.Physics.Arcade.StaticGroup {
     const group = this.physics.add.staticGroup();
+    const objectLayer = map.getObjectLayer(layerName);
+    if (!objectLayer) return group;
+
     const tileset = map.getTileset(tilesetName);
-    if (!tileset) return;
+    if (!tileset) return group;
 
     objectLayer.objects.forEach((obj) => {
       const actualX = obj.x! + obj.width! * 0.5;
@@ -519,6 +625,8 @@ export default class GameScene extends Phaser.Scene {
         .get(actualX, actualY, spriteKey, obj.gid! - tileset.firstgid)
         .setDepth(actualY);
     });
+
+    return group;
   }
 
   private createAnimations(): void {
@@ -586,6 +694,7 @@ export default class GameScene extends Phaser.Scene {
       bridge.off("player-left", this.boundHandlers.playerLeft);
       bridge.off("proximity-update", this.boundHandlers.proximityUpdate);
       bridge.off("chat-message", this.boundHandlers.chatMessage);
+      bridge.off("player-sit", this.boundHandlers.playerSit);
     }
 
     for (const [, data] of this.otherPlayers) {

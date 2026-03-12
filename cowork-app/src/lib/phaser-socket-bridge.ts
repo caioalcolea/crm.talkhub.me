@@ -34,6 +34,7 @@ class PhaserSocketBridge {
       "player-left",
       "proximity-update",
       "chat-message",
+      "player-sit",
       "error",
     ];
 
@@ -89,6 +90,11 @@ class PhaserSocketBridge {
   /** Send a chat message to the room */
   emitChat(message: string): void {
     this.socket?.emit("send-chat", { message });
+  }
+
+  /** Notify server of sit/stand state change */
+  emitSit(sitting: boolean): void {
+    this.socket?.emit("sit-action", { sitting });
   }
 
   // ── Simple EventEmitter ──────────────────────────────────
