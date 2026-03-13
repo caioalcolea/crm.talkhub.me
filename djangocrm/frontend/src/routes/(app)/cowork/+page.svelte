@@ -2,14 +2,14 @@
   import { enhance } from '$app/forms';
   import { onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Badge } from '$lib/components/ui/badge/index.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import {
-    Plus, Video, Users, Link, Trash2, Play, Copy, UserPlus
+    Plus, Video, Users, Link, Trash2, Play, Copy, UserPlus,
+    Maximize, Minimize, LogOut, Wifi, WifiOff, Monitor
   } from '@lucide/svelte';
 
-  /** @type {{ COWORK_APP_URL?: string }} */
   const COWORK_APP_URL = '/cowork-app/';
   const COWORK_SOCKET_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}/cowork-ws`;
 
@@ -23,7 +23,9 @@
   let inviteRoom = $state(null);
   let inviteResult = $state(null);
   let iframeRef = $state(null);
+  let containerRef = $state(null);
   let iframeReady = $state(false);
+  let isFullscreen = $state(false);
 
   $effect(() => {
     if (form?.toast) toast.success(form.toast);
@@ -44,7 +46,6 @@
     switch (type) {
       case 'cowork-ready':
         iframeReady = true;
-        // Send init config to iframe
         if (iframeRef?.contentWindow && coworkToken && selectedRoom) {
           iframeRef.contentWindow.postMessage({
             type: 'cowork-init',
@@ -59,7 +60,6 @@
         }
         break;
       case 'cowork-status':
-        // Could update participant count etc.
         break;
       case 'cowork-error':
         toast.error(payload?.message || 'Erro no cowork');
@@ -67,15 +67,15 @@
     }
   }
 
-  // Register/cleanup message listener
   if (typeof window !== 'undefined') {
     window.addEventListener('message', handleMessage);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
   }
   onDestroy(() => {
     if (typeof window !== 'undefined') {
       window.removeEventListener('message', handleMessage);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
     }
-    // Tell iframe to disconnect before we leave
     if (iframeRef?.contentWindow) {
       iframeRef.contentWindow.postMessage({ type: 'cowork-destroy' }, '*');
     }
@@ -85,9 +85,25 @@
     if (iframeRef?.contentWindow) {
       iframeRef.contentWindow.postMessage({ type: 'cowork-destroy' }, '*');
     }
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
     coworkToken = null;
     selectedRoom = null;
     iframeReady = false;
+  }
+
+  function onFullscreenChange() {
+    isFullscreen = !!document.fullscreenElement;
+  }
+
+  function toggleFullscreen() {
+    if (!containerRef) return;
+    if (!document.fullscreenElement) {
+      containerRef.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
   }
 
   function copyInviteLink() {
@@ -114,7 +130,7 @@
 </script>
 
 <svelte:head>
-  <title>Sala Cowork — TalkHub CRM</title>
+  <title>Sala Cowork | TalkHub CRM</title>
 </svelte:head>
 
 <!-- Hidden form for entering rooms -->
@@ -122,111 +138,173 @@
   <input type="hidden" name="room_id" value="" />
 </form>
 
-<div class="mx-auto max-w-6xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Sala Cowork</h1>
-      <p class="text-muted-foreground text-sm">Salas virtuais de coworking para sua equipe.</p>
-    </div>
-    <Button onclick={() => showCreateRoom = true} class="gap-2">
-      <Plus class="size-4" />
-      Nova Sala
-    </Button>
-  </div>
-
-  <!-- Active cowork session (iframe) -->
-  {#if coworkToken && selectedRoom}
-    <div class="rounded-lg border bg-card overflow-hidden">
-      <div class="flex items-center justify-between border-b px-4 py-3">
-        <div class="flex items-center gap-3">
-          <Badge variant="default" class="gap-1">
-            <Video class="size-3" />
-            {iframeReady ? 'Ao Vivo' : 'Conectando...'}
-          </Badge>
-          <span class="font-medium">{selectedRoom.name}</span>
-        </div>
-        <Button variant="outline" size="sm" onclick={leaveRoom}>
-          Sair da Sala
+<div class="flex flex-col">
+  <!-- Page Header (standard CRM pattern) -->
+  <PageHeader title="Sala Cowork" subtitle="Escritório virtual">
+    {#snippet actions()}
+      <div class="flex items-center gap-2">
+        {#if coworkToken && selectedRoom}
+          <Button variant="outline" size="sm" onclick={toggleFullscreen} class="gap-2">
+            {#if isFullscreen}
+              <Minimize class="size-4" />
+              <span class="hidden sm:inline">Sair Fullscreen</span>
+            {:else}
+              <Maximize class="size-4" />
+              <span class="hidden sm:inline">Fullscreen</span>
+            {/if}
+          </Button>
+          <Button variant="outline" size="sm" onclick={leaveRoom} class="gap-2">
+            <LogOut class="size-4" />
+            <span class="hidden sm:inline">Sair da Sala</span>
+          </Button>
+        {/if}
+        <Button onclick={() => showCreateRoom = true} class="gap-2">
+          <Plus class="size-4" />
+          Nova Sala
         </Button>
       </div>
-      <div class="relative" style="min-height: 500px;">
+    {/snippet}
+  </PageHeader>
+
+  <!-- Active cowork session -->
+  {#if coworkToken && selectedRoom}
+    <div bind:this={containerRef} class="flex flex-col" class:fullscreen-container={isFullscreen}>
+      <!-- Session toolbar -->
+      <div class="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-2.5 md:px-6">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
+            {iframeReady
+              ? 'bg-[var(--task-completed-bg)] text-[var(--task-completed)] dark:bg-[var(--task-completed)]/15'
+              : 'bg-[var(--task-due-today-bg)] text-[var(--task-due-today)] dark:bg-[var(--task-due-today)]/15'
+            }">
+            {#if iframeReady}
+              <Wifi class="size-3" />
+              Ao Vivo
+            {:else}
+              <WifiOff class="size-3 animate-pulse" />
+              Conectando...
+            {/if}
+          </div>
+          <span class="text-sm font-semibold text-[var(--text-primary)]">{selectedRoom.name}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onclick={() => openInviteDialog(selectedRoom)} class="gap-1.5 text-[var(--text-secondary)]">
+            <UserPlus class="size-3.5" />
+            <span class="hidden sm:inline">Convidar</span>
+          </Button>
+          {#if isFullscreen}
+            <Button variant="outline" size="sm" onclick={toggleFullscreen} class="gap-1.5">
+              <Minimize class="size-3.5" />
+              <span class="hidden sm:inline">Sair Fullscreen</span>
+            </Button>
+          {/if}
+          <Button variant="outline" size="sm" onclick={leaveRoom} class="gap-1.5">
+            <LogOut class="size-3.5" />
+            <span class="hidden sm:inline">Sair</span>
+          </Button>
+        </div>
+      </div>
+
+      <!-- Iframe wrapper -->
+      <div class="relative flex-1 bg-[var(--surface-sunken)]" class:iframe-fullscreen={isFullscreen} style={isFullscreen ? '' : 'height: calc(100vh - 12rem);'}>
         <iframe
           bind:this={iframeRef}
           src={COWORK_APP_URL}
           title="Sala Cowork"
-          class="w-full border-0"
-          style="height: 500px;"
+          class="h-full w-full border-0"
           allow="camera; microphone; display-capture"
           sandbox="allow-scripts allow-same-origin allow-popups"
         ></iframe>
         {#if !iframeReady}
-          <div class="absolute inset-0 flex items-center justify-center bg-muted/80">
-            <div class="text-center space-y-2">
-              <div class="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-              <p class="text-muted-foreground text-sm">Carregando sala...</p>
+          <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--surface-default)]">
+            <div class="flex size-14 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--color-primary-light)] dark:bg-[var(--color-primary-default)]/15">
+              <Monitor class="size-7 text-[var(--color-primary-default)] animate-pulse" />
+            </div>
+            <div class="text-center">
+              <p class="text-sm font-semibold text-[var(--text-primary)]">Carregando escritório virtual...</p>
+              <p class="mt-1 text-xs text-[var(--text-tertiary)]">Conectando ao servidor de cowork</p>
+            </div>
+            <div class="mt-2 h-1 w-48 overflow-hidden rounded-full bg-[var(--surface-sunken)]">
+              <div class="loading-bar h-full rounded-full bg-[var(--color-primary-default)]"></div>
             </div>
           </div>
         {/if}
       </div>
     </div>
-  {/if}
-
-  <!-- Room list -->
-  {#if rooms.length === 0 && !coworkToken}
-    <div class="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
-      <Video class="text-muted-foreground mb-4 size-12" strokeWidth={1} />
-      <p class="text-muted-foreground text-lg font-medium">Nenhuma sala criada</p>
-      <p class="text-muted-foreground mt-1 text-sm">Crie sua primeira sala virtual para começar.</p>
-      <Button onclick={() => showCreateRoom = true} class="mt-4 gap-2" variant="outline">
-        <Plus class="size-4" />
-        Criar Sala
-      </Button>
-    </div>
-  {:else if !coworkToken}
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {#each rooms as room (room.id)}
-        <div class="rounded-lg border bg-card p-5 space-y-4 hover:shadow-sm transition-shadow">
-          <div class="flex items-start justify-between">
-            <div>
-              <h3 class="font-semibold">{room.name}</h3>
-            </div>
-            <Badge variant="outline" class="gap-1 text-xs">
-              <Users class="size-3" />
-              {room.participant_count || 0} / {room.max_participants}
-            </Badge>
+  {:else}
+    <!-- Room list -->
+    <div class="space-y-6 px-6 py-6 md:px-8">
+      {#if rooms.length === 0}
+        <!-- Empty state (standard CRM pattern) -->
+        <div class="flex flex-col items-center justify-center rounded-[var(--radius-xl)] border border-dashed border-[var(--border-default)] py-16 text-center">
+          <div class="mb-4 flex size-16 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--surface-sunken)]">
+            <Video class="size-8 text-[var(--text-tertiary)]" strokeWidth={1.5} />
           </div>
-
-          <div class="flex items-center gap-2">
-            <Button
-              size="sm"
-              class="flex-1 gap-1.5"
-              onclick={() => enterRoom(room.id)}
-            >
-              <Play class="size-3.5" />
-              Entrar
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onclick={() => openInviteDialog(room)}
-            >
-              <UserPlus class="size-3.5" />
-            </Button>
-            <form method="POST" action="?/deleteRoom" use:enhance>
-              <input type="hidden" name="id" value={room.id} />
-              <Button
-                type="submit"
-                size="sm"
-                variant="ghost"
-                class="text-destructive hover:text-destructive"
-              >
-                <Trash2 class="size-3.5" />
-              </Button>
-            </form>
-          </div>
+          <h3 class="text-lg font-medium text-[var(--text-primary)]">Nenhuma sala criada</h3>
+          <p class="mb-4 text-sm text-[var(--text-secondary)]">
+            Crie sua primeira sala virtual para começar.
+          </p>
+          <Button onclick={() => showCreateRoom = true} class="gap-2">
+            <Plus class="size-4" />
+            Criar Sala
+          </Button>
         </div>
-      {/each}
+      {:else}
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {#each rooms as room (room.id)}
+            <div class="group rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-raised)] p-5 shadow-[var(--shadow-xs)] transition-all duration-150 hover:border-[var(--border-hover)] hover:shadow-[var(--shadow-sm)] dark:bg-[var(--surface-raised)]/80">
+              <!-- Room header -->
+              <div class="mb-4 flex items-start justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="flex size-10 items-center justify-center rounded-[var(--radius-md)] bg-[var(--color-primary-light)] dark:bg-[var(--color-primary-default)]/15">
+                    <Video class="size-5 text-[var(--color-primary-default)]" />
+                  </div>
+                  <div>
+                    <h3 class="font-semibold text-[var(--text-primary)]">{room.name}</h3>
+                    <p class="text-xs text-[var(--text-tertiary)]">Escritório virtual</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5 rounded-full bg-[var(--surface-sunken)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)]">
+                  <Users class="size-3" />
+                  {room.participant_count || 0}/{room.max_participants}
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  class="flex-1 gap-1.5"
+                  onclick={() => enterRoom(room.id)}
+                >
+                  <Play class="size-3.5" />
+                  Entrar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onclick={() => openInviteDialog(room)}
+                  title="Convidar visitante"
+                >
+                  <UserPlus class="size-3.5" />
+                </Button>
+                <form method="POST" action="?/deleteRoom" use:enhance>
+                  <input type="hidden" name="id" value={room.id} />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="ghost"
+                    class="text-[var(--color-negative-default)] hover:text-[var(--color-negative-default)] hover:bg-[var(--color-negative-light)]"
+                    title="Excluir sala"
+                  >
+                    <Trash2 class="size-3.5" />
+                  </Button>
+                </form>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -246,19 +324,19 @@
     }}>
       <div class="space-y-4 py-4">
         <div>
-          <label for="room-name" class="text-sm font-medium">Nome da Sala</label>
+          <label for="room-name" class="text-sm font-medium text-[var(--text-primary)]">Nome da Sala</label>
           <input
             id="room-name"
             name="name"
             type="text"
             required
             placeholder="Ex: Escritório Principal"
-            class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            class="mt-1.5 flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-transparent px-3 py-1 text-sm shadow-[var(--shadow-xs)] transition-colors placeholder:text-[var(--text-tertiary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary-default)]"
           />
         </div>
         <input type="hidden" name="map_id" value="office_default" />
         <div>
-          <label for="room-max" class="text-sm font-medium">Máx. Participantes</label>
+          <label for="room-max" class="text-sm font-medium text-[var(--text-primary)]">Máx. Participantes</label>
           <input
             id="room-max"
             name="max_participants"
@@ -266,7 +344,7 @@
             min="2"
             max="50"
             value="25"
-            class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            class="mt-1.5 flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-transparent px-3 py-1 text-sm shadow-[var(--shadow-xs)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary-default)]"
           />
         </div>
       </div>
@@ -296,20 +374,20 @@
     </Dialog.Header>
 
     {#if inviteResult}
-      <!-- Show invite link -->
       <div class="space-y-4 py-4">
-        <div class="rounded-md bg-muted p-3">
-          <p class="text-sm font-medium mb-1">Link do Convite:</p>
+        <div class="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-sunken)] p-4">
+          <p class="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Link do Convite</p>
           <div class="flex items-center gap-2">
-            <code class="text-xs break-all flex-1">{inviteResult.invite_url}</code>
-            <Button size="sm" variant="outline" onclick={copyInviteLink}>
+            <code class="flex-1 break-all rounded bg-[var(--surface-default)] px-2 py-1.5 text-xs text-[var(--text-primary)]">{inviteResult.invite_url}</code>
+            <Button size="sm" variant="outline" onclick={copyInviteLink} title="Copiar link">
               <Copy class="size-3.5" />
             </Button>
           </div>
         </div>
-        <p class="text-muted-foreground text-xs">
-          Convidado: {inviteResult.guest_name} · Usos: {inviteResult.max_uses}
-        </p>
+        <div class="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
+          <span>Convidado: <strong class="text-[var(--text-secondary)]">{inviteResult.guest_name}</strong></span>
+          <span>Usos: <strong class="text-[var(--text-secondary)]">{inviteResult.max_uses}</strong></span>
+        </div>
       </div>
       <Dialog.Footer>
         <Button onclick={() => { showInvite = false; inviteResult = null; }}>
@@ -317,34 +395,33 @@
         </Button>
       </Dialog.Footer>
     {:else}
-      <!-- Invite form -->
       <form method="POST" action="?/createInvite" use:enhance>
         <input type="hidden" name="room_id" value={inviteRoom?.id || ''} />
         <div class="space-y-4 py-4">
           <div>
-            <label for="guest-name" class="text-sm font-medium">Nome do Visitante</label>
+            <label for="guest-name" class="text-sm font-medium text-[var(--text-primary)]">Nome do Visitante</label>
             <input
               id="guest-name"
               name="guest_name"
               type="text"
               required
               placeholder="Nome do convidado"
-              class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              class="mt-1.5 flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-transparent px-3 py-1 text-sm shadow-[var(--shadow-xs)] transition-colors placeholder:text-[var(--text-tertiary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary-default)]"
             />
           </div>
           <div>
-            <label for="guest-email" class="text-sm font-medium">Email (opcional)</label>
+            <label for="guest-email" class="text-sm font-medium text-[var(--text-primary)]">Email (opcional)</label>
             <input
               id="guest-email"
               name="guest_email"
               type="email"
               placeholder="email@exemplo.com"
-              class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              class="mt-1.5 flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-transparent px-3 py-1 text-sm shadow-[var(--shadow-xs)] transition-colors placeholder:text-[var(--text-tertiary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary-default)]"
             />
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label for="invite-hours" class="text-sm font-medium">Expira em (horas)</label>
+              <label for="invite-hours" class="text-sm font-medium text-[var(--text-primary)]">Expira em (horas)</label>
               <input
                 id="invite-hours"
                 name="hours"
@@ -352,11 +429,11 @@
                 min="1"
                 max="168"
                 value="24"
-                class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                class="mt-1.5 flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-transparent px-3 py-1 text-sm shadow-[var(--shadow-xs)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary-default)]"
               />
             </div>
             <div>
-              <label for="invite-uses" class="text-sm font-medium">Máx. Usos</label>
+              <label for="invite-uses" class="text-sm font-medium text-[var(--text-primary)]">Máx. Usos</label>
               <input
                 id="invite-uses"
                 name="max_uses"
@@ -364,7 +441,7 @@
                 min="1"
                 max="100"
                 value="1"
-                class="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                class="mt-1.5 flex h-9 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-transparent px-3 py-1 text-sm shadow-[var(--shadow-xs)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary-default)]"
               />
             </div>
           </div>
@@ -382,3 +459,29 @@
     {/if}
   </Dialog.Content>
 </Dialog.Root>
+
+<style>
+  .fullscreen-container {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-default, hsl(var(--background)));
+  }
+
+  .iframe-fullscreen {
+    height: calc(100vh - 3rem);
+  }
+
+  .loading-bar {
+    width: 30%;
+    animation: loading 1.5s ease-in-out infinite;
+  }
+
+  @keyframes loading {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(250%); }
+    100% { transform: translateX(-100%); }
+  }
+</style>
