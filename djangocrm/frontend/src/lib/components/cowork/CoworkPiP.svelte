@@ -219,12 +219,12 @@
     }
 
     if (m === 'full' && fullBounds) {
-      return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:15;`;
+      return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:5;`;
     }
 
     if (m === 'full') {
-      // Fallback while waiting for target registration (prevents flash during PiP→full transition)
-      return 'position:fixed;inset:0;z-index:15;';
+      // Fallback while waiting for target registration — z-5 stays below header/sidebar
+      return 'position:fixed;inset:0;z-index:5;';
     }
 
     // hidden
