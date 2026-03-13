@@ -199,6 +199,9 @@ bash docker/debug-traefik.sh
 13. **Cowork iframe**: Next.js app runs with `basePath: '/cowork-app'`. Traefik does NOT strip prefix — Next.js handles it natively via basePath.
 14. **Cowork keyboard**: Phaser keyboard input is bypassed — uses raw DOM `keydown`/`keyup` events via `KeyTracker` to avoid iframe focus issues.
 15. **Cowork tile seams**: CANVAS renderer (not WebGL) is required to eliminate black lines between tiles at fractional zoom levels.
+16. **CoworkPiP z-index**: Full-mode overlay (z-15) is OUTSIDE AppShell in DOM. PageHeader wrapper and toolbar on cowork page MUST have `relative z-20` to stay above the overlay. Sidebar (z-10) doesn't overlap because the overlay is positioned to its right.
+17. **CoworkPiP full-mode positioning**: Cannot move iframe between DOM nodes (causes reload). Uses `position:fixed` overlay with ResizeObserver on `[data-cowork-target]`. Hardcoded rem fallback (`top:7.75rem; left:16rem`) ensures immediate visibility. CSS `var(--sidebar-width)` doesn't resolve outside the sidebar-provider wrapper — use hardcoded values.
+18. **CoworkPiP effect chain**: `startCoworkSession()` → DOM render → `registerFullTarget()` → ResizeObserver → `fullBounds` requires 4 effects in sequence. Polling retry (100ms × 30) and DOM query backup protect against timing issues. **Never use `opacity:0` as fallback** — use hardcoded visible position instead.
 
 ## Invitation System
 
@@ -264,6 +267,32 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 - **CANVAS renderer**: Required to avoid tile seam artifacts at fractional zoom levels
 - **Raw DOM keyboard**: Bypasses Phaser's keyboard system for reliable iframe key capture
 
+### CoworkPiP — Persistent Iframe Overlay
+The iframe is rendered in `+layout.svelte` (outside AppShell) via `CoworkPiP.svelte`, NOT inside the cowork page. This keeps the Phaser game alive across route navigations.
+
+**Modes**: `hidden` → `full` → `pip` → `fullscreen`
+- **Full mode**: `position:fixed` overlay positioned over `[data-cowork-target]` div on `/cowork` page. Uses ResizeObserver for exact pixel bounds, hardcoded rem fallback (`top:7.75rem; left:16rem`) for immediate visibility.
+- **PiP mode**: `position:fixed; bottom:1.5rem; right:1.5rem; z-index:40`. Draggable, resizable (P/M/G presets). Auto-activates when navigating away from `/cowork`.
+- **Fullscreen**: `position:fixed; inset:0; z-index:50` + Browser Fullscreen API. Toolbar auto-hides after 3s.
+
+**Z-index stacking (full mode)**:
+- Iframe overlay: `z-index:15`
+- Sidebar: `z-index:10` (fixed, doesn't overlap — iframe positioned to its right)
+- PageHeader wrapper: `z-index:20` (relative, on cowork page only)
+- Toolbar: `z-index:20` (relative, stays clickable above iframe)
+- PiP: `z-index:40`, Fullscreen: `z-index:50`
+
+**Target registration flow**:
+```
+startCoworkSession() → mode='full' → page renders [data-cowork-target]
+  → page $effect calls registerFullTarget(el) → store.fullTarget = el
+  → CoworkPiP $effect detects fullTarget → ResizeObserver → fullBounds
+  → Backup: DOM query [data-cowork-target] + polling retry (100ms × 30)
+  → Fallback: hardcoded position:fixed;top:7.75rem;left:16rem;right:0;bottom:0
+```
+
+**Store**: `$lib/stores/cowork.svelte.js` — Svelte 5 `$state` with getters on plain object.
+
 ### Cowork File Map
 | Component | Files |
 |-----------|-------|
@@ -278,6 +307,9 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 | WebRTC manager | `cowork-app/src/lib/webrtc.ts` (peer connections, media streams) |
 | Socket client | `cowork-app/src/lib/socket.ts` (Socket.io connection, event handlers) |
 | postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
+| CoworkPiP overlay | `frontend/src/lib/components/cowork/CoworkPiP.svelte` (global iframe, all modes) |
+| Cowork store | `frontend/src/lib/stores/cowork.svelte.js` (session state, mode, fullTarget) |
+| Cowork page | `frontend/src/routes/(app)/cowork/+page.svelte` (room list, toolbar, target div) |
 
 ## Key Files for Common Tasks
 
@@ -301,6 +333,7 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 | Cowork Socket.io server | `cowork-server/server.js` |
 | Cowork Phaser game | `cowork-app/src/game/` (OfficeScene, Player, Chair, ChatManager) |
 | Cowork postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
+| CoworkPiP (persistent iframe) | `frontend/src/lib/components/cowork/CoworkPiP.svelte`, `frontend/src/lib/stores/cowork.svelte.js` |
 
 ## Chatwoot Integration
 
