@@ -118,25 +118,27 @@
 </form>
 
 <div class="flex flex-col">
-  <!-- Page Header -->
-  <PageHeader
-    title="Sala Cowork"
-    subtitle={coworkSession.active ? coworkSession.room?.name : 'Escritório virtual'}
-  >
-    {#snippet actions()}
-      {#if !coworkSession.active}
-        <Button onclick={() => showCreateRoom = true} class="gap-2">
-          <Plus class="size-4" />
-          Nova Sala
-        </Button>
-      {/if}
-    {/snippet}
-  </PageHeader>
+  <!-- Page Header — z-20 wrapper keeps it above CoworkPiP overlay (z-15) -->
+  <div class="relative z-20">
+    <PageHeader
+      title="Sala Cowork"
+      subtitle={coworkSession.active ? coworkSession.room?.name : 'Escritório virtual'}
+    >
+      {#snippet actions()}
+        {#if !coworkSession.active}
+          <Button onclick={() => showCreateRoom = true} class="gap-2">
+            <Plus class="size-4" />
+            Nova Sala
+          </Button>
+        {/if}
+      {/snippet}
+    </PageHeader>
+  </div>
 
   <!-- Active session: toolbar + iframe target -->
   {#if coworkSession.active}
-    <!-- Session toolbar -->
-    <div class="relative z-10 flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-2 md:px-6">
+    <!-- Session toolbar — z-20 to stay above CoworkPiP overlay (z-15) -->
+    <div class="relative z-20 flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-2 md:px-6">
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
           {coworkSession.iframeReady

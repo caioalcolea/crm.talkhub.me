@@ -219,12 +219,12 @@
     }
 
     if (m === 'full' && fullBounds) {
-      return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:5;`;
+      return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:15;`;
     }
 
     if (m === 'full') {
-      // Fallback while waiting for target registration — z-5 stays below header/sidebar
-      return 'position:fixed;inset:0;z-index:5;';
+      // Fallback while waiting for fullBounds — hidden off-screen to avoid covering toolbar
+      return 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:15;pointer-events:none;opacity:0;';
     }
 
     // hidden
