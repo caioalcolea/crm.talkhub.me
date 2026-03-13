@@ -288,8 +288,8 @@ export default function CoworkPage() {
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
+        width: "100%",
+        height: "100%",
         backgroundColor: "#1e293b",
         position: "relative",
       }}
@@ -425,8 +425,8 @@ export default function CoworkPage() {
 
 // ── Inline styles (no Tailwind in cowork-app) ──────────────
 const centerStyle: React.CSSProperties = {
-  width: "100vw",
-  height: "100vh",
+  width: "100%",
+  height: "100%",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
