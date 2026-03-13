@@ -11,8 +11,8 @@
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import {
-    Minimize, X, Wifi, WifiOff, Monitor,
-    LogOut, GripHorizontal, Maximize2, Minimize2
+    Minimize, X, Wifi, WifiOff, Monitor, Maximize,
+    LogOut, GripHorizontal, Maximize2, Minimize2, PictureInPicture2
   } from '@lucide/svelte';
   import {
     coworkSession, endCoworkSession, setCoworkMode, setIframeReady
@@ -44,6 +44,7 @@
   // --- Refs ---
   let iframeRef = $state(null);
   let fullscreenContainerRef = $state(null);
+  let modeBeforeFullscreen = $state('full');
 
   // ====================== postMessage ======================
 
@@ -137,16 +138,24 @@
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       }
-      setCoworkMode('full');
+      setCoworkMode(modeBeforeFullscreen);
     } else {
+      modeBeforeFullscreen = coworkSession.mode;
       setCoworkMode('fullscreen');
       fullscreenContainerRef?.requestFullscreen?.().catch(() => {});
     }
   }
 
+  function switchToPip() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    setCoworkMode('pip');
+  }
+
   function onBrowserFullscreenChange() {
     if (!document.fullscreenElement && coworkSession.mode === 'fullscreen') {
-      setCoworkMode('full');
+      setCoworkMode(modeBeforeFullscreen);
     }
   }
 
@@ -213,7 +222,12 @@
       return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:15;`;
     }
 
-    // hidden or no bounds yet
+    if (m === 'full') {
+      // Fallback while waiting for target registration (prevents flash during PiP→full transition)
+      return 'position:fixed;inset:0;z-index:15;';
+    }
+
+    // hidden
     return 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;overflow:hidden;';
   });
 
@@ -261,6 +275,10 @@
           <span class="text-sm font-semibold text-[var(--text-primary)]">{coworkSession.room?.name}</span>
         </div>
         <div class="flex items-center gap-2">
+          <Button variant="outline" size="sm" onclick={switchToPip} class="gap-1.5">
+            <PictureInPicture2 class="size-3.5" />
+            <span class="hidden sm:inline">Mini Janela</span>
+          </Button>
           <Button variant="outline" size="sm" onclick={toggleFullscreen} class="gap-1.5">
             <Minimize class="size-3.5" />
             <span class="hidden sm:inline">Sair Fullscreen</span>
@@ -300,6 +318,13 @@
             title="Expandir"
           >
             <Maximize2 class="size-3" />
+          </button>
+          <button
+            onclick={toggleFullscreen}
+            class="flex h-5 w-5 items-center justify-center rounded text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text-secondary)]"
+            title="Tela cheia"
+          >
+            <Maximize class="size-3" />
           </button>
           <button
             onclick={handleLeave}

@@ -8,7 +8,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import {
     Plus, Video, Users, Link, Trash2, Play, Copy, UserPlus,
-    Maximize, Minimize, LogOut, Wifi, WifiOff, PictureInPicture2, Minimize2
+    Maximize, LogOut, Wifi, WifiOff, PictureInPicture2
   } from '@lucide/svelte';
   import {
     coworkSession, startCoworkSession, endCoworkSession,
@@ -119,40 +119,24 @@
 
 <div class="flex flex-col">
   <!-- Page Header -->
-  <PageHeader title="Sala Cowork" subtitle="Escritório virtual">
+  <PageHeader
+    title="Sala Cowork"
+    subtitle={coworkSession.active ? coworkSession.room?.name : 'Escritório virtual'}
+  >
     {#snippet actions()}
-      <div class="flex items-center gap-2">
-        {#if coworkSession.active}
-          <Button variant="outline" size="sm" onclick={minimizeToPip} class="gap-2">
-            <PictureInPicture2 class="size-4" />
-            <span class="hidden sm:inline">Mini Janela</span>
-          </Button>
-          <Button variant="outline" size="sm" onclick={toggleFullscreen} class="gap-2">
-            {#if coworkSession.mode === 'fullscreen'}
-              <Minimize class="size-4" />
-              <span class="hidden sm:inline">Sair Fullscreen</span>
-            {:else}
-              <Maximize class="size-4" />
-              <span class="hidden sm:inline">Fullscreen</span>
-            {/if}
-          </Button>
-          <Button variant="outline" size="sm" onclick={leaveRoom} class="gap-2">
-            <LogOut class="size-4" />
-            <span class="hidden sm:inline">Sair da Sala</span>
-          </Button>
-        {/if}
+      {#if !coworkSession.active}
         <Button onclick={() => showCreateRoom = true} class="gap-2">
           <Plus class="size-4" />
           Nova Sala
         </Button>
-      </div>
+      {/if}
     {/snippet}
   </PageHeader>
 
   <!-- Active session: toolbar + iframe target -->
   {#if coworkSession.active}
     <!-- Session toolbar -->
-    <div class="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-2.5 md:px-6">
+    <div class="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-2 md:px-6">
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
           {coworkSession.iframeReady
@@ -167,19 +151,25 @@
             Conectando...
           {/if}
         </div>
-        <span class="text-sm font-semibold text-[var(--text-primary)]">{coworkSession.room?.name}</span>
       </div>
-      <div class="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onclick={() => openInviteDialog(coworkSession.room)} class="gap-1.5 text-[var(--text-secondary)]">
+      <div class="flex items-center gap-1">
+        <Button variant="ghost" size="sm" onclick={() => openInviteDialog(coworkSession.room)} class="gap-1.5 text-[var(--text-secondary)]" title="Convidar visitante">
           <UserPlus class="size-3.5" />
-          <span class="hidden sm:inline">Convidar</span>
+          <span class="hidden lg:inline">Convidar</span>
         </Button>
-        <Button variant="ghost" size="sm" onclick={minimizeToPip} class="gap-1.5 text-[var(--text-secondary)]" title="Mini janela">
+        <div class="mx-1 h-4 w-px bg-[var(--border-default)]"></div>
+        <Button variant="ghost" size="sm" onclick={minimizeToPip} class="gap-1.5 text-[var(--text-secondary)]" title="Mini janela (Picture-in-Picture)">
           <PictureInPicture2 class="size-3.5" />
+          <span class="hidden lg:inline">Mini Janela</span>
         </Button>
-        <Button variant="outline" size="sm" onclick={leaveRoom} class="gap-1.5">
+        <Button variant="ghost" size="sm" onclick={toggleFullscreen} class="gap-1.5 text-[var(--text-secondary)]" title="Tela cheia">
+          <Maximize class="size-3.5" />
+          <span class="hidden lg:inline">Tela Cheia</span>
+        </Button>
+        <div class="mx-1 h-4 w-px bg-[var(--border-default)]"></div>
+        <Button variant="ghost" size="sm" onclick={leaveRoom} class="gap-1.5 text-[var(--color-negative-default)] hover:text-[var(--color-negative-default)] hover:bg-[var(--color-negative-light)]" title="Sair da sala">
           <LogOut class="size-3.5" />
-          <span class="hidden sm:inline">Sair</span>
+          <span class="hidden lg:inline">Sair</span>
         </Button>
       </div>
     </div>
@@ -187,8 +177,8 @@
     <!-- Iframe target: CoworkPiP will overlay this element -->
     <div
       bind:this={iframeTargetRef}
-      class="relative flex-1 overflow-hidden bg-[var(--surface-sunken)]"
-      style="height: calc(100vh - 7.5rem);"
+      class="relative flex-1 overflow-hidden"
+      style="height: calc(100vh - 7.75rem);"
     ></div>
 
   {:else}
