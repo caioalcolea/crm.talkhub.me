@@ -1,109 +1,88 @@
 <script>
   import { enhance } from '$app/forms';
-  import { onDestroy } from 'svelte';
+  import { beforeNavigate } from '$app/navigation';
+  import { onDestroy, onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import {
     Plus, Video, Users, Link, Trash2, Play, Copy, UserPlus,
-    Maximize, Minimize, LogOut, Wifi, WifiOff, Monitor
+    Maximize, Minimize, LogOut, Wifi, WifiOff, PictureInPicture2, Minimize2
   } from '@lucide/svelte';
-
-  const COWORK_APP_URL = '/cowork-app/';
-  const COWORK_SOCKET_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}/cowork-ws`;
+  import {
+    coworkSession, startCoworkSession, endCoworkSession,
+    setCoworkMode, registerFullTarget, unregisterFullTarget
+  } from '$lib/stores/cowork.svelte.js';
 
   let { data, form } = $props();
 
   let rooms = $derived(data.rooms || []);
-  let selectedRoom = $state(null);
-  let coworkToken = $state(null);
   let showCreateRoom = $state(false);
   let showInvite = $state(false);
   let inviteRoom = $state(null);
   let inviteResult = $state(null);
-  let iframeRef = $state(null);
-  let containerRef = $state(null);
-  let iframeReady = $state(false);
-  let isFullscreen = $state(false);
 
+  // Target element for the CoworkPiP to overlay in "full" mode
+  let iframeTargetRef = $state(null);
+
+  // On mount: if session already active (returning from PiP), switch to full
+  onMount(() => {
+    if (coworkSession.active && coworkSession.mode === 'pip') {
+      setCoworkMode('full');
+    }
+  });
+
+  // Register/unregister the target element for full-mode overlay
+  $effect(() => {
+    if (iframeTargetRef && coworkSession.active) {
+      registerFullTarget(iframeTargetRef);
+    }
+  });
+
+  onDestroy(() => {
+    unregisterFullTarget();
+  });
+
+  // When navigating away while session active, switch to PiP
+  beforeNavigate(({ to }) => {
+    if (coworkSession.active && coworkSession.mode === 'full') {
+      // Only switch to PiP if navigating to a different page
+      if (to?.route?.id !== '/(app)/cowork') {
+        unregisterFullTarget();
+        setCoworkMode('pip');
+      }
+    }
+  });
+
+  // Handle form results
   $effect(() => {
     if (form?.toast) toast.success(form.toast);
     if (form?.error) toast.error(form.error);
     if (form?.coworkToken) {
-      coworkToken = form.coworkToken;
-      selectedRoom = form.room;
-      iframeReady = false;
+      const displayName = data.user?.name || data.user?.email || 'User';
+      startCoworkSession(form.coworkToken, form.room, displayName);
     }
     if (form?.invite) {
       inviteResult = form.invite;
     }
   });
 
-  // Listen for postMessage from cowork-app iframe
-  function handleMessage(event) {
-    const { type, payload } = event.data || {};
-    switch (type) {
-      case 'cowork-ready':
-        iframeReady = true;
-        if (iframeRef?.contentWindow && coworkToken && selectedRoom) {
-          iframeRef.contentWindow.postMessage({
-            type: 'cowork-init',
-            payload: {
-              socketUrl: COWORK_SOCKET_URL,
-              token: coworkToken,
-              roomId: selectedRoom.id,
-              displayName: data.user?.name || data.user?.email || 'User',
-              isGuest: false
-            }
-          }, '*');
-        }
-        break;
-      case 'cowork-status':
-        break;
-      case 'cowork-error':
-        toast.error(payload?.message || 'Erro no cowork');
-        break;
-    }
-  }
-
-  if (typeof window !== 'undefined') {
-    window.addEventListener('message', handleMessage);
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-  }
-  onDestroy(() => {
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('message', handleMessage);
-      document.removeEventListener('fullscreenchange', onFullscreenChange);
-    }
-    if (iframeRef?.contentWindow) {
-      iframeRef.contentWindow.postMessage({ type: 'cowork-destroy' }, '*');
-    }
-  });
-
+  // Actions
   function leaveRoom() {
-    if (iframeRef?.contentWindow) {
-      iframeRef.contentWindow.postMessage({ type: 'cowork-destroy' }, '*');
-    }
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-    coworkToken = null;
-    selectedRoom = null;
-    iframeReady = false;
-  }
-
-  function onFullscreenChange() {
-    isFullscreen = !!document.fullscreenElement;
+    endCoworkSession();
   }
 
   function toggleFullscreen() {
-    if (!containerRef) return;
-    if (!document.fullscreenElement) {
-      containerRef.requestFullscreen().catch(() => {});
+    if (coworkSession.mode === 'fullscreen') {
+      setCoworkMode('full');
     } else {
-      document.exitFullscreen().catch(() => {});
+      setCoworkMode('fullscreen');
     }
+  }
+
+  function minimizeToPip() {
+    setCoworkMode('pip');
   }
 
   function copyInviteLink() {
@@ -114,11 +93,11 @@
   }
 
   function enterRoom(roomId) {
-    const form = document.getElementById('enter-room-form');
-    if (form) {
-      const input = form.querySelector('input[name="room_id"]');
+    const formEl = document.getElementById('enter-room-form');
+    if (formEl) {
+      const input = formEl.querySelector('input[name="room_id"]');
       if (input) input.value = roomId;
-      form.requestSubmit();
+      formEl.requestSubmit();
     }
   }
 
@@ -139,13 +118,17 @@
 </form>
 
 <div class="flex flex-col">
-  <!-- Page Header (standard CRM pattern) -->
+  <!-- Page Header -->
   <PageHeader title="Sala Cowork" subtitle="Escritório virtual">
     {#snippet actions()}
       <div class="flex items-center gap-2">
-        {#if coworkToken && selectedRoom}
+        {#if coworkSession.active}
+          <Button variant="outline" size="sm" onclick={minimizeToPip} class="gap-2">
+            <PictureInPicture2 class="size-4" />
+            <span class="hidden sm:inline">Mini Janela</span>
+          </Button>
           <Button variant="outline" size="sm" onclick={toggleFullscreen} class="gap-2">
-            {#if isFullscreen}
+            {#if coworkSession.mode === 'fullscreen'}
               <Minimize class="size-4" />
               <span class="hidden sm:inline">Sair Fullscreen</span>
             {:else}
@@ -166,76 +149,52 @@
     {/snippet}
   </PageHeader>
 
-  <!-- Active cowork session -->
-  {#if coworkToken && selectedRoom}
-    <div bind:this={containerRef} class="flex flex-col" class:fullscreen-container={isFullscreen}>
-      <!-- Session toolbar -->
-      <div class="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-2.5 md:px-6">
-        <div class="flex items-center gap-3">
-          <div class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
-            {iframeReady
-              ? 'bg-[var(--task-completed-bg)] text-[var(--task-completed)] dark:bg-[var(--task-completed)]/15'
-              : 'bg-[var(--task-due-today-bg)] text-[var(--task-due-today)] dark:bg-[var(--task-due-today)]/15'
-            }">
-            {#if iframeReady}
-              <Wifi class="size-3" />
-              Ao Vivo
-            {:else}
-              <WifiOff class="size-3 animate-pulse" />
-              Conectando...
-            {/if}
-          </div>
-          <span class="text-sm font-semibold text-[var(--text-primary)]">{selectedRoom.name}</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onclick={() => openInviteDialog(selectedRoom)} class="gap-1.5 text-[var(--text-secondary)]">
-            <UserPlus class="size-3.5" />
-            <span class="hidden sm:inline">Convidar</span>
-          </Button>
-          {#if isFullscreen}
-            <Button variant="outline" size="sm" onclick={toggleFullscreen} class="gap-1.5">
-              <Minimize class="size-3.5" />
-              <span class="hidden sm:inline">Sair Fullscreen</span>
-            </Button>
+  <!-- Active session: toolbar + iframe target -->
+  {#if coworkSession.active}
+    <!-- Session toolbar -->
+    <div class="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-2.5 md:px-6">
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
+          {coworkSession.iframeReady
+            ? 'bg-[var(--task-completed-bg)] text-[var(--task-completed)] dark:bg-[var(--task-completed)]/15'
+            : 'bg-[var(--task-due-today-bg)] text-[var(--task-due-today)] dark:bg-[var(--task-due-today)]/15'
+          }">
+          {#if coworkSession.iframeReady}
+            <Wifi class="size-3" />
+            Ao Vivo
+          {:else}
+            <WifiOff class="size-3 animate-pulse" />
+            Conectando...
           {/if}
-          <Button variant="outline" size="sm" onclick={leaveRoom} class="gap-1.5">
-            <LogOut class="size-3.5" />
-            <span class="hidden sm:inline">Sair</span>
-          </Button>
         </div>
+        <span class="text-sm font-semibold text-[var(--text-primary)]">{coworkSession.room?.name}</span>
       </div>
-
-      <!-- Iframe wrapper -->
-      <div class="relative flex-1 bg-[var(--surface-sunken)]" class:iframe-fullscreen={isFullscreen} style={isFullscreen ? '' : 'height: calc(100vh - 12rem);'}>
-        <iframe
-          bind:this={iframeRef}
-          src={COWORK_APP_URL}
-          title="Sala Cowork"
-          class="h-full w-full border-0"
-          allow="camera; microphone; display-capture"
-          sandbox="allow-scripts allow-same-origin allow-popups"
-        ></iframe>
-        {#if !iframeReady}
-          <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--surface-default)]">
-            <div class="flex size-14 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--color-primary-light)] dark:bg-[var(--color-primary-default)]/15">
-              <Monitor class="size-7 text-[var(--color-primary-default)] animate-pulse" />
-            </div>
-            <div class="text-center">
-              <p class="text-sm font-semibold text-[var(--text-primary)]">Carregando escritório virtual...</p>
-              <p class="mt-1 text-xs text-[var(--text-tertiary)]">Conectando ao servidor de cowork</p>
-            </div>
-            <div class="mt-2 h-1 w-48 overflow-hidden rounded-full bg-[var(--surface-sunken)]">
-              <div class="loading-bar h-full rounded-full bg-[var(--color-primary-default)]"></div>
-            </div>
-          </div>
-        {/if}
+      <div class="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onclick={() => openInviteDialog(coworkSession.room)} class="gap-1.5 text-[var(--text-secondary)]">
+          <UserPlus class="size-3.5" />
+          <span class="hidden sm:inline">Convidar</span>
+        </Button>
+        <Button variant="ghost" size="sm" onclick={minimizeToPip} class="gap-1.5 text-[var(--text-secondary)]" title="Mini janela">
+          <PictureInPicture2 class="size-3.5" />
+        </Button>
+        <Button variant="outline" size="sm" onclick={leaveRoom} class="gap-1.5">
+          <LogOut class="size-3.5" />
+          <span class="hidden sm:inline">Sair</span>
+        </Button>
       </div>
     </div>
+
+    <!-- Iframe target: CoworkPiP will overlay this element -->
+    <div
+      bind:this={iframeTargetRef}
+      class="relative flex-1 overflow-hidden bg-[var(--surface-sunken)]"
+      style="height: calc(100vh - 7.5rem);"
+    ></div>
+
   {:else}
     <!-- Room list -->
     <div class="space-y-6 px-6 py-6 md:px-8">
       {#if rooms.length === 0}
-        <!-- Empty state (standard CRM pattern) -->
         <div class="flex flex-col items-center justify-center rounded-[var(--radius-xl)] border border-dashed border-[var(--border-default)] py-16 text-center">
           <div class="mb-4 flex size-16 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--surface-sunken)]">
             <Video class="size-8 text-[var(--text-tertiary)]" strokeWidth={1.5} />
@@ -253,7 +212,6 @@
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {#each rooms as room (room.id)}
             <div class="group rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-raised)] p-5 shadow-[var(--shadow-xs)] transition-all duration-150 hover:border-[var(--border-hover)] hover:shadow-[var(--shadow-sm)] dark:bg-[var(--surface-raised)]/80">
-              <!-- Room header -->
               <div class="mb-4 flex items-start justify-between">
                 <div class="flex items-center gap-3">
                   <div class="flex size-10 items-center justify-center rounded-[var(--radius-md)] bg-[var(--color-primary-light)] dark:bg-[var(--color-primary-default)]/15">
@@ -270,7 +228,6 @@
                 </div>
               </div>
 
-              <!-- Actions -->
               <div class="flex items-center gap-2">
                 <Button
                   size="sm"
@@ -459,29 +416,3 @@
     {/if}
   </Dialog.Content>
 </Dialog.Root>
-
-<style>
-  .fullscreen-container {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    flex-direction: column;
-    background: var(--surface-default, hsl(var(--background)));
-  }
-
-  .iframe-fullscreen {
-    height: calc(100vh - 3rem);
-  }
-
-  .loading-bar {
-    width: 30%;
-    animation: loading 1.5s ease-in-out infinite;
-  }
-
-  @keyframes loading {
-    0% { transform: translateX(-100%); }
-    50% { transform: translateX(250%); }
-    100% { transform: translateX(-100%); }
-  }
-</style>
