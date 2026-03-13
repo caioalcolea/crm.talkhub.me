@@ -79,21 +79,36 @@
   // ====================== Full-mode ResizeObserver ======================
 
   let resizeObserver = null;
+  let retryTimer = null;
 
-  $effect(() => {
+  function findAndBindTarget() {
     let target = coworkSession.fullTarget;
-    const currentMode = coworkSession.mode;
-
-    // Backup: if fullTarget wasn't registered by the page effect, query DOM directly
-    if (currentMode === 'full' && !target) {
+    if (!target) {
       target = document.querySelector('[data-cowork-target]');
       if (target) registerFullTarget(target);
     }
+    return target;
+  }
 
-    if (currentMode === 'full' && target) {
+  $effect(() => {
+    const currentMode = coworkSession.mode;
+    // Read fullTarget to track it as a dependency
+    let target = coworkSession.fullTarget;
+
+    if (currentMode !== 'full') {
+      fullBounds = null;
+      return;
+    }
+
+    // Try to find the target element (store + DOM fallback)
+    if (!target) target = findAndBindTarget();
+
+    if (target) {
       const update = () => {
         const rect = target.getBoundingClientRect();
-        fullBounds = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+        if (rect.width > 0 && rect.height > 0) {
+          fullBounds = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+        }
       };
       update();
       resizeObserver = new ResizeObserver(update);
@@ -104,9 +119,22 @@
         resizeObserver = null;
         window.removeEventListener('resize', update);
       };
-    } else {
-      fullBounds = null;
     }
+
+    // Target not found yet — retry every 100ms until it appears (max 3s)
+    let attempts = 0;
+    retryTimer = setInterval(() => {
+      attempts++;
+      const el = findAndBindTarget();
+      if (el || attempts >= 30) {
+        clearInterval(retryTimer);
+        retryTimer = null;
+      }
+    }, 100);
+
+    return () => {
+      if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+    };
   });
 
   // ====================== Lifecycle ======================
@@ -120,6 +148,7 @@
     window.removeEventListener('message', handleMessage);
     document.removeEventListener('fullscreenchange', onBrowserFullscreenChange);
     if (fsControlTimeout) clearTimeout(fsControlTimeout);
+    if (retryTimer) clearInterval(retryTimer);
     resizeObserver?.disconnect();
   });
 
@@ -230,10 +259,11 @@
         // Exact pixel positioning from ResizeObserver
         return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:15;`;
       }
-      // CSS-based approximate positioning — visible immediately, no JS measurement needed.
-      // Uses --sidebar-width from :root (260px) and known header+toolbar height (7.75rem).
-      // ResizeObserver will refine to exact pixels once the target element is available.
-      return 'position:fixed;top:7.75rem;left:var(--sidebar-width,260px);right:0;bottom:0;z-index:15;';
+      // Hardcoded fallback — visible immediately while ResizeObserver initializes.
+      // Desktop: sidebar=16rem, header+toolbar=7.75rem. Mobile: no sidebar.
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+      const left = isMobile ? '0' : '16rem';
+      return `position:fixed;top:7.75rem;left:${left};right:0;bottom:0;z-index:15;`;
     }
 
     // hidden
