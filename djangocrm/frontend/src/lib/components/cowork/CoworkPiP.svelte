@@ -15,7 +15,8 @@
     LogOut, GripHorizontal, Maximize2, Minimize2, PictureInPicture2
   } from '@lucide/svelte';
   import {
-    coworkSession, endCoworkSession, setCoworkMode, setIframeReady
+    coworkSession, endCoworkSession, setCoworkMode, setIframeReady,
+    registerFullTarget
   } from '$lib/stores/cowork.svelte.js';
 
   // --- PiP drag state ---
@@ -80,8 +81,14 @@
   let resizeObserver = null;
 
   $effect(() => {
-    const target = coworkSession.fullTarget;
+    let target = coworkSession.fullTarget;
     const currentMode = coworkSession.mode;
+
+    // Backup: if fullTarget wasn't registered by the page effect, query DOM directly
+    if (currentMode === 'full' && !target) {
+      target = document.querySelector('[data-cowork-target]');
+      if (target) registerFullTarget(target);
+    }
 
     if (currentMode === 'full' && target) {
       const update = () => {
@@ -218,13 +225,15 @@
       return `position:fixed;bottom:1.5rem;right:1.5rem;width:${size.w}px;height:${size.h}px;z-index:40;`;
     }
 
-    if (m === 'full' && fullBounds) {
-      return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:15;`;
-    }
-
     if (m === 'full') {
-      // Fallback while waiting for fullBounds — hidden off-screen to avoid covering toolbar
-      return 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:15;pointer-events:none;opacity:0;';
+      if (fullBounds) {
+        // Exact pixel positioning from ResizeObserver
+        return `position:fixed;top:${fullBounds.top}px;left:${fullBounds.left}px;width:${fullBounds.width}px;height:${fullBounds.height}px;z-index:15;`;
+      }
+      // CSS-based approximate positioning — visible immediately, no JS measurement needed.
+      // Uses --sidebar-width from :root (260px) and known header+toolbar height (7.75rem).
+      // ResizeObserver will refine to exact pixels once the target element is available.
+      return 'position:fixed;top:7.75rem;left:var(--sidebar-width,260px);right:0;bottom:0;z-index:15;';
     }
 
     // hidden

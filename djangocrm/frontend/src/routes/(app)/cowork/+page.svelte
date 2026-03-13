@@ -33,10 +33,18 @@
     }
   });
 
-  // Register/unregister the target element for full-mode overlay
+  // Register/unregister the target element for full-mode overlay.
+  // Uses requestAnimationFrame to ensure DOM layout is complete before reading bounds.
   $effect(() => {
     if (iframeTargetRef && coworkSession.active) {
       registerFullTarget(iframeTargetRef);
+    }
+    // Backup: if bind:this hasn't fired yet, wait for next frame
+    if (!iframeTargetRef && coworkSession.active) {
+      const raf = requestAnimationFrame(() => {
+        if (iframeTargetRef) registerFullTarget(iframeTargetRef);
+      });
+      return () => cancelAnimationFrame(raf);
     }
   });
 
@@ -179,6 +187,7 @@
     <!-- Iframe target: CoworkPiP will overlay this element -->
     <div
       bind:this={iframeTargetRef}
+      data-cowork-target
       class="relative flex-1 overflow-hidden"
       style="height: calc(100vh - 7.75rem);"
     ></div>
