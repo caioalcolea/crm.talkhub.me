@@ -1,6 +1,7 @@
 <script>
   import { Button } from '$lib/components/ui/button/index.js';
   import { FileDown, ExternalLink, Code, FileText } from '@lucide/svelte';
+  import { browser } from '$app/environment';
   import DOMPurify from 'dompurify';
 
   /**
@@ -36,7 +37,7 @@
   );
 
   let sanitizedHtml = $derived(
-    isHtml && content
+    browser && isHtml && content
       ? DOMPurify.sanitize(content, PURIFY_CONFIG)
       : ''
   );

@@ -1,5 +1,6 @@
 <script>
   import MediaRenderer from './MediaRenderer.svelte';
+  import EmailRenderer from './EmailRenderer.svelte';
   import { Bot, User, Lock, Info, Mail } from '@lucide/svelte';
 
   /**
@@ -51,6 +52,7 @@
 
   let config = $derived(directionConfig[message.direction] || directionConfig.in);
   let isEmail = $derived(!!message.metadata_json?.email_from);
+  let isHtmlEmail = $derived(isEmail && message.metadata_json?.content_type === 'html');
 </script>
 
 {#if message.direction === 'system'}
@@ -95,7 +97,11 @@
           {/if}
         </div>
       {/if}
-      <MediaRenderer msgType={message.msg_type} content={message.content} mediaUrl={message.media_url} metadata={message.metadata_json} contentType={message.metadata_json?.content_type || 'text'} />
+      {#if isHtmlEmail}
+        <EmailRenderer htmlContent={message.content} textBody={message.metadata_json?.text_body || ''} />
+      {:else}
+        <MediaRenderer msgType={message.msg_type} content={message.content} mediaUrl={message.media_url} metadata={message.metadata_json} contentType={message.metadata_json?.content_type || 'text'} />
+      {/if}
       <div class="flex items-center justify-end gap-1 mt-1">
         <span class="text-[10px] opacity-60">{formatTime(message.timestamp)}</span>
       </div>
