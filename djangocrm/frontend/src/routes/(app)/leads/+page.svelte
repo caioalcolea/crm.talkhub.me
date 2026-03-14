@@ -750,7 +750,7 @@
     const viewId = $page.url.searchParams.get('view');
     const action = $page.url.searchParams.get('action');
 
-    if (action === 'create') {
+    if (action === 'create' && !drawerOpen) {
       const contactIdParam = $page.url.searchParams.get('contactId');
       if (contactIdParam) {
         contactIdFromUrl = contactIdParam;
