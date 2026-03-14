@@ -47,14 +47,17 @@
   // Derived: current tab (conversations or groups)
   let currentTab = $derived(filters.is_group === 'true' ? 'groups' : 'conversations');
 
-  // Sync conversations when data changes (e.g. from server-side navigation)
+  // Sync conversations from server data (runs when data changes, e.g. navigation/filters)
   $effect(() => {
     conversations = data.conversations || [];
     nextCursor = data.nextCursor || null;
     hasMore = data.hasMore ?? false;
-    // Clear selection when switching tabs to prevent mixing
+  });
+
+  // Clear stale selection when conversations list changes (e.g. tab switch)
+  $effect(() => {
     if (selectedConversation) {
-      const stillExists = conversations.find(c => c.id === selectedConversation.id);
+      const stillExists = conversations.some(c => c.id === selectedConversation.id);
       if (!stillExists) {
         selectedConversation = null;
         messages = [];

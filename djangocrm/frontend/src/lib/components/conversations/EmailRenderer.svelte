@@ -25,31 +25,13 @@
       : ''
   );
 
-  let iframeSrcDoc = $derived(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <base target="_blank">
-  <style>
-    body {
-      margin: 0;
-      padding: 8px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.5;
-      color: #1a1a1a;
-      word-wrap: break-word;
-      overflow-wrap: break-word;
-    }
-    img { max-width: 100%; height: auto; }
-    table { max-width: 100%; }
-    a { color: #2563eb; }
-    pre { overflow-x: auto; }
-  </style>
-</head>
-<body>${sanitizedHtml}</body>
-</html>`);
+  // WHOLE_DOCUMENT: true means sanitizedHtml is already a full <html>...</html> document.
+  // Prepend base styles — the browser moves <base> and <style> into <head> automatically.
+  let iframeSrcDoc = $derived(
+    sanitizedHtml
+      ? `<base target="_blank"><style>body{margin:0;padding:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;color:#1a1a1a;word-wrap:break-word;overflow-wrap:break-word}img{max-width:100%;height:auto}table{max-width:100%}a{color:#2563eb}pre{overflow-x:auto}</style>${sanitizedHtml}`
+      : ''
+  );
 
   let plainText = $derived(textBody || stripHtml(htmlContent));
 
