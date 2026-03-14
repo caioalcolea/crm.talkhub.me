@@ -11,6 +11,7 @@ Views do app conversations.
 """
 
 import logging
+import traceback
 import uuid
 
 from django.db import transaction
@@ -330,29 +331,30 @@ class MessageCreateView(APIView):
                 if not conv.last_message_at or message.timestamp > conv.last_message_at:
                     conv.last_message_at = message.timestamp
                     conv.save(update_fields=["last_message_at", "updated_at"])
-
-            # Broadcast via WebSocket
-            try:
-                from conversations.broadcast import broadcast_new_message
-
-                broadcast_new_message(
-                    str(request.org.id),
-                    str(conversation.id),
-                    MessageSerializer(message).data,
-                )
-            except Exception:
-                pass  # Non-critical — clients will catch up via polling
-
-            return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
         except Exception as e:
             logger.error(
-                "Failed to save/serialize message for conversation %s: %s",
+                "Failed to save message for conversation %s: %s",
                 conversation_id, e, exc_info=True,
             )
+            traceback.print_exc()
             return Response(
                 {"error": f"Erro ao salvar mensagem: {e}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        # Broadcast via WebSocket (outside save try/except for clear error separation)
+        try:
+            from conversations.broadcast import broadcast_new_message
+
+            broadcast_new_message(
+                str(request.org.id),
+                str(conversation.id),
+                MessageSerializer(message).data,
+            )
+        except Exception:
+            pass  # Non-critical — clients will catch up via polling
+
+        return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 
 class ConversationAssignView(APIView):

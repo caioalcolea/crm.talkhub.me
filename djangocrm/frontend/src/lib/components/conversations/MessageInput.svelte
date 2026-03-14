@@ -23,6 +23,21 @@
   let sending = $state(false);
   let error = $state('');
 
+  // Sync props when conversation changes
+  $effect(() => {
+    subject = emailSubject;
+  });
+  $effect(() => {
+    selectedChannel = currentChannel || '';
+  });
+  // Clear content when switching conversations
+  $effect(() => {
+    if (conversationId) {
+      content = '';
+      error = '';
+    }
+  });
+
   /** Whether the current channel is email */
   let isEmail = $derived(
     selectedChannel === 'smtp_native' ||
