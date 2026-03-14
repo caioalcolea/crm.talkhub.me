@@ -79,6 +79,7 @@
   });
 
   onDestroy(() => {
+    if (typeof window === 'undefined') return; // SSR guard
     window.removeEventListener('message', handleMessage);
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     if (iframeRef?.contentWindow) {

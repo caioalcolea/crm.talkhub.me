@@ -2,14 +2,18 @@
  * Public Cowork Guest Page
  *
  * Public view for guests to join a cowork room via invite token.
- * No authentication required. Uses SvelteKit's fetch for reliable SSR.
+ * No authentication required.
+ *
+ * IMPORTANT: Uses global fetch (NOT SvelteKit's fetch) because the API
+ * is on the same origin (crm.talkhub.me). SvelteKit's fetch treats
+ * same-origin URLs as internal routes during SSR, which would 404.
  */
 
 import { error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 
 /** @type {import('./$types').PageServerLoad} */
-export async function load({ params, fetch }) {
+export async function load({ params }) {
   const { token } = params;
 
   if (!token) {
@@ -19,10 +23,14 @@ export async function load({ params, fetch }) {
   const apiBase = env.PUBLIC_DJANGO_API_URL || '';
   const url = `${apiBase}/api/public/cowork/join/${token}/`;
 
+  console.log(`[cowork guest] Fetching: ${url}`);
+
   try {
-    const response = await fetch(url, {
+    const response = await globalThis.fetch(url, {
       headers: { 'Accept': 'application/json' }
     });
+
+    console.log(`[cowork guest] Response status: ${response.status}`);
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
