@@ -37,12 +37,21 @@
   let agents = $state([]);
   let loadingAgents = $state(false);
 
+  let prevMessageCount = $state(0);
+
   // Auto-scroll to bottom when messages change
   $effect(() => {
-    if (messages.length && timelineEl) {
-      requestAnimationFrame(() => {
-        timelineEl.scrollTop = timelineEl.scrollHeight;
-      });
+    const count = messages.length;
+    if (count && timelineEl) {
+      const isInitialLoad = prevMessageCount === 0;
+      // Only auto-scroll if user is near the bottom (within 150px) or on initial load
+      const nearBottom = timelineEl.scrollHeight - timelineEl.scrollTop - timelineEl.clientHeight < 150;
+      if (isInitialLoad || nearBottom) {
+        requestAnimationFrame(() => {
+          timelineEl.scrollTop = timelineEl.scrollHeight;
+        });
+      }
+      prevMessageCount = count;
     }
   });
 

@@ -27,7 +27,9 @@
   });
 
   $effect(() => {
-    messages = initialMessages;
+    // Backend returns messages in descending order (-timestamp).
+    // Reverse to ascending so newest messages render at the bottom (WhatsApp style).
+    messages = [...initialMessages].reverse();
   });
 
   $effect(() => {
