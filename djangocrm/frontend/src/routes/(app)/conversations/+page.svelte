@@ -233,7 +233,8 @@
       // Also refresh messages for the selected conversation
       if (activeConversationId) {
         const freshMessages = await apiRequest(`/conversations/${activeConversationId}/messages/`);
-        messages = freshMessages?.results || freshMessages || [];
+        const rawMsgs = freshMessages?.results || freshMessages || [];
+        messages = [...rawMsgs].reverse();
 
         // Update selected conversation data
         const updated = conversations.find(c => c.id === activeConversationId);
@@ -263,7 +264,8 @@
       const data = await apiRequest(`/conversations/${convId}/messages/`);
       // Only apply if this is still the active conversation (prevents race conditions)
       if (activeConversationId === convId) {
-        messages = data.results || data || [];
+        const raw = data.results || data || [];
+        messages = [...raw].reverse();
       }
     } catch (e) {
       console.error('Erro ao carregar mensagens:', e);
