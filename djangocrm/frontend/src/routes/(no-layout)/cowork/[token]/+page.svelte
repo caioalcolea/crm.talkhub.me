@@ -3,8 +3,8 @@
   import { onDestroy, onMount } from 'svelte';
   import {
     Maximize, Minimize, Video, Users, Monitor, LogOut, Wifi, WifiOff,
-    Volume2, VolumeX, Mic, MicOff, Camera, CameraOff, MessageSquare,
-    Sparkles, Shield, Clock, ArrowRight, ExternalLink
+    Mic, MicOff, Camera, CameraOff, MessageSquare,
+    Sparkles, Shield, ArrowRight
   } from '@lucide/svelte';
 
   const COWORK_APP_URL = '/cowork-app/';
@@ -138,7 +138,7 @@
     iframeRef?.contentWindow?.postMessage({ type: 'cowork-toggle-camera', payload: { off: isCameraOff } }, '*');
   }
 
-  let initials = $derived(() => {
+  let initials = $derived.by(() => {
     const name = guest?.name || 'V';
     return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
   });
@@ -188,7 +188,7 @@
           <!-- Guest banner -->
           <div class="flex items-center gap-3 border-b border-zinc-800 bg-gradient-to-r from-violet-500/10 to-blue-500/10 px-6 py-4">
             <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-600 text-base font-bold text-white shadow-lg shadow-violet-500/20">
-              {initials()}
+              {initials}
             </div>
             <div class="flex-1">
               <p class="text-base font-semibold text-white">{guest?.name || 'Visitante'}</p>
@@ -317,7 +317,7 @@
         <!-- User badge (desktop) -->
         <div class="hidden items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-800/50 px-2.5 py-1.5 sm:flex">
           <div class="flex h-5 w-5 items-center justify-center rounded bg-gradient-to-br from-violet-500 to-blue-600 text-[9px] font-bold text-white">
-            {initials()}
+            {initials}
           </div>
           <span class="max-w-24 truncate text-xs font-medium text-zinc-400">{guest?.name || 'Visitante'}</span>
         </div>
@@ -476,7 +476,7 @@
 </div>
 
 <style>
-  .guest-cowork :global(body) {
+  :global(body) {
     margin: 0;
     padding: 0;
     overflow: hidden;
