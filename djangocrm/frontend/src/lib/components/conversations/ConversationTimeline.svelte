@@ -256,7 +256,7 @@
         variant="ghost"
         size="icon"
         class="size-8"
-        onclick={() => goto(`/leads?action=create&contactId=${conversation.contact || ''}`)}
+        onclick={() => goto(`/leads?action=create${conversation.contact ? `&contactId=${conversation.contact}` : ''}`)}
         title="Criar Oportunidade"
       >
         <Target class="size-4" />
@@ -267,7 +267,7 @@
         variant="ghost"
         size="icon"
         class="size-8"
-        onclick={() => goto(`/opportunities?action=create&contactId=${conversation.contact || ''}`)}
+        onclick={() => goto(`/opportunities?action=create${conversation.contact ? `&contactId=${conversation.contact}` : ''}`)}
         title="Criar Negócio"
       >
         <Sparkles class="size-4" />

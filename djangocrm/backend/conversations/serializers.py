@@ -157,7 +157,7 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
 
     def get_assigned_to_name(self, obj):
         if obj.assigned_to and obj.assigned_to.user:
-            return obj.assigned_to.user.get_full_name() or obj.assigned_to.user.email
+            return obj.assigned_to.user.email
         return None
 
 

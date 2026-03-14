@@ -1,7 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -77,8 +77,8 @@
   // --- WebSocket + Polling hybrid ---
   // Try WebSocket first; fall back to polling if WS fails 3x consecutively.
 
-  // Connect WebSocket on mount
-  wsConnect();
+  // Connect WebSocket on mount (only once, not on every re-render)
+  onMount(() => { wsConnect(); });
 
   // WS event handlers
   const unsubConvUpdate = onWsMessage('conversation_update', (convData) => {

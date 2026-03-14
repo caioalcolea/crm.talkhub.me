@@ -46,9 +46,7 @@ export async function load({ locals, cookies, url }) {
 
   try {
     // Build query parameters for Django API
-    const queryParams = buildQueryParams({});
-    queryParams.append('limit', limit.toString());
-    queryParams.append('offset', ((page - 1) * limit).toString());
+    const queryParams = buildQueryParams({ page, limit });
 
     // Add filter params
     if (filters.search) queryParams.append('search', filters.search);

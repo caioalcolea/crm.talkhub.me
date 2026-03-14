@@ -285,7 +285,7 @@ class MessageCreateView(APIView):
         # Criar Message no banco
         sender_name = ""
         if hasattr(request, "profile") and request.profile and request.profile.user:
-            sender_name = request.profile.user.get_full_name() or request.profile.user.email
+            sender_name = request.profile.user.email
 
         # Enrich metadata for email channels
         extra_meta = serializer.validated_data.get("metadata_json") or {}
