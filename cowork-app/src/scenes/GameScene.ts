@@ -136,13 +136,15 @@ export default class GameScene extends Phaser.Scene {
     this.chairGroup = this.addItemGroup(map, "Chair", "chairs", "chair");
     this.addItemGroup(map, "Computer", "computers", "computer");
     this.whiteboardGroup = this.addItemGroup(map, "Whiteboard", "whiteboards", "whiteboard");
-    // Shift whiteboard physics bodies downward so the interaction zone is
-    // in FRONT of the board (below it), not behind it (on the wall).
+    // Enlarge whiteboard physics bodies and shift downward so the interaction
+    // zone covers a wide area IN FRONT of the board (below/around it).
     for (const child of this.whiteboardGroup.getChildren()) {
       const sprite = child as Phaser.Physics.Arcade.Sprite;
       const body = sprite.body as Phaser.Physics.Arcade.StaticBody;
       if (body) {
-        body.setOffset(0, body.height);
+        // Expand hitbox: 128×96 centered horizontally, shifted down below the sprite
+        body.setSize(128, 96);
+        body.setOffset(-32, 48);
         body.updateFromGameObject();
       }
     }
