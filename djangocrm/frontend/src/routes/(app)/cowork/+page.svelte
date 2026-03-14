@@ -63,17 +63,11 @@
     }
   });
 
-  // Handle form results
+  // Handle form results from createRoom (which uses update() and sets form prop).
+  // Other forms (getToken, createInvite, deleteRoom) handle results in their own callbacks.
   $effect(() => {
     if (form?.toast) toast.success(form.toast);
     if (form?.error) toast.error(form.error);
-    if (form?.coworkToken) {
-      const displayName = data.user?.name || data.user?.email || 'User';
-      startCoworkSession(form.coworkToken, form.room, displayName);
-    }
-    if (form?.invite) {
-      inviteResult = form.invite;
-    }
   });
 
   // Actions
@@ -120,8 +114,20 @@
   <title>Sala Cowork | TalkHub CRM</title>
 </svelte:head>
 
-<!-- Hidden form for entering rooms -->
-<form id="enter-room-form" method="POST" action="?/getToken" use:enhance class="hidden">
+<!-- Hidden form for entering rooms — custom enhance to avoid invalidateAll() during session -->
+<form id="enter-room-form" method="POST" action="?/getToken" use:enhance={() => {
+  return async ({ result }) => {
+    if (result.type === 'success' && result.data) {
+      if (result.data.toast) toast.success(result.data.toast);
+      if (result.data.coworkToken) {
+        const displayName = data.user?.name || data.user?.email || 'User';
+        startCoworkSession(result.data.coworkToken, result.data.room, displayName);
+      }
+    } else if (result.type === 'failure' && result.data?.error) {
+      toast.error(result.data.error);
+    }
+  };
+}} class="hidden">
   <input type="hidden" name="room_id" value="" />
 </form>
 
@@ -246,7 +252,16 @@
                 >
                   <UserPlus class="size-3.5" />
                 </Button>
-                <form method="POST" action="?/deleteRoom" use:enhance>
+                <form method="POST" action="?/deleteRoom" use:enhance={() => {
+                  return async ({ result, update }) => {
+                    if (result.type === 'success') {
+                      await update(); // reload room list
+                      if (result.data?.toast) toast.success(result.data.toast);
+                    } else if (result.type === 'failure' && result.data?.error) {
+                      toast.error(result.data.error);
+                    }
+                  };
+                }}>
                   <input type="hidden" name="id" value={room.id} />
                   <Button
                     type="submit"
@@ -353,7 +368,16 @@
         </Button>
       </Dialog.Footer>
     {:else}
-      <form method="POST" action="?/createInvite" use:enhance>
+      <form method="POST" action="?/createInvite" use:enhance={() => {
+        return async ({ result }) => {
+          if (result.type === 'success' && result.data) {
+            if (result.data.invite) inviteResult = result.data.invite;
+            if (result.data.toast) toast.success(result.data.toast);
+          } else if (result.type === 'failure' && result.data?.error) {
+            toast.error(result.data.error);
+          }
+        };
+      }}>
         <input type="hidden" name="room_id" value={inviteRoom?.id || ''} />
         <div class="space-y-4 py-4">
           <div>

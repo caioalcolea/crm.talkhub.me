@@ -147,6 +147,8 @@
 <svelte:head>
   <title>{room?.name || 'Sala Cowork'} — TalkHub</title>
   <meta name="theme-color" content="#09090b" />
+  <!-- Body styles for standalone guest page (no shared layout) -->
+  {@html '<style>body{margin:0;padding:0;overflow:hidden;background:#09090b}</style>'}
 </svelte:head>
 
 <div
@@ -475,11 +477,3 @@
   {/if}
 </div>
 
-<style>
-  :global(body) {
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    background: #09090b;
-  }
-</style>
