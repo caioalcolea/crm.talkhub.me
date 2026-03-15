@@ -139,7 +139,7 @@
         <h1 class="text-2xl font-bold">{l.descricao}</h1>
         <div class="mt-1 flex items-center gap-2">
           <StatusBadge status={l.tipo} />
-          <StatusBadge status={l.status} />
+          <StatusBadge status={l.status} tipo={l.tipo} />
           {#if l.is_recorrente}
             <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
               <Repeat class="mr-1 h-3 w-3" />

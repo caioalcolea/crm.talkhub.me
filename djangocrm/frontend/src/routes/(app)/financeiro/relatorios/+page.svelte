@@ -86,12 +86,12 @@
           <thead>
             <tr class="bg-muted/50 border-b">
               <th class="px-3 py-2 text-left font-medium">Mês</th>
-              <th class="px-3 py-2 text-right font-medium">Receber</th>
-              <th class="px-3 py-2 text-right font-medium">Pagar</th>
+              <th class="px-3 py-2 text-right font-medium">A Receber</th>
+              <th class="px-3 py-2 text-right font-medium">A Pagar</th>
               <th class="hidden px-3 py-2 text-right font-medium sm:table-cell">Recebido</th>
               <th class="hidden px-3 py-2 text-right font-medium sm:table-cell">Pago</th>
-              <th class="px-3 py-2 text-right font-medium">Saldo Pago</th>
-              <th class="hidden px-3 py-2 text-right font-medium md:table-cell">Saldo Aberto</th>
+              <th class="px-3 py-2 text-right font-medium">Saldo Real</th>
+              <th class="hidden px-3 py-2 text-right font-medium md:table-cell">Saldo Previsto</th>
             </tr>
           </thead>
           <tbody>

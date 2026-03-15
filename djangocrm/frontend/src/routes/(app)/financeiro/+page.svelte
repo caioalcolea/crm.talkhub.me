@@ -10,8 +10,8 @@
     ArrowUpCircle,
     Wallet,
     AlertTriangle,
-    Percent,
-    TrendingUp
+    TrendingUp,
+    TrendingDown
   } from '@lucide/svelte';
 
   let { data } = $props();
@@ -43,7 +43,7 @@
   <!-- KPI Cards -->
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
     <KPICard
-      label="Total a Receber"
+      label="A Receber"
       value={formatCurrency(d.total_receber, cur)}
       accentColor="emerald"
     >
@@ -53,7 +53,7 @@
     </KPICard>
 
     <KPICard
-      label="Total a Pagar"
+      label="A Pagar"
       value={formatCurrency(d.total_pagar, cur)}
       accentColor="rose"
     >
@@ -63,17 +63,27 @@
     </KPICard>
 
     <KPICard
-      label="Pago no Mês"
-      value={formatCurrency(d.pago_no_mes, cur)}
+      label="Recebido no Mês"
+      value={formatCurrency(d.recebido_no_mes, cur)}
       accentColor="blue"
     >
       {#snippet icon({ class: cls })}
-        <Wallet class={cls} />
+        <TrendingUp class={cls} />
       {/snippet}
     </KPICard>
 
     <KPICard
-      label="Total Vencido"
+      label="Pago no Mês"
+      value={formatCurrency(d.pago_no_mes, cur)}
+      accentColor="orange"
+    >
+      {#snippet icon({ class: cls })}
+        <TrendingDown class={cls} />
+      {/snippet}
+    </KPICard>
+
+    <KPICard
+      label="Vencido"
       value={formatCurrency(d.total_vencido, cur)}
       accentColor="amber"
     >
@@ -83,22 +93,12 @@
     </KPICard>
 
     <KPICard
-      label="% Vencidas"
-      value={`${d.pct_vencidas}%`}
-      accentColor="orange"
-    >
-      {#snippet icon({ class: cls })}
-        <Percent class={cls} />
-      {/snippet}
-    </KPICard>
-
-    <KPICard
-      label="Saldo"
+      label="Saldo do Mês"
       value={formatCurrency(d.saldo, cur)}
       accentColor={d.saldo >= 0 ? 'emerald' : 'rose'}
     >
       {#snippet icon({ class: cls })}
-        <TrendingUp class={cls} />
+        <Wallet class={cls} />
       {/snippet}
     </KPICard>
   </div>
@@ -141,7 +141,7 @@
                 {formatCurrency(tx.valor_convertido, cur)}
               </td>
               <td class="hidden px-3 py-2 text-xs sm:table-cell">{tx.parcelas_pagas}</td>
-              <td class="px-3 py-2"><StatusBadge status={tx.status} /></td>
+              <td class="px-3 py-2"><StatusBadge status={tx.status} tipo={tx.tipo} /></td>
               <td class="hidden px-3 py-2 text-xs md:table-cell">{formatDate(tx.data_primeiro_vencimento)}</td>
             </tr>
           {:else}

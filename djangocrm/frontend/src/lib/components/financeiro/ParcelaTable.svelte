@@ -90,7 +90,7 @@
             {formatDate(parcela.data_pagamento || parcela.dataPagamento) || '-'}
           </td>
           <td class="px-3 py-2">
-            <StatusBadge status={parcela.status} />
+            <StatusBadge status={parcela.status} tipo={parcela.lancamento_tipo || parcela.lancamentoTipo || ''} />
           </td>
           <td class="hidden px-3 py-2 text-xs md:table-cell">
             {#if parcela.dias_atraso > 0 || parcela.diasAtraso > 0}

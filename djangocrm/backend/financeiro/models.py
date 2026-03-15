@@ -238,6 +238,7 @@ class Lancamento(BaseOrgModel):
         remainder = self.valor_total - (valor_each * (n - 1))
 
         parcelas = []
+        sum_converted = Decimal("0")
         for i in range(n):
             # Monthly offset
             month_offset = i
@@ -252,14 +253,21 @@ class Lancamento(BaseOrgModel):
 
             valor = remainder if i == n - 1 else valor_each
 
+            if i == n - 1:
+                # Last parcela: adjust converted value so sum matches lancamento total
+                converted = self.valor_convertido - sum_converted
+            else:
+                converted = (
+                    valor * self.exchange_rate_to_base
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                sum_converted += converted
+
             parcelas.append(
                 Parcela(
                     lancamento=self,
                     numero=i + 1,
                     valor_parcela=valor,
-                    valor_parcela_convertido=(
-                        valor * self.exchange_rate_to_base
-                    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    valor_parcela_convertido=converted,
                     currency=self.currency,
                     exchange_rate_to_base=self.exchange_rate_to_base,
                     data_vencimento=vencimento,
@@ -457,9 +465,10 @@ class Parcela(BaseOrgModel):
         if self.status == "CANCELADO":
             return "Cancelada"
         if self.status == "PAGO":
+            is_receber = self.lancamento.tipo == "RECEBER"
             if self.pago_atrasado:
-                return "Paga com atraso"
-            return "Paga"
+                return "Recebida com atraso" if is_receber else "Paga com atraso"
+            return "Recebida" if is_receber else "Paga"
         # ABERTO
         dias = self.dias_atraso
         if dias > 0:

@@ -220,13 +220,10 @@
             <td class="hidden px-3 py-2.5 text-xs md:table-cell">{item.account_name || item.contact_name || '-'}</td>
             <td class="hidden max-w-[150px] truncate px-3 py-2.5 text-xs lg:table-cell">{item.plano_de_contas_nome || '-'}</td>
             <td class="px-3 py-2.5 text-right font-mono text-xs">
-              {#if item.currency_symbol}
-                <span class="text-muted-foreground mr-1 text-[10px]">{item.currency_symbol}</span>
-              {/if}
               {formatCurrency(item.valor_convertido, cur)}
             </td>
             <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{item.parcelas_pagas}</td>
-            <td class="px-3 py-2.5"><StatusBadge status={item.status} /></td>
+            <td class="px-3 py-2.5"><StatusBadge status={item.status} tipo={item.tipo} /></td>
             <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{formatDate(item.data_primeiro_vencimento)}</td>
           </tr>
         {:else}

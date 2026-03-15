@@ -445,8 +445,18 @@ class DashboardReportView(APIView):
             ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
         )
 
-        pago_no_mes_current = (
+        recebido_no_mes = (
             parcelas_org.filter(
+                lancamento__tipo="RECEBER",
+                data_pagamento__year=today.year,
+                data_pagamento__month=today.month,
+                status="PAGO",
+            ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        )
+
+        pago_no_mes = (
+            parcelas_org.filter(
+                lancamento__tipo="PAGAR",
                 data_pagamento__year=today.year,
                 data_pagamento__month=today.month,
                 status="PAGO",
@@ -469,7 +479,7 @@ class DashboardReportView(APIView):
             else 0
         )
 
-        saldo = total_receber - total_pagar
+        saldo = recebido_no_mes - pago_no_mes
 
         # Monthly cash flow for the year
         fluxo_mensal = []
@@ -520,7 +530,8 @@ class DashboardReportView(APIView):
                 "ano": ano,
                 "total_receber": float(total_receber),
                 "total_pagar": float(total_pagar),
-                "pago_no_mes": float(pago_no_mes_current),
+                "recebido_no_mes": float(recebido_no_mes),
+                "pago_no_mes": float(pago_no_mes),
                 "total_vencido": float(total_vencido),
                 "pct_vencidas": pct_vencidas,
                 "saldo": float(saldo),
