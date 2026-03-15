@@ -22,6 +22,18 @@ PARCELA_STATUS = (
     ("CANCELADO", "Cancelado"),
 )
 
+EXCHANGE_RATE_TYPES = (
+    ("FIXO", "Fixo"),
+    ("VARIAVEL", "Variável"),
+)
+
+RECORRENCIA_TIPOS = (
+    ("MENSAL", "Mensal"),
+    ("QUINZENAL", "Quinzenal"),
+    ("SEMANAL", "Semanal"),
+    ("ANUAL", "Anual"),
+)
+
 # =============================================================================
 # PIX / Payment Transaction
 # =============================================================================

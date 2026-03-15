@@ -4,11 +4,13 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { StatusBadge, TransactionForm } from '$lib/components/financeiro';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
+  import { orgSettings } from '$lib/stores/org.js';
   import { Plus, Search, X } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { financeiro } from '$lib/api.js';
 
   let { data } = $props();
+  let cur = $derived($orgSettings.default_currency || 'BRL');
 
   let showCreateModal = $state(false);
   let loading = $state(false);
@@ -17,6 +19,8 @@
   $effect(() => {
     if (data?.filters?.search) searchInput = data.filters.search;
   });
+
+  let defaultCurrency = $derived(data.formOptions?.org_currency || cur);
 
   let formData = $state({
     tipo: 'RECEBER',
@@ -45,7 +49,7 @@
       contact: '',
       opportunity: '',
       invoice: '',
-      currency: 'BRL',
+      currency: defaultCurrency,
       valor_total: '',
       exchange_rate_to_base: '1',
       forma_pagamento: '',
@@ -172,7 +176,7 @@
               {#if item.currency_symbol}
                 <span class="text-muted-foreground mr-1 text-[10px]">{item.currency_symbol}</span>
               {/if}
-              {formatCurrency(item.valor_convertido, 'BRL')}
+              {formatCurrency(item.valor_convertido, cur)}
             </td>
             <td class="px-3 py-2.5 text-xs">{item.parcelas_pagas}</td>
             <td class="px-3 py-2.5"><StatusBadge status={item.status} /></td>

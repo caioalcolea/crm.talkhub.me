@@ -7,10 +7,12 @@ from django.utils import timezone
 
 from common.base import BaseOrgModel
 from financeiro.constants import (
+    EXCHANGE_RATE_TYPES,
     FINANCEIRO_CURRENCY_CODES,
     LANCAMENTO_STATUS,
     LANCAMENTO_TIPOS,
     PARCELA_STATUS,
+    RECORRENCIA_TIPOS,
     TRANSACTION_STATUS,
     TRANSACTION_TYPES,
 )
@@ -150,6 +152,22 @@ class Lancamento(BaseOrgModel):
         help_text="Valor convertido para moeda base da org (auto-calculado)",
     )
 
+    # Exchange rate type
+    exchange_rate_type = models.CharField(
+        max_length=10,
+        choices=EXCHANGE_RATE_TYPES,
+        default="FIXO",
+        help_text="FIXO = manual, VARIAVEL = busca automática da API",
+    )
+
+    # Recurring
+    is_recorrente = models.BooleanField(default=False)
+    recorrencia_tipo = models.CharField(
+        max_length=15, choices=RECORRENCIA_TIPOS, null=True, blank=True
+    )
+    data_fim_recorrencia = models.DateField(null=True, blank=True)
+    recorrencia_ativa = models.BooleanField(default=True)
+
     # Payment
     forma_pagamento = models.ForeignKey(
         FormaPagamento,
@@ -204,10 +222,13 @@ class Lancamento(BaseOrgModel):
 
     def generate_parcelas(self):
         """
-        Generate N installments with monthly due dates.
-        Rounding remainder goes to the last installment.
+        Generate installments. Delegates to recurring method if applicable.
         """
         if self.parcelas.exists():
+            return
+
+        if self.is_recorrente:
+            self.generate_recurring_parcelas()
             return
 
         n = self.numero_parcelas
@@ -250,6 +271,88 @@ class Lancamento(BaseOrgModel):
             )
 
         Parcela.objects.bulk_create(parcelas)
+
+    def generate_recurring_parcelas(self, months_ahead=3):
+        """
+        Generate parcelas for recurring lancamentos.
+        Each parcela = full valor_total (not divided).
+        Generates up to months_ahead months into the future.
+        """
+        import calendar
+
+        today = datetime.date.today()
+        target_date = today + datetime.timedelta(days=months_ahead * 31)
+
+        # If data_fim_recorrencia is set, cap at that date
+        if self.data_fim_recorrencia and self.data_fim_recorrencia < target_date:
+            target_date = self.data_fim_recorrencia
+
+        # Find last existing parcela number and date
+        last_parcela = self.parcelas.order_by("-numero").first()
+        if last_parcela:
+            next_numero = last_parcela.numero + 1
+            last_date = last_parcela.data_vencimento
+        else:
+            next_numero = 1
+            last_date = None
+
+        # Calculate interval
+        tipo = self.recorrencia_tipo or "MENSAL"
+
+        def next_date(base_date):
+            if tipo == "SEMANAL":
+                return base_date + datetime.timedelta(weeks=1)
+            elif tipo == "QUINZENAL":
+                return base_date + datetime.timedelta(weeks=2)
+            elif tipo == "ANUAL":
+                y = base_date.year + 1
+                m = base_date.month
+                d = min(base_date.day, calendar.monthrange(y, m)[1])
+                return datetime.date(y, m, d)
+            else:  # MENSAL
+                y = base_date.year + ((base_date.month) // 12)
+                m = (base_date.month % 12) + 1
+                d = min(base_date.day, calendar.monthrange(y, m)[1])
+                return datetime.date(y, m, d)
+
+        # Starting date for new parcelas
+        if last_date:
+            current_date = next_date(last_date)
+        else:
+            current_date = self.data_primeiro_vencimento
+
+        parcelas = []
+        while current_date <= target_date:
+            rate = self.exchange_rate_to_base
+            valor_convertido = (
+                self.valor_total * rate
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            parcelas.append(
+                Parcela(
+                    lancamento=self,
+                    numero=next_numero,
+                    valor_parcela=self.valor_total,
+                    valor_parcela_convertido=valor_convertido,
+                    currency=self.currency,
+                    exchange_rate_to_base=rate,
+                    data_vencimento=current_date,
+                    status="ABERTO",
+                    competencia_ano=current_date.year,
+                    competencia_mes=current_date.month,
+                    org=self.org,
+                )
+            )
+            next_numero += 1
+            current_date = next_date(current_date)
+
+        if parcelas:
+            Parcela.objects.bulk_create(parcelas)
+            # Update numero_parcelas to reflect actual count
+            total = self.parcelas.count() + len(parcelas)
+            if self.numero_parcelas != total:
+                self.numero_parcelas = total
+                self.save(update_fields=["numero_parcelas", "updated_at"])
 
     def update_status(self):
         """Recalculate status from parcelas."""

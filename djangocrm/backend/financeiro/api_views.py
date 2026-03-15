@@ -27,6 +27,7 @@ from financeiro.serializers import (
     FormaPagamentoSerializer,
     LancamentoCreateSerializer,
     LancamentoDetailSerializer,
+    LancamentoFullUpdateSerializer,
     LancamentoListSerializer,
     LancamentoUpdateSerializer,
     ParcelaBulkPaySerializer,
@@ -131,6 +132,10 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         if self.action == "create":
             return LancamentoCreateSerializer
         if self.action in ("update", "partial_update"):
+            obj = self.get_object()
+            has_paid = obj.parcelas.filter(status="PAGO").exists()
+            if not has_paid and obj.status != "CANCELADO":
+                return LancamentoFullUpdateSerializer
             return LancamentoUpdateSerializer
         if self.action == "retrieve":
             return LancamentoDetailSerializer
@@ -175,8 +180,70 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        lancamento = serializer.save(org=self.get_org())
+        org = self.get_org()
+        data = serializer.validated_data
+
+        # Auto-fetch exchange rate for VARIAVEL type
+        if data.get("exchange_rate_type") == "VARIAVEL":
+            if data.get("currency", "BRL") != org.default_currency:
+                from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
+
+                try:
+                    rate = get_exchange_rate(
+                        data["currency"],
+                        org.default_currency,
+                        data.get("data_primeiro_vencimento"),
+                    )
+                    lancamento = serializer.save(org=org, exchange_rate_to_base=rate)
+                except ExchangeRateError as e:
+                    from rest_framework.exceptions import ValidationError as DRFValidationError
+
+                    raise DRFValidationError({"exchange_rate_to_base": str(e)})
+            else:
+                lancamento = serializer.save(org=org, exchange_rate_to_base=Decimal("1"))
+        else:
+            lancamento = serializer.save(org=org)
+
         lancamento.generate_parcelas()
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        data = serializer.validated_data
+
+        # Check if financial fields changed (only possible with LancamentoFullUpdateSerializer)
+        financial_fields = {
+            "valor_total", "numero_parcelas", "data_primeiro_vencimento",
+            "currency", "exchange_rate_to_base", "exchange_rate_type",
+            "is_recorrente", "recorrencia_tipo",
+        }
+        financials_changed = bool(financial_fields & set(data.keys()))
+
+        # If switching to VARIAVEL, fetch rate
+        if data.get("exchange_rate_type") == "VARIAVEL":
+            currency = data.get("currency", instance.currency)
+            org = self.get_org()
+            if currency != org.default_currency:
+                from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
+
+                try:
+                    rate = get_exchange_rate(
+                        currency,
+                        org.default_currency,
+                        data.get("data_primeiro_vencimento", instance.data_primeiro_vencimento),
+                    )
+                    data["exchange_rate_to_base"] = rate
+                except ExchangeRateError as e:
+                    from rest_framework.exceptions import ValidationError as DRFValidationError
+
+                    raise DRFValidationError({"exchange_rate_to_base": str(e)})
+
+        instance = serializer.save()
+
+        # If financial fields changed and no paid parcelas, regenerate
+        if financials_changed and not instance.parcelas.filter(status="PAGO").exists():
+            instance.parcelas.all().delete()
+            instance.generate_parcelas()
+            instance.update_status()
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -474,7 +541,7 @@ class FluxoPlanoContasReportView(APIView):
 
         parcelas = Parcela.objects.filter(
             org=org, competencia_ano=ano
-        ).select_related("lancamento__plano_de_contas__grupo")
+        ).exclude(status="CANCELADO").select_related("lancamento__plano_de_contas__grupo")
 
         if tipo:
             parcelas = parcelas.filter(lancamento__tipo=tipo)
@@ -525,7 +592,7 @@ class RelatorioMensalReportView(APIView):
         org = request.profile.org
         ano = int(request.query_params.get("ano", datetime.date.today().year))
 
-        parcelas = Parcela.objects.filter(org=org, competencia_ano=ano)
+        parcelas = Parcela.objects.filter(org=org, competencia_ano=ano).exclude(status="CANCELADO")
 
         meses = []
         for m in range(1, 13):
@@ -591,7 +658,7 @@ class EntityFinancialReportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        parcelas = Parcela.objects.filter(**filter_kwargs)
+        parcelas = Parcela.objects.filter(**filter_kwargs).exclude(status="CANCELADO")
 
         total_receber = (
             parcelas.filter(lancamento__tipo="RECEBER").aggregate(
@@ -699,6 +766,7 @@ class FormOptionsView(APIView):
                     {"code": code, "label": label, "symbol": FINANCEIRO_CURRENCY_SYMBOLS.get(code, code)}
                     for code, label in FINANCEIRO_CURRENCY_CODES
                 ],
+                "org_currency": org.default_currency,
             }
         )
 

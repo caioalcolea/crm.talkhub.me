@@ -2,12 +2,21 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Plus, Trash2 } from '@lucide/svelte';
+  import { Plus, Pencil, Trash2 } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
 
   let { data } = $props();
-  let showModal = $state(false);
+  let showCreateModal = $state(false);
+  let showEditModal = $state(false);
   let newNome = $state('');
+  let editingForma = $state(null);
+  let editNome = $state('');
+
+  function openEdit(forma) {
+    editingForma = forma;
+    editNome = forma.nome;
+    showEditModal = true;
+  }
 </script>
 
 <div class="space-y-4 p-6">
@@ -16,7 +25,7 @@
       <h1 class="text-2xl font-bold tracking-tight">Formas de Pagamento</h1>
       <p class="text-muted-foreground text-sm">Configure as formas de pagamento disponíveis</p>
     </div>
-    <Button onclick={() => { newNome = ''; showModal = true; }}>
+    <Button onclick={() => { newNome = ''; showCreateModal = true; }}>
       <Plus class="mr-1.5 h-4 w-4" />
       Nova Forma
     </Button>
@@ -50,12 +59,17 @@
               </form>
             </td>
             <td class="px-4 py-2.5 text-right">
-              <form method="POST" action="?/delete" use:enhance={() => { return async ({ update }) => { await update(); invalidateAll(); }; }}>
-                <input type="hidden" name="id" value={forma.id} />
-                <Button variant="ghost" size="sm" class="text-destructive h-7 px-2" type="submit">
-                  <Trash2 class="h-3.5 w-3.5" />
+              <div class="inline-flex items-center gap-1">
+                <Button variant="ghost" size="sm" class="h-7 px-2" onclick={() => openEdit(forma)}>
+                  <Pencil class="h-3.5 w-3.5" />
                 </Button>
-              </form>
+                <form method="POST" action="?/delete" use:enhance={() => { return async ({ update }) => { await update(); invalidateAll(); }; }}>
+                  <input type="hidden" name="id" value={forma.id} />
+                  <Button variant="ghost" size="sm" class="text-destructive h-7 px-2" type="submit">
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </Button>
+                </form>
+              </div>
             </td>
           </tr>
         {:else}
@@ -70,17 +84,18 @@
   </div>
 </div>
 
-<Dialog.Root bind:open={showModal}>
+<!-- Create Modal -->
+<Dialog.Root bind:open={showCreateModal}>
   <Dialog.Content class="max-w-sm">
     <Dialog.Header>
       <Dialog.Title>Nova Forma de Pagamento</Dialog.Title>
     </Dialog.Header>
-    <form method="POST" action="?/create" use:enhance={() => { return async ({ result, update }) => { if (result.type === 'success') { showModal = false; } await update(); invalidateAll(); }; }}>
+    <form method="POST" action="?/create" use:enhance={() => { return async ({ result, update }) => { if (result.type === 'success') { showCreateModal = false; } await update(); invalidateAll(); }; }}>
       <div class="space-y-3">
         <div>
-          <label for="nome" class="text-sm font-medium">Nome *</label>
+          <label for="create-nome" class="text-sm font-medium">Nome *</label>
           <input
-            id="nome"
+            id="create-nome"
             name="nome"
             type="text"
             required
@@ -89,8 +104,37 @@
           />
         </div>
         <div class="flex justify-end gap-2 pt-2">
-          <Button variant="outline" type="button" onclick={() => (showModal = false)}>Cancelar</Button>
+          <Button variant="outline" type="button" onclick={() => (showCreateModal = false)}>Cancelar</Button>
           <Button type="submit">Criar</Button>
+        </div>
+      </div>
+    </form>
+  </Dialog.Content>
+</Dialog.Root>
+
+<!-- Edit Modal -->
+<Dialog.Root bind:open={showEditModal}>
+  <Dialog.Content class="max-w-sm">
+    <Dialog.Header>
+      <Dialog.Title>Editar Forma de Pagamento</Dialog.Title>
+    </Dialog.Header>
+    <form method="POST" action="?/edit" use:enhance={() => { return async ({ result, update }) => { if (result.type === 'success') { showEditModal = false; } await update(); invalidateAll(); }; }}>
+      <input type="hidden" name="id" value={editingForma?.id || ''} />
+      <div class="space-y-3">
+        <div>
+          <label for="edit-nome" class="text-sm font-medium">Nome *</label>
+          <input
+            id="edit-nome"
+            name="nome"
+            type="text"
+            required
+            bind:value={editNome}
+            class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm"
+          />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <Button variant="outline" type="button" onclick={() => (showEditModal = false)}>Cancelar</Button>
+          <Button type="submit">Salvar</Button>
         </div>
       </div>
     </form>

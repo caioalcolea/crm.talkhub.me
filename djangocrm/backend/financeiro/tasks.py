@@ -137,6 +137,102 @@ def _update_lancamento_parcela(transaction):
     )
 
 
+@shared_task(name="financeiro.tasks.generate_recurring_parcelas")
+def generate_recurring_parcelas():
+    """
+    Monthly: generate next parcelas for active recurring lancamentos.
+    Generates up to 3 months ahead so users always see upcoming installments.
+    """
+    from common.models import Org
+    from financeiro.models import Lancamento
+
+    total_generated = 0
+
+    for org in Org.objects.filter(is_active=True):
+        set_rls_context(str(org.id))
+
+        lancamentos = Lancamento.objects.filter(
+            is_recorrente=True,
+            recorrencia_ativa=True,
+            status="ABERTO",
+        )
+
+        for lanc in lancamentos:
+            # Check data_fim_recorrencia
+            if lanc.data_fim_recorrencia and lanc.data_fim_recorrencia < datetime.date.today():
+                lanc.recorrencia_ativa = False
+                lanc.save(update_fields=["recorrencia_ativa", "updated_at"])
+                continue
+
+            before = lanc.parcelas.count()
+            lanc.generate_recurring_parcelas(months_ahead=3)
+            after = lanc.parcelas.count()
+            generated = after - before
+            if generated > 0:
+                total_generated += generated
+                logger.info(
+                    "Recorrente [%s]: %d novas parcelas para '%s'",
+                    org.name, generated, lanc.descricao,
+                )
+
+    return {"generated": total_generated, "date": str(datetime.date.today())}
+
+
+@shared_task(name="financeiro.tasks.update_variable_exchange_rates")
+def update_variable_exchange_rates():
+    """
+    Daily: update exchange rates for pending parcelas of VARIAVEL lancamentos
+    whose due date has arrived.
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+
+    from common.models import Org
+    from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
+    from financeiro.models import Lancamento, Parcela
+
+    today = datetime.date.today()
+    total_updated = 0
+
+    for org in Org.objects.filter(is_active=True):
+        set_rls_context(str(org.id))
+
+        # Find VARIAVEL lancamentos with open parcelas due today or earlier
+        lancamentos = Lancamento.objects.filter(
+            exchange_rate_type="VARIAVEL",
+            status="ABERTO",
+        ).exclude(currency=org.default_currency)
+
+        for lanc in lancamentos:
+            parcelas = lanc.parcelas.filter(
+                status="ABERTO",
+                data_vencimento__lte=today,
+            )
+
+            for parcela in parcelas:
+                try:
+                    rate = get_exchange_rate(
+                        lanc.currency, org.default_currency, parcela.data_vencimento
+                    )
+                    if rate != parcela.exchange_rate_to_base:
+                        parcela.exchange_rate_to_base = rate
+                        parcela.valor_parcela_convertido = (
+                            parcela.valor_parcela * rate
+                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        parcela.save(update_fields=[
+                            "exchange_rate_to_base",
+                            "valor_parcela_convertido",
+                            "updated_at",
+                        ])
+                        total_updated += 1
+                except ExchangeRateError:
+                    logger.warning(
+                        "Failed to update rate for parcela %s of lancamento %s",
+                        parcela.id, lanc.id,
+                    )
+
+    return {"updated": total_updated, "date": str(today)}
+
+
 @shared_task(name="financeiro.tasks.reconcile_pix_transactions")
 def reconcile_pix_transactions():
     """

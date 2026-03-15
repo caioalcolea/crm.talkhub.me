@@ -4,6 +4,7 @@
   import { KPICard } from '$lib/components/dashboard';
   import { CashFlowChart, StatusBadge } from '$lib/components/financeiro';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
+  import { orgSettings } from '$lib/stores/org.js';
   import {
     ArrowDownCircle,
     ArrowUpCircle,
@@ -17,6 +18,7 @@
 
   const d = $derived(data.dashboard);
   const currentYear = new Date().getFullYear();
+  let cur = $derived($orgSettings.default_currency || 'BRL');
 
   function changeYear(ano) {
     goto(`/financeiro?ano=${ano}`);
@@ -47,7 +49,7 @@
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
     <KPICard
       label="Total a Receber"
-      value={formatCurrency(d.total_receber, 'BRL')}
+      value={formatCurrency(d.total_receber, cur)}
       accentColor="emerald"
     >
       {#snippet icon({ class: cls })}
@@ -57,7 +59,7 @@
 
     <KPICard
       label="Total a Pagar"
-      value={formatCurrency(d.total_pagar, 'BRL')}
+      value={formatCurrency(d.total_pagar, cur)}
       accentColor="rose"
     >
       {#snippet icon({ class: cls })}
@@ -67,7 +69,7 @@
 
     <KPICard
       label="Pago no Mês"
-      value={formatCurrency(d.pago_no_mes, 'BRL')}
+      value={formatCurrency(d.pago_no_mes, cur)}
       accentColor="blue"
     >
       {#snippet icon({ class: cls })}
@@ -77,7 +79,7 @@
 
     <KPICard
       label="Total Vencido"
-      value={formatCurrency(d.total_vencido, 'BRL')}
+      value={formatCurrency(d.total_vencido, cur)}
       accentColor="amber"
     >
       {#snippet icon({ class: cls })}
@@ -97,7 +99,7 @@
 
     <KPICard
       label="Saldo"
-      value={formatCurrency(d.saldo, 'BRL')}
+      value={formatCurrency(d.saldo, cur)}
       accentColor={d.saldo >= 0 ? 'emerald' : 'rose'}
     >
       {#snippet icon({ class: cls })}
@@ -141,7 +143,7 @@
               <td class="max-w-[200px] truncate px-3 py-2 font-medium">{tx.descricao}</td>
               <td class="px-3 py-2"><StatusBadge status={tx.tipo} /></td>
               <td class="px-3 py-2 text-right font-mono text-xs">
-                {formatCurrency(tx.valor_convertido, 'BRL')}
+                {formatCurrency(tx.valor_convertido, cur)}
               </td>
               <td class="px-3 py-2 text-xs">{tx.parcelas_pagas}</td>
               <td class="px-3 py-2"><StatusBadge status={tx.status} /></td>

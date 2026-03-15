@@ -206,6 +206,11 @@ bash docker/debug-traefik.sh
 20. **Contact FK is SET_NULL**: `Conversation.contact` uses `on_delete=SET_NULL` — contact deletion sets `contact=NULL` instead of cascading. Serializers and templates handle `contact is None` with "Contato removido" fallback.
 21. **Contact merge email/phone preservation**: Merge fills `secondary_email`/`secondary_phone` first (if empty), then overflows to `ContactEmail`/`ContactPhone` extras. The `_SCALAR_FIELDS` step runs before the preservation step, so in-memory mutations are visible to the preservation logic.
 22. **Secondary email/phone in channel matching**: All lookup chains follow the order: primary → secondary → extra table. Chatwoot connector, SMTP polling, data_unifier, and duplicate detection all include secondary fields.
+23. **Financeiro CANCELADO in reports**: All report views (FluxoPlanoContas, RelatorioMensal, EntityFinancial) exclude `status="CANCELADO"` parcelas from sums. Dashboard already filters by specific statuses.
+24. **Financeiro variable exchange rate**: `exchange_rate_type` field on Lancamento: FIXO (manual) or VARIAVEL (auto-fetch from API). Primary API: open.er-api.com, fallback: BCB PTAX for BRL pairs. Rates cached in Redis (4h TTL).
+25. **Financeiro recurring lancamentos**: `is_recorrente` + `recorrencia_tipo` (MENSAL/QUINZENAL/SEMANAL/ANUAL). Each parcela = full valor_total. Celery Beat generates 3 months ahead on 1st of each month. Stop via `recorrencia_ativa=False`.
+26. **Lancamento edit rules**: If all parcelas ABERTO → can edit everything (parcelas regenerated). If some PAGO → metadata only. If CANCELADO → read-only (except descricao/observacoes).
+27. **Org currency integration**: All frontend financial pages use `$orgSettings.default_currency` instead of hardcoded 'BRL'. Backend `FormOptionsView` returns `org_currency`. TransactionForm auto-hides exchange rate when currency == org base currency.
 
 ## Invitation System
 
@@ -341,6 +346,12 @@ startCoworkSession() → mode='full' → page renders [data-cowork-target]
 | Cowork Phaser game | `cowork-app/src/game/` (OfficeScene, Player, Chair, ChatManager) |
 | Cowork postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
 | CoworkPiP (persistent iframe) | `frontend/src/lib/components/cowork/CoworkPiP.svelte`, `frontend/src/lib/stores/cowork.svelte.js` |
+| Financeiro models | `backend/financeiro/models.py` (Lancamento, Parcela, FormaPagamento, PaymentTransaction) |
+| Financeiro views | `backend/financeiro/api_views.py` (ViewSets, reports, PIX) |
+| Financeiro exchange rates | `backend/financeiro/exchange_rates.py` (get_exchange_rate, API integration) |
+| Financeiro tasks | `backend/financeiro/tasks.py` (overdue, recurring, variable rates, PIX reconciliation) |
+| Financeiro frontend | `frontend/src/routes/(app)/financeiro/` (lancamentos, formas-pagamento, relatorios, PIX) |
+| Financeiro form | `frontend/src/lib/components/financeiro/TransactionForm.svelte` |
 
 ## Chatwoot Integration
 

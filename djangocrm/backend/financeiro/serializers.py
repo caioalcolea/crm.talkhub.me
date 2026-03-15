@@ -186,6 +186,7 @@ class LancamentoListSerializer(serializers.ModelSerializer):
     contact_name = serializers.SerializerMethodField()
     parcelas_pagas = serializers.SerializerMethodField()
     currency_symbol = serializers.SerializerMethodField()
+    can_edit_financials = serializers.SerializerMethodField()
 
     class Meta:
         model = Lancamento
@@ -206,6 +207,7 @@ class LancamentoListSerializer(serializers.ModelSerializer):
             "valor_total",
             "valor_convertido",
             "exchange_rate_to_base",
+            "exchange_rate_type",
             "forma_pagamento",
             "forma_pagamento_nome",
             "numero_parcelas",
@@ -214,6 +216,11 @@ class LancamentoListSerializer(serializers.ModelSerializer):
             "competencia_ano",
             "competencia_mes",
             "parcelas_pagas",
+            "is_recorrente",
+            "recorrencia_tipo",
+            "data_fim_recorrencia",
+            "recorrencia_ativa",
+            "can_edit_financials",
             "created_at",
         ]
 
@@ -237,6 +244,12 @@ class LancamentoListSerializer(serializers.ModelSerializer):
 
     def get_currency_symbol(self, obj):
         return FINANCEIRO_CURRENCY_SYMBOLS.get(obj.currency, obj.currency)
+
+    def get_can_edit_financials(self, obj):
+        """True if no parcelas have been paid and lancamento is not cancelled."""
+        if obj.status == "CANCELADO":
+            return False
+        return not obj.parcelas.filter(status="PAGO").exists()
 
 
 class LancamentoDetailSerializer(LancamentoListSerializer):
@@ -264,9 +277,13 @@ class LancamentoCreateSerializer(serializers.ModelSerializer):
             "currency",
             "valor_total",
             "exchange_rate_to_base",
+            "exchange_rate_type",
             "forma_pagamento",
             "numero_parcelas",
             "data_primeiro_vencimento",
+            "is_recorrente",
+            "recorrencia_tipo",
+            "data_fim_recorrencia",
         ]
 
     def validate_valor_total(self, value):
@@ -276,13 +293,22 @@ class LancamentoCreateSerializer(serializers.ModelSerializer):
 
     def validate_numero_parcelas(self, value):
         if value < 1:
-            raise serializers.ValidationError("Número de parcelas deve ser ao menos 1.")
+            raise serializers.ValidationError("Numero de parcelas deve ser ao menos 1.")
         if value > 120:
-            raise serializers.ValidationError("Máximo de 120 parcelas.")
+            raise serializers.ValidationError("Maximo de 120 parcelas.")
         return value
+
+    def validate(self, data):
+        if data.get("is_recorrente") and not data.get("recorrencia_tipo"):
+            raise serializers.ValidationError({
+                "recorrencia_tipo": "Tipo de recorrencia e obrigatorio para lancamentos recorrentes."
+            })
+        return data
 
 
 class LancamentoUpdateSerializer(serializers.ModelSerializer):
+    """Update serializer for lancamentos with some paid parcelas (metadata only)."""
+
     class Meta:
         model = Lancamento
         fields = [
@@ -295,6 +321,55 @@ class LancamentoUpdateSerializer(serializers.ModelSerializer):
             "invoice",
             "forma_pagamento",
         ]
+
+
+class LancamentoFullUpdateSerializer(serializers.ModelSerializer):
+    """Update serializer for lancamentos with NO paid parcelas (can change financials)."""
+
+    class Meta:
+        model = Lancamento
+        fields = [
+            "descricao",
+            "observacoes",
+            "plano_de_contas",
+            "account",
+            "contact",
+            "opportunity",
+            "invoice",
+            "forma_pagamento",
+            "valor_total",
+            "numero_parcelas",
+            "data_primeiro_vencimento",
+            "currency",
+            "exchange_rate_to_base",
+            "exchange_rate_type",
+            "is_recorrente",
+            "recorrencia_tipo",
+            "data_fim_recorrencia",
+            "recorrencia_ativa",
+        ]
+
+    def validate_valor_total(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Valor total deve ser positivo.")
+        return value
+
+    def validate_numero_parcelas(self, value):
+        if value is not None:
+            if value < 1:
+                raise serializers.ValidationError("Numero de parcelas deve ser ao menos 1.")
+            if value > 120:
+                raise serializers.ValidationError("Maximo de 120 parcelas.")
+        return value
+
+    def validate(self, data):
+        if data.get("is_recorrente") and not data.get("recorrencia_tipo"):
+            # Check if the instance already has it
+            if self.instance and not self.instance.recorrencia_tipo:
+                raise serializers.ValidationError({
+                    "recorrencia_tipo": "Tipo de recorrencia e obrigatorio para lancamentos recorrentes."
+                })
+        return data
 
 
 # =============================================================================

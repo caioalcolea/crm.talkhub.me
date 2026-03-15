@@ -5,6 +5,7 @@
     formData = $bindable({}),
     formOptions = {},
     mode = 'create',
+    canEditFinancials = true,
     onsubmit,
     oncancel,
     loading = false
@@ -14,6 +15,27 @@
     { value: 'PAGAR', label: 'Conta a Pagar' },
     { value: 'RECEBER', label: 'Conta a Receber' }
   ];
+
+  const recorrenciaOptions = [
+    { value: 'MENSAL', label: 'Mensal' },
+    { value: 'QUINZENAL', label: 'Quinzenal' },
+    { value: 'SEMANAL', label: 'Semanal' },
+    { value: 'ANUAL', label: 'Anual' }
+  ];
+
+  let orgCurrency = $derived(formOptions.org_currency || 'BRL');
+  let isSameCurrency = $derived(formData.currency === orgCurrency);
+  let showFinancials = $derived(mode === 'create' || (mode === 'edit' && canEditFinancials));
+
+  // Auto-set exchange rate to 1 when same currency
+  $effect(() => {
+    if (isSameCurrency) {
+      formData.exchange_rate_to_base = '1';
+      if (formData.exchange_rate_type === 'VARIAVEL') {
+        formData.exchange_rate_type = 'FIXO';
+      }
+    }
+  });
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -42,13 +64,13 @@
 
   <!-- Descricao -->
   <div>
-    <label for="descricao" class="text-sm font-medium">Descrição *</label>
+    <label for="descricao" class="text-sm font-medium">Descricao *</label>
     <input
       id="descricao"
       type="text"
       bind:value={formData.descricao}
       class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-      placeholder="Descrição do lançamento"
+      placeholder="Descricao do lancamento"
       required
     />
   </div>
@@ -98,8 +120,8 @@
     </div>
   </div>
 
-  <!-- Currency + Value + Exchange Rate -->
-  {#if mode === 'create'}
+  <!-- Currency + Value + Exchange Rate (only for create or full-edit) -->
+  {#if showFinancials}
     <div class="grid grid-cols-3 gap-3">
       <div>
         <label for="currency" class="text-sm font-medium">Moeda</label>
@@ -125,8 +147,27 @@
           required
         />
       </div>
-      <div>
-        <label for="exchange_rate_to_base" class="text-sm font-medium">Taxa de Câmbio</label>
+      {#if !isSameCurrency}
+        <div>
+          <label for="exchange_rate_type" class="text-sm font-medium">Tipo de Taxa</label>
+          <select
+            id="exchange_rate_type"
+            bind:value={formData.exchange_rate_type}
+            class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
+          >
+            <option value="FIXO">Fixa (manual)</option>
+            <option value="VARIAVEL">Variavel (automatica)</option>
+          </select>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Exchange rate input (only for FIXO and different currency) -->
+    {#if !isSameCurrency && formData.exchange_rate_type !== 'VARIAVEL'}
+      <div class="max-w-[200px]">
+        <label for="exchange_rate_to_base" class="text-sm font-medium">
+          Taxa de Cambio (1 {formData.currency} = X {orgCurrency})
+        </label>
         <input
           id="exchange_rate_to_base"
           type="number"
@@ -136,7 +177,11 @@
           class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
         />
       </div>
-    </div>
+    {:else if !isSameCurrency && formData.exchange_rate_type === 'VARIAVEL'}
+      <p class="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs">
+        A taxa de cambio sera buscada automaticamente na data do lancamento.
+      </p>
+    {/if}
 
     <!-- Parcelas + Vencimento + Forma -->
     <div class="grid grid-cols-3 gap-3">
@@ -148,8 +193,12 @@
           min="1"
           max="120"
           bind:value={formData.numero_parcelas}
-          class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
+          disabled={formData.is_recorrente}
+          class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none disabled:opacity-50"
         />
+        {#if formData.is_recorrente}
+          <p class="text-muted-foreground mt-0.5 text-[10px]">Automatico (recorrente)</p>
+        {/if}
       </div>
       <div>
         <label for="data_primeiro_vencimento" class="text-sm font-medium">1° Vencimento *</label>
@@ -175,17 +224,58 @@
         </select>
       </div>
     </div>
+
+    <!-- Recurring toggle -->
+    <div class="rounded-md border p-3 space-y-3">
+      <label class="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          bind:checked={formData.is_recorrente}
+          class="h-4 w-4 rounded border-gray-300"
+        />
+        <span class="font-medium">Lancamento recorrente</span>
+      </label>
+
+      {#if formData.is_recorrente}
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="recorrencia_tipo" class="text-sm font-medium">Frequencia *</label>
+            <select
+              id="recorrencia_tipo"
+              bind:value={formData.recorrencia_tipo}
+              class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
+              required
+            >
+              <option value="">Selecione...</option>
+              {#each recorrenciaOptions as opt}
+                <option value={opt.value}>{opt.label}</option>
+              {/each}
+            </select>
+          </div>
+          <div>
+            <label for="data_fim_recorrencia" class="text-sm font-medium">Data Fim (opcional)</label>
+            <input
+              id="data_fim_recorrencia"
+              type="date"
+              bind:value={formData.data_fim_recorrencia}
+              class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
+            />
+            <p class="text-muted-foreground mt-0.5 text-[10px]">Deixe vazio para recorrencia sem fim</p>
+          </div>
+        </div>
+      {/if}
+    </div>
   {/if}
 
   <!-- Observacoes -->
   <div>
-    <label for="observacoes" class="text-sm font-medium">Observações</label>
+    <label for="observacoes" class="text-sm font-medium">Observacoes</label>
     <textarea
       id="observacoes"
       bind:value={formData.observacoes}
       rows="3"
       class="border-input bg-background mt-1 flex w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none"
-      placeholder="Observações adicionais..."
+      placeholder="Observacoes adicionais..."
     ></textarea>
   </div>
 
@@ -193,7 +283,7 @@
   <div class="flex justify-end gap-2 pt-2">
     <Button variant="outline" type="button" onclick={oncancel}>Cancelar</Button>
     <Button type="submit" disabled={loading}>
-      {loading ? 'Salvando...' : mode === 'create' ? 'Criar Lançamento' : 'Salvar'}
+      {loading ? 'Salvando...' : mode === 'create' ? 'Criar Lancamento' : 'Salvar'}
     </Button>
   </div>
 </form>
