@@ -13,13 +13,16 @@
     FileText,
     Loader2,
     Camera,
-    X
+    X,
+    Phone,
+    Mail
   } from '@lucide/svelte';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { CURRENCY_CODES } from '$lib/constants/filters.js';
+  import { COUNTRIES } from '$lib/constants/countries.js';
 
   /** @type {{ data: any, form: any }} */
   let { data, form } = $props();
@@ -30,42 +33,35 @@
   // Opções de moeda
   const currencyOptions = CURRENCY_CODES.filter((c) => c.value);
 
-  // Opções de país
+  // Opções de país (lista completa)
   const countryOptions = [
-    { value: '', label: 'Selecionar País', flag: '' },
-    { value: 'BR', label: 'Brasil', flag: '🇧🇷' },
-    { value: 'US', label: 'Estados Unidos', flag: '🇺🇸' },
-    { value: 'GB', label: 'Reino Unido', flag: '🇬🇧' },
-    { value: 'CA', label: 'Canadá', flag: '🇨🇦' },
-    { value: 'AU', label: 'Austrália', flag: '🇦🇺' },
-    { value: 'DE', label: 'Alemanha', flag: '🇩🇪' },
-    { value: 'FR', label: 'França', flag: '🇫🇷' },
-    { value: 'IN', label: 'Índia', flag: '🇮🇳' },
-    { value: 'JP', label: 'Japão', flag: '🇯🇵' },
-    { value: 'SG', label: 'Singapura', flag: '🇸🇬' },
-    { value: 'AE', label: 'Emirados Árabes', flag: '🇦🇪' },
-    { value: 'MX', label: 'México', flag: '🇲🇽' },
-    { value: 'CH', label: 'Suíça', flag: '🇨🇭' },
-    { value: 'NL', label: 'Holanda', flag: '🇳🇱' },
-    { value: 'ES', label: 'Espanha', flag: '🇪🇸' },
-    { value: 'IT', label: 'Itália', flag: '🇮🇹' },
-    { value: 'PT', label: 'Portugal', flag: '🇵🇹' },
-    { value: 'AR', label: 'Argentina', flag: '🇦🇷' },
-    { value: 'CL', label: 'Chile', flag: '🇨🇱' },
-    { value: 'CO', label: 'Colômbia', flag: '🇨🇴' }
+    { value: '', label: 'Selecionar País' },
+    ...COUNTRIES.map((c) => ({ value: c.code, label: c.name }))
   ];
 
-  // Estado do formulário
+  // Estado do formulário — Identidade
   let formName = $state('');
-  let formDomain = $state('');
-  let formDescription = $state('');
-  let formCurrency = $state('BRL');
+  let formCompanyName = $state('');
+  let formWebsite = $state('');
+  let formEmail = $state('');
+  let formPhone = $state('');
+  let formTaxId = $state('');
+
+  // Estado do formulário — Endereço
+  let formAddressLine = $state('');
+  let formCity = $state('');
+  let formState = $state('');
+  let formPostcode = $state('');
   let formCountry = $state('');
+
+  // Estado do formulário — Regional
+  let formCurrency = $state('BRL');
+  let formDefaultCountry = $state('');
 
   // Estado do upload de logo
   let logoPreview = $state('');
   let logoFile = $state(null);
-  let isUploadingLogo = $state(false);
+  let removeLogoFlag = $state(false);
 
   /** @type {HTMLInputElement|null} */
   let logoInput = $state(null);
@@ -73,11 +69,20 @@
   // Atualizar estado quando settings mudar
   $effect(() => {
     formName = settings.name || '';
-    formDomain = settings.domain || '';
-    formDescription = settings.description || '';
+    formCompanyName = settings.company_name || '';
+    formWebsite = settings.website || '';
+    formEmail = settings.email || '';
+    formPhone = settings.phone || '';
+    formTaxId = settings.tax_id || '';
+    formAddressLine = settings.address_line || '';
+    formCity = settings.city || '';
+    formState = settings.state || '';
+    formPostcode = settings.postcode || '';
+    formCountry = settings.country || '';
     formCurrency = settings.default_currency || 'BRL';
-    formCountry = settings.default_country || '';
+    formDefaultCountry = settings.default_country || '';
     logoPreview = settings.logo_url || '';
+    removeLogoFlag = false;
   });
 
   // Resultado do formulário
@@ -89,11 +94,6 @@
       toast.error(form.error);
     }
   });
-
-  // Bandeira do país selecionado
-  const currentCountryFlag = $derived(
-    countryOptions.find((c) => c.value === formCountry)?.flag || ''
-  );
 
   // Símbolo da moeda
   const currencySymbol = $derived(() => {
@@ -144,6 +144,7 @@
     }
 
     logoFile = file;
+    removeLogoFlag = false;
     const reader = new FileReader();
     reader.onload = () => {
       logoPreview = /** @type {string} */ (reader.result);
@@ -154,6 +155,7 @@
   function removeLogo() {
     logoFile = null;
     logoPreview = '';
+    removeLogoFlag = true;
     if (logoInput) logoInput.value = '';
   }
 </script>
@@ -191,7 +193,9 @@
     }}
     class="mx-auto max-w-4xl space-y-8"
   >
-    <!-- Seção: Identidade da Organização -->
+    <input type="hidden" name="remove_logo" value={removeLogoFlag ? 'true' : 'false'} />
+
+    <!-- Seção 1: Identidade da Organização -->
     <section class="section-reveal">
       <div class="gradient-border overflow-hidden">
         <div class="relative p-8 md:p-10">
@@ -288,48 +292,94 @@
                   </div>
                 </div>
 
-                <!-- Domínio -->
+                <!-- Razão Social -->
                 <div class="space-y-2">
-                  <Label for="domain" class="text-muted-foreground flex items-center gap-2 text-sm">
-                    <Globe class="h-3.5 w-3.5" />
-                    Domínio da Empresa
+                  <Label for="company_name" class="text-muted-foreground flex items-center gap-2 text-sm">
+                    <Building2 class="h-3.5 w-3.5" />
+                    Razão Social
                   </Label>
                   <div class="input-glow rounded-lg transition-shadow duration-300">
-                    <div class="relative flex items-center">
-                      <div class="pointer-events-none absolute left-3 flex items-center">
-                        <Globe class="text-muted-foreground h-4 w-4" />
-                      </div>
-                      <Input
-                        id="domain"
-                        name="domain"
-                        type="text"
-                        bind:value={formDomain}
-                        placeholder="suaempresa.com.br"
-                        class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] pl-10 text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
-                      />
-                    </div>
+                    <Input
+                      id="company_name"
+                      name="company_name"
+                      type="text"
+                      bind:value={formCompanyName}
+                      placeholder="Razão Social Completa S.A."
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
                   </div>
                 </div>
-              </div>
 
-              <!-- Descrição -->
-              <div class="space-y-2">
-                <Label
-                  for="description"
-                  class="text-muted-foreground flex items-center gap-2 text-sm"
-                >
-                  <FileText class="h-3.5 w-3.5" />
-                  Sobre a Organização
-                </Label>
-                <div class="input-glow rounded-lg transition-shadow duration-300">
-                  <textarea
-                    id="description"
-                    name="description"
-                    rows="3"
-                    bind:value={formDescription}
-                    placeholder="Breve descrição da sua organização, setor de atuação e o que vocês fazem..."
-                    class="border-input ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[100px] w-full resize-none rounded-lg border bg-[var(--bg-subtle)] px-4 py-3 text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                  ></textarea>
+                <!-- Site da Empresa -->
+                <div class="space-y-2">
+                  <Label for="website" class="text-muted-foreground flex items-center gap-2 text-sm">
+                    <Globe class="h-3.5 w-3.5" />
+                    Site da Empresa
+                  </Label>
+                  <div class="input-glow rounded-lg transition-shadow duration-300">
+                    <Input
+                      id="website"
+                      name="website"
+                      type="url"
+                      bind:value={formWebsite}
+                      placeholder="https://suaempresa.com.br"
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
+                  </div>
+                </div>
+
+                <!-- Email da Empresa -->
+                <div class="space-y-2">
+                  <Label for="email" class="text-muted-foreground flex items-center gap-2 text-sm">
+                    <Mail class="h-3.5 w-3.5" />
+                    Email da Empresa
+                  </Label>
+                  <div class="input-glow rounded-lg transition-shadow duration-300">
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      bind:value={formEmail}
+                      placeholder="contato@suaempresa.com.br"
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
+                  </div>
+                </div>
+
+                <!-- Telefone -->
+                <div class="space-y-2">
+                  <Label for="phone" class="text-muted-foreground flex items-center gap-2 text-sm">
+                    <Phone class="h-3.5 w-3.5" />
+                    Telefone
+                  </Label>
+                  <div class="input-glow rounded-lg transition-shadow duration-300">
+                    <Input
+                      id="phone"
+                      name="phone"
+                      type="tel"
+                      bind:value={formPhone}
+                      placeholder="+55 (11) 99999-9999"
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
+                  </div>
+                </div>
+
+                <!-- CNPJ / Tax ID -->
+                <div class="space-y-2">
+                  <Label for="tax_id" class="text-muted-foreground flex items-center gap-2 text-sm">
+                    <FileText class="h-3.5 w-3.5" />
+                    CNPJ / Tax ID
+                  </Label>
+                  <div class="input-glow rounded-lg transition-shadow duration-300">
+                    <Input
+                      id="tax_id"
+                      name="tax_id"
+                      type="text"
+                      bind:value={formTaxId}
+                      placeholder="00.000.000/0001-00"
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -338,8 +388,118 @@
       </div>
     </section>
 
-    <!-- Seção: Moeda e Localidade -->
+    <!-- Seção 2: Endereço da Empresa -->
     <section class="section-reveal delay-1">
+      <div class="gradient-border overflow-hidden">
+        <div class="relative p-8 md:p-10">
+          <div class="pointer-events-none absolute inset-0 overflow-hidden">
+            <div
+              class="absolute -top-10 -right-20 h-48 w-48 rounded-full bg-gradient-to-br from-[var(--accent-secondary)] to-transparent opacity-10 blur-3xl"
+            ></div>
+          </div>
+
+          <div class="relative space-y-8">
+            <div class="space-y-1">
+              <div
+                class="text-muted-foreground mb-2 flex items-center gap-2 text-xs font-medium tracking-wider uppercase"
+              >
+                <MapPin class="h-3.5 w-3.5" />
+                Endereço da Empresa
+              </div>
+              <h3 class="text-lg font-semibold">Endereço Comercial</h3>
+              <p class="text-muted-foreground text-sm">
+                Exibido em faturas, orçamentos e documentos impressos
+              </p>
+            </div>
+
+            <div class="space-y-5">
+              <!-- Endereço (full width) -->
+              <div class="space-y-2">
+                <Label for="address_line" class="text-muted-foreground flex items-center gap-2 text-sm">
+                  <MapPin class="h-3.5 w-3.5" />
+                  Endereço
+                </Label>
+                <div class="input-glow rounded-lg transition-shadow duration-300">
+                  <Input
+                    id="address_line"
+                    name="address_line"
+                    type="text"
+                    bind:value={formAddressLine}
+                    placeholder="Rua Exemplo, 123 - Sala 456"
+                    class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                  />
+                </div>
+              </div>
+
+              <!-- Cidade / Estado / CEP -->
+              <div class="grid gap-5 md:grid-cols-3">
+                <div class="space-y-2">
+                  <Label for="city" class="text-muted-foreground text-sm">Cidade</Label>
+                  <div class="input-glow rounded-lg transition-shadow duration-300">
+                    <Input
+                      id="city"
+                      name="city"
+                      type="text"
+                      bind:value={formCity}
+                      placeholder="São Paulo"
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <Label for="state" class="text-muted-foreground text-sm">Estado / UF</Label>
+                  <div class="input-glow rounded-lg transition-shadow duration-300">
+                    <Input
+                      id="state"
+                      name="state"
+                      type="text"
+                      bind:value={formState}
+                      placeholder="SP"
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <Label for="postcode" class="text-muted-foreground text-sm">CEP / Código Postal</Label>
+                  <div class="input-glow rounded-lg transition-shadow duration-300">
+                    <Input
+                      id="postcode"
+                      name="postcode"
+                      type="text"
+                      bind:value={formPostcode}
+                      placeholder="01234-567"
+                      class="h-11 border-[var(--border-default)] bg-[var(--bg-subtle)] text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- País do endereço -->
+              <div class="space-y-2">
+                <Label for="country" class="text-muted-foreground text-sm">País</Label>
+                <div class="input-glow rounded-lg transition-shadow duration-300">
+                  <select
+                    id="country"
+                    name="country"
+                    bind:value={formCountry}
+                    class="custom-select border-input h-11 w-full cursor-pointer rounded-lg border bg-[var(--bg-subtle)] px-4 text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent focus:ring-2 focus:ring-[var(--accent-primary-subtle)] focus:outline-none"
+                  >
+                    {#each countryOptions as opt}
+                      <option value={opt.value}>{opt.label}</option>
+                    {/each}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Seção 3: Moeda e Localidade -->
+    <section class="section-reveal delay-2">
       <div class="gradient-border overflow-hidden">
         <div class="relative p-8 md:p-10">
           <div class="pointer-events-none absolute inset-0 overflow-hidden">
@@ -407,11 +567,11 @@
                     <select
                       id="default_country"
                       name="default_country"
-                      bind:value={formCountry}
+                      bind:value={formDefaultCountry}
                       class="custom-select border-input h-12 w-full cursor-pointer rounded-lg border bg-[var(--bg-subtle)] px-4 text-base transition-colors focus:border-[var(--accent-primary)] focus:bg-transparent focus:ring-2 focus:ring-[var(--accent-primary-subtle)] focus:outline-none"
                     >
-                      {#each countryOptions as country}
-                        <option value={country.value}>{country.flag} {country.label}</option>
+                      {#each countryOptions as opt}
+                        <option value={opt.value}>{opt.label}</option>
                       {/each}
                     </select>
                   </div>
@@ -442,9 +602,6 @@
                         maximumFractionDigits: 0
                       }).format(125000)}
                     </span>
-                    <span class="text-muted-foreground text-lg">
-                      {currentCountryFlag}
-                    </span>
                   </div>
                   <div class="text-muted-foreground mt-2 text-sm">
                     Exemplo: {new Intl.NumberFormat('pt-BR', {
@@ -461,7 +618,7 @@
     </section>
 
     <!-- Rodapé com status -->
-    <section class="section-reveal delay-2">
+    <section class="section-reveal delay-3">
       <div
         class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-4"
       >
@@ -614,5 +771,8 @@
   }
   .delay-2 {
     animation-delay: 0.2s;
+  }
+  .delay-3 {
+    animation-delay: 0.3s;
   }
 </style>
