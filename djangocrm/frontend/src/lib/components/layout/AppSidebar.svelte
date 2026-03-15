@@ -50,7 +50,10 @@
     Zap,
     QrCode,
     Megaphone,
-    Video
+    Video,
+    Bot,
+    Bell,
+    History
   } from '@lucide/svelte';
 
   /**
@@ -225,20 +228,6 @@
       preload: 'off'
     },
     {
-      href: '/automations',
-      label: 'Automações',
-      icon: Zap,
-      type: 'link',
-      preload: 'off'
-    },
-    {
-      href: '/campaigns',
-      label: 'Campanhas',
-      icon: Megaphone,
-      type: 'link',
-      preload: 'off'
-    },
-    {
       href: '/cowork',
       label: 'Sala Cowork',
       icon: Video,
@@ -283,6 +272,21 @@
     }
   ];
 
+  const autopilotItems = [
+    {
+      key: 'autopilot',
+      label: 'Autopilot',
+      icon: Bot,
+      type: 'dropdown',
+      children: [
+        { href: '/autopilot?tab=rules', label: 'Regras', icon: Zap, preload: 'off' },
+        { href: '/autopilot?tab=reminders', label: 'Lembretes', icon: Bell, preload: 'off' },
+        { href: '/autopilot?tab=campaigns', label: 'Campanhas', icon: Megaphone, preload: 'off' },
+        { href: '/autopilot?tab=runs', label: 'Execuções', icon: History, preload: 'off' },
+      ]
+    }
+  ];
+
   const supportItems = [
     {
       href: '/support',
@@ -294,7 +298,7 @@
   ];
 
   // Combine for iteration
-  const navigationItems = [...crmItems, ...salesItems, ...financeiroItems, ...supportItems];
+  const navigationItems = [...crmItems, ...salesItems, ...financeiroItems, ...autopilotItems, ...supportItems];
 
   // Admin panel (superuser only)
   const isSuperUser = $derived(user?.is_superuser === true);
@@ -313,9 +317,11 @@
    * @param {Array<{href: string}>} children
    */
   const hasActiveChild = (children) => {
-    return children.some(
-      (child) => currentPath === child.href || currentPath.startsWith(child.href + '/')
-    );
+    return children.some((child) => {
+      // Handle hrefs with query params (e.g., /autopilot?tab=rules)
+      const [childPath] = child.href.split('?');
+      return currentPath === child.href || currentPath === childPath || currentPath.startsWith(child.href + '/') || currentPath.startsWith(childPath + '/');
+    });
   };
 
   /**
@@ -560,6 +566,91 @@
                                 />
                                 <span
                                   class="text-[12px] {currentPath === navChild.href
+                                    ? 'font-semibold'
+                                    : 'font-medium'}">{navChild.label}</span
+                                >
+                              </a>
+                            {/snippet}
+                          </Sidebar.MenuSubButton>
+                        </Sidebar.MenuSubItem>
+                      {/each}
+                    </Sidebar.MenuSub>
+                  </Collapsible.Content>
+                </Sidebar.MenuItem>
+              </Collapsible.Root>
+            {/if}
+          {/each}
+        </Sidebar.Menu>
+      </Sidebar.GroupContent>
+    </Sidebar.Group>
+
+    <!-- Autopilot Section -->
+    <Sidebar.Group class="mt-4">
+      <Sidebar.GroupLabel
+        class="text-sidebar-foreground/40 mb-1 px-3 text-[10px] font-bold tracking-widest uppercase group-data-[collapsible=icon]:hidden"
+      >
+        Automação
+      </Sidebar.GroupLabel>
+      <Sidebar.GroupContent>
+        <Sidebar.Menu class="space-y-2">
+          {#each autopilotItems as item}
+            {#if item.type === 'dropdown' && item.children}
+              <Collapsible.Root
+                open={openDropdowns[item.key ?? ''] || false}
+                onOpenChange={(open) => {
+                  if (item.key) openDropdowns[item.key] = open;
+                }}
+                class="group/collapsible"
+              >
+                <Sidebar.MenuItem>
+                  <Collapsible.Trigger>
+                    {#snippet child({ props })}
+                      <Sidebar.MenuButton
+                        {...props}
+                        isActive={hasActiveChild(item.children ?? [])}
+                        tooltipContent={item.label}
+                        class="nav-item group/item h-9 rounded-lg px-2.5 transition-all duration-200
+                          {hasActiveChild(item.children ?? [])
+                          ? 'text-[var(--color-primary-default)]'
+                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground'}"
+                      >
+                        {#snippet child({ props: btnProps })}
+                          <button {...btnProps} class="flex w-full items-center gap-2.5">
+                            <item.icon class="size-5 shrink-0" strokeWidth={1.75} />
+                            <span
+                              class="text-[13px] group-data-[collapsible=icon]:hidden {hasActiveChild(item.children ?? [])
+                                ? 'font-semibold'
+                                : 'font-medium'}">{item.label}</span
+                            >
+                            <ChevronDown
+                              class="text-sidebar-foreground/40 ml-auto size-4 transition-transform duration-200 group-data-[collapsible=icon]:hidden group-data-[state=open]/collapsible:rotate-180"
+                            />
+                          </button>
+                        {/snippet}
+                      </Sidebar.MenuButton>
+                    {/snippet}
+                  </Collapsible.Trigger>
+                  <Collapsible.Content>
+                    <Sidebar.MenuSub
+                      class="border-sidebar-border/40 mt-1.5 ml-[11px] space-y-0.5 border-l py-1 pl-3"
+                    >
+                      {#each item.children as navChild}
+                        <Sidebar.MenuSubItem>
+                          <Sidebar.MenuSubButton
+                            isActive={currentPath === navChild.href.split('?')[0] && $page.url.search.includes(navChild.href.split('?')[1] || '')}
+                            class="nav-subitem group/subitem relative h-7 rounded-md px-2 transition-all duration-200
+                              {currentPath === navChild.href.split('?')[0] && $page.url.search.includes(navChild.href.split('?')[1] || '')
+                              ? 'bg-[var(--color-primary-default)]/[0.08] text-[var(--color-primary-default)] dark:bg-[var(--color-primary-default)]/15'
+                              : 'text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'}"
+                          >
+                            {#snippet child({ props })}
+                              <a href={navChild.href} {...props} class="flex items-center gap-2">
+                                <navChild.icon
+                                  class="size-3.5 transition-colors duration-200"
+                                  strokeWidth={currentPath === navChild.href.split('?')[0] ? 2.25 : 1.75}
+                                />
+                                <span
+                                  class="text-[12px] {currentPath === navChild.href.split('?')[0] && $page.url.search.includes(navChild.href.split('?')[1] || '')
                                     ? 'font-semibold'
                                     : 'font-medium'}">{navChild.label}</span
                                 >
