@@ -105,9 +105,9 @@ def merge_contacts(org, primary_id, secondary_id, user_email="system"):
             contact=secondary, org=org
         ).update(contact=primary)
 
-        # PixTransaction (financeiro) also has contact FK
-        from financeiro.models import PixTransaction
-        PixTransaction.objects.filter(
+        # PaymentTransaction (financeiro) also has contact FK
+        from financeiro.models import PaymentTransaction
+        PaymentTransaction.objects.filter(
             contact=secondary, org=org
         ).update(contact=primary)
 
@@ -116,9 +116,9 @@ def merge_contacts(org, primary_id, secondary_id, user_email="system"):
             contact=secondary
         ).update(contact=primary)
 
-        # accounts.EmailLog
-        from accounts.models import EmailLog
-        EmailLog.objects.filter(contact=secondary).update(contact=primary)
+        # accounts.AccountEmailLog
+        from accounts.models import AccountEmailLog
+        AccountEmailLog.objects.filter(contact=secondary).update(contact=primary)
 
         # tasks.BoardTask (contact FK)
         from tasks.models import BoardTask
@@ -133,8 +133,8 @@ def merge_contacts(org, primary_id, secondary_id, user_email="system"):
         _move_m2m("tasks.Task", "contacts", secondary, primary, stats, "tasks")
         _move_m2m("accounts.Account", "contacts", secondary, primary, stats, "accounts")
 
-        # accounts.Email recipients M2M
-        from accounts.models import Email as AccountEmail
+        # accounts.AccountEmail recipients M2M
+        from accounts.models import AccountEmail
         for em in AccountEmail.objects.filter(recipients=secondary):
             em.recipients.add(primary)
             em.recipients.remove(secondary)
