@@ -420,11 +420,12 @@ class ChatwootConnector(BaseConnector):
         status_map = {"open": "open", "pending": "pending", "resolved": "resolved", "snoozed": "pending"}
         cw_status = cw_conv.get("status", "open")
 
-        # Get or create conversation
+        # Get or create conversation (skip soft-deleted)
         conv, created = Conversation.objects.update_or_create(
             org=org,
             channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
             defaults={
                 "contact": contact,
                 "integration_provider": "chatwoot",
@@ -923,10 +924,11 @@ class ChatwootConnector(BaseConnector):
 
         account_id = payload.get("account", {}).get("id")
 
-        # Find or create conversation
+        # Find or create conversation (skip soft-deleted)
         conv = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).first()
 
         if not conv:
@@ -1028,10 +1030,11 @@ class ChatwootConnector(BaseConnector):
 
         account_id = payload.get("account", {}).get("id")
 
-        # Check if already exists
+        # Check if already exists (skip soft-deleted)
         existing = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).exists()
         if existing:
             return {"status": "skipped", "reason": "already_exists"}
@@ -1096,6 +1099,7 @@ class ChatwootConnector(BaseConnector):
         conv = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).first()
 
         if not conv:
@@ -1153,6 +1157,7 @@ class ChatwootConnector(BaseConnector):
         conv = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).first()
 
         if not conv:

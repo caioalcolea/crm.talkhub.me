@@ -7,7 +7,7 @@
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
   import { ArrowLeft, PanelRight } from '@lucide/svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
-  import { apiRequest } from '$lib/api.js';
+  import { apiRequest, getCurrentUser } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
 
   /** @type {{ data: any }} */
@@ -20,6 +20,9 @@
   let messages = $state([]);
   let channels = $derived(data.channels || []);
   let showContextPanel = $state(false);
+  const currentUser = $derived(getCurrentUser());
+  const isAdmin = $derived(currentUser?.role === 'ADMIN' || currentUser?.is_organization_admin || currentUser?.is_superuser);
+  const isDeletedView = $derived(conversation?.is_deleted === true);
   let lastPollTime = $state(new Date().toISOString());
 
   $effect(() => {
@@ -113,8 +116,16 @@
         <ConversationTimeline
           {conversation}
           {messages}
+          {isAdmin}
+          {isDeletedView}
           onContactChanged={handleConversationContactChanged}
-          onConversationChanged={(updated) => { conversation = updated; }}
+          onConversationChanged={(updated) => {
+            if (updated._permanentlyDeleted || updated.is_deleted) {
+              goto('/conversations');
+            } else {
+              conversation = updated;
+            }
+          }}
         >
           {#snippet headerActions()}
             <Button

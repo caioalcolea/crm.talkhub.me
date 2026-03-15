@@ -147,7 +147,7 @@ class ConversationDetailView(APIView):
     def get(self, request, pk):
         try:
             conversation = Conversation.objects.select_related(
-                "contact", "assigned_to__user"
+                "contact", "assigned_to__user", "deleted_by__user"
             ).get(id=pk, org=request.org)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -157,8 +157,8 @@ class ConversationDetailView(APIView):
     def patch(self, request, pk):
         try:
             conversation = Conversation.objects.select_related(
-                "contact", "assigned_to__user"
-            ).get(id=pk, org=request.org)
+                "contact", "assigned_to__user", "deleted_by__user"
+            ).get(id=pk, org=request.org, is_deleted=False)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -208,7 +208,9 @@ class MessageListView(APIView):
 
     def get(self, request, conversation_id):
         try:
-            conversation = Conversation.objects.get(id=conversation_id, org=request.org)
+            conversation = Conversation.objects.get(
+                id=conversation_id, org=request.org, is_deleted=False
+            )
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -232,7 +234,7 @@ class MessageCreateView(APIView):
     def post(self, request, conversation_id):
         try:
             conversation = Conversation.objects.select_related("contact").get(
-                id=conversation_id, org=request.org
+                id=conversation_id, org=request.org, is_deleted=False
             )
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -370,7 +372,7 @@ class ConversationAssignView(APIView):
         try:
             conversation = Conversation.objects.select_related(
                 "contact", "assigned_to__user"
-            ).get(id=pk, org=request.org)
+            ).get(id=pk, org=request.org, is_deleted=False)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -416,7 +418,7 @@ class ConversationBotView(APIView):
     def post(self, request, pk, action):
         try:
             conversation = Conversation.objects.select_related("contact").get(
-                id=pk, org=request.org
+                id=pk, org=request.org, is_deleted=False
             )
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)

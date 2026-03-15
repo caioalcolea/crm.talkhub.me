@@ -202,6 +202,10 @@ bash docker/debug-traefik.sh
 16. **CoworkPiP z-index**: Full-mode overlay (z-15) is OUTSIDE AppShell in DOM. PageHeader wrapper and toolbar on cowork page MUST have `relative z-20` to stay above the overlay. Sidebar (z-10) doesn't overlap because the overlay is positioned to its right.
 17. **CoworkPiP full-mode positioning**: Cannot move iframe between DOM nodes (causes reload). Uses `position:fixed` overlay with ResizeObserver on `[data-cowork-target]`. Hardcoded rem fallback (`top:7.75rem; left:16rem`) ensures immediate visibility. CSS `var(--sidebar-width)` doesn't resolve outside the sidebar-provider wrapper — use hardcoded values.
 18. **CoworkPiP effect chain**: `startCoworkSession()` → DOM render → `registerFullTarget()` → ResizeObserver → `fullBounds` requires 4 effects in sequence. Polling retry (100ms × 30) and DOM query backup protect against timing issues. **Never use `opacity:0` as fallback** — use hardcoded visible position instead.
+19. **Conversation soft-delete**: All user-facing views (list, messages, assign, bot) filter `is_deleted=False`. Chatwoot webhooks also skip deleted conversations. Only `ConversationDetailView.get()` allows viewing deleted conversations (needed for the trash view). Permanent delete requires `is_deleted=True` first (two-step).
+20. **Contact FK is SET_NULL**: `Conversation.contact` uses `on_delete=SET_NULL` — contact deletion sets `contact=NULL` instead of cascading. Serializers and templates handle `contact is None` with "Contato removido" fallback.
+21. **Contact merge email/phone preservation**: Merge fills `secondary_email`/`secondary_phone` first (if empty), then overflows to `ContactEmail`/`ContactPhone` extras. The `_SCALAR_FIELDS` step runs before the preservation step, so in-memory mutations are visible to the preservation logic.
+22. **Secondary email/phone in channel matching**: All lookup chains follow the order: primary → secondary → extra table. Chatwoot connector, SMTP polling, data_unifier, and duplicate detection all include secondary fields.
 
 ## Invitation System
 
@@ -323,9 +327,12 @@ startCoworkSession() → mode='full' → page renders [data-cowork-target]
 | Email templates | `backend/templates/` (all in pt-BR) |
 | UI components | `frontend/src/lib/components/` |
 | Constants (currencies, countries) | `frontend/src/lib/constants/` |
+| Contact merge | `backend/contacts/merge.py` (merge_contacts, get_merge_preview) |
+| Contact duplicate detection | `backend/common/duplicate_detection.py` |
 | Chatwoot connector | `backend/chatwoot/connector.py` (webhook handlers, sync, group detection) |
 | Chatwoot channel provider | `backend/chatwoot/provider.py` (send/receive messages) |
 | Conversation real-time | `backend/conversations/views.py` (`ConversationUpdatesView`) |
+| Conversation soft-delete | `backend/conversations/views.py` (SoftDelete, PermanentDelete views) |
 | Webhook routing | `backend/integrations/views.py` (`webhook_receiver`), `backend/integrations/tasks.py` |
 | Invitation system | `backend/common/views/invitation_views.py`, `frontend/.../login/+page.server.js` |
 | User management | `frontend/src/routes/(app)/users/+page.svelte`, `+page.server.js` |
@@ -359,7 +366,8 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 ### Key Patterns
 - **Echo prevention**: Outgoing messages with `content_attributes.external_created=True` are skipped
 - **Group detection**: Checks `conversation_type=="group"`, `additional_attributes.type=="group"`, `"(GROUP)"` in contact name, and fallback name chain
-- **Contact dedup**: `_get_or_create_contact` matches by: (1) chatwoot_id stored in description, (2) email, (3) phone, (4) exact name for contacts without email/phone (groups). Handles both `NULL` and `""` for empty fields
+- **Contact dedup**: `_get_or_create_contact` matches by: (1) chatwoot_id stored in description, (2) email, (2b) secondary_email, (3) phone, (3b) secondary_phone, (4) extra_emails/phones tables, (5) exact name for groups. Handles both `NULL` and `""` for empty fields
+- **Soft-delete aware**: All webhook handlers filter `is_deleted=False` — won't resurrect or modify soft-deleted conversations
 - **Auto-dedup on sync**: `_dedup_contacts()` runs at start of every sync — merges duplicate contacts (same name, no email/phone), reassigns conversations, removes duplicates
 - **Sync all statuses**: Chatwoot API defaults to `status=open`. Sync iterates all statuses: open, pending, resolved, snoozed
 - **Contact sync**: `_get_or_create_contact` updates existing contacts with missing email/phone/name from Chatwoot
@@ -380,6 +388,36 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - Inbound: IMAP polling via Celery Beat every 2 minutes (`poll_imap_emails` task)
 - HTML email rendering with text/HTML toggle in conversation timeline
 - Reply threading via `In-Reply-To` / `References` headers
+- Contact lookup chain: primary email → secondary_email → extra_emails table
+
+## Contact Management
+
+### Multiple Emails/Phones per Contact
+- **Primary fields**: `email`, `phone` (direct on Contact model)
+- **Secondary fields**: `secondary_email`, `secondary_phone` (direct on Contact model, visible in create/edit forms)
+- **Extra entries**: `ContactEmail`, `ContactPhone`, `ContactAddress` junction tables (for 3rd+ values)
+- All channels (Chatwoot, SMTP, TalkHub Omni, data_unifier) check secondary fields in lookup chains
+- Duplicate detection checks secondary fields bidirectionally
+
+### Contact Merge
+- **Service**: `backend/contacts/merge.py` — `merge_contacts(org, primary_id, secondary_id)`
+- **Preview**: `get_merge_preview()` shows field-by-field diff before merge
+- **Email/Phone preservation**: All unique emails/phones from secondary are preserved — fills `secondary_email`/`secondary_phone` first, then `ContactEmail`/`ContactPhone` extras
+- **Conflict handling**: If both contacts have different values, secondary's values are saved as extras (never lost)
+- **FK/M2M reassignment**: Conversations, invoices, leads, opportunities, cases, tasks, orders, comments, attachments all transferred
+- **Audit trail**: Comment created on primary contact documenting the merge
+
+### Conversation Soft-Delete
+- **Fields**: `is_deleted` (bool), `deleted_at` (datetime), `deleted_by` (FK to Profile)
+- **Contact FK**: `on_delete=SET_NULL` (not CASCADE) — deleting a contact preserves conversations
+- **Contact delete handler**: All conversations soft-deleted before contact hard-delete
+- **Endpoints**:
+  - `POST /api/conversations/<id>/delete/` — any org user can soft-delete
+  - `POST /api/conversations/<id>/restore/` — admin only
+  - `DELETE /api/conversations/<id>/permanent-delete/` — admin only, must be in trash first
+- **Filtering**: All user-facing views filter `is_deleted=False` by default; `?deleted=true` shows trash
+- **Chatwoot protection**: Webhook handlers skip soft-deleted conversations (won't resurrect them)
+- **Frontend**: "Deletados" filter in inbox, trash banner, restore/permanent-delete buttons (admin only)
 
 ## Security Audit Fixes Applied
 
