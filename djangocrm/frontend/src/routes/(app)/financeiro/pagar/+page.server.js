@@ -24,7 +24,10 @@ export async function load({ url, locals, cookies }) {
     if (filters.vencimento_from) queryParams.append('vencimento_from', filters.vencimento_from);
     if (filters.vencimento_to) queryParams.append('vencimento_to', filters.vencimento_to);
 
-    const res = await apiRequest(`/financeiro/parcelas/?${queryParams.toString()}`, {}, { cookies, org });
+    const [res, activeReminders] = await Promise.all([
+      apiRequest(`/financeiro/parcelas/?${queryParams.toString()}`, {}, { cookies, org }),
+      apiRequest('/assistant/reminder-policies/?module_key=financeiro&is_active=true', {}, { cookies, org }).catch(() => []),
+    ]);
 
     let parcelas = [];
     let totalCount = 0;
@@ -36,10 +39,16 @@ export async function load({ url, locals, cookies }) {
       totalCount = parcelas.length;
     }
 
+    // Extract lancamento IDs that have active reminder policies
+    const reminderLancamentoIds = (Array.isArray(activeReminders) ? activeReminders : activeReminders?.results || [])
+      .map(r => r.target_object_id)
+      .filter(Boolean);
+
     return {
       parcelas,
       pagination: { page, limit, total: totalCount, totalPages: Math.ceil(totalCount / limit) },
-      filters
+      filters,
+      reminderLancamentoIds,
     };
   } catch (err) {
     console.error('Pagar load error:', err);

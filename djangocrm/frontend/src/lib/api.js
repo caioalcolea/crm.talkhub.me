@@ -501,7 +501,50 @@ export const financeiro = {
   // Form options
   async formOptions() {
     return apiRequest('/financeiro/form-options/');
-  }
+  },
+
+  // Reminders (per lancamento)
+  async getLancamentoReminders(id) {
+    return apiRequest(`/financeiro/lancamentos/${id}/reminders/`);
+  },
+  async createLancamentoReminder(id, data) {
+    return apiRequest(`/financeiro/lancamentos/${id}/reminders/`, { method: 'POST', body: data });
+  },
+};
+
+/**
+ * Autopilot Assistant API
+ */
+export const assistant = {
+  reminderPolicies: createCrudApi('assistant/reminder-policies'),
+
+  async activatePolicy(id) {
+    return apiRequest(`/assistant/reminder-policies/${id}/activate/`, { method: 'PATCH' });
+  },
+  async deactivatePolicy(id) {
+    return apiRequest(`/assistant/reminder-policies/${id}/deactivate/`, { method: 'PATCH' });
+  },
+  async scheduledJobs(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/scheduled-jobs/${qs ? `?${qs}` : ''}`);
+  },
+  async retryJob(id) {
+    return apiRequest(`/assistant/scheduled-jobs/${id}/retry/`, { method: 'POST' });
+  },
+  async cancelJob(id) {
+    return apiRequest(`/assistant/scheduled-jobs/${id}/cancel/`, { method: 'POST' });
+  },
+  async approveJob(id) {
+    return apiRequest(`/assistant/scheduled-jobs/${id}/approve/`, { method: 'POST' });
+  },
+  async runs(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/runs/${qs ? `?${qs}` : ''}`);
+  },
+  async presets(module = '') {
+    const qs = module ? `?module=${module}` : '';
+    return apiRequest(`/assistant/presets/${qs}`);
+  },
 };
 
 /**

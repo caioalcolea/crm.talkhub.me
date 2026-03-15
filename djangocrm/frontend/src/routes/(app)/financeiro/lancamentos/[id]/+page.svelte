@@ -6,6 +6,7 @@
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { financeiro } from '$lib/api.js';
   import { orgSettings } from '$lib/stores/org.js';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import { ArrowLeft, Ban, Pencil, Repeat, Square } from '@lucide/svelte';
 
   let { data } = $props();
@@ -247,5 +248,14 @@
         oncancel={handleCancelParcela}
       />
     </div>
+
+    <!-- Reminders -->
+    {#if l.status !== 'CANCELADO'}
+      <ReminderSection
+        lancamentoId={l.id}
+        reminders={data.reminders || []}
+        tipo={l.tipo}
+      />
+    {/if}
   {/if}
 </div>

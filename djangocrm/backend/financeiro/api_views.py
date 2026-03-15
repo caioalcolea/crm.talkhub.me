@@ -267,6 +267,57 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         serializer = ParcelaSerializer(parcelas, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=["get", "post"])
+    def reminders(self, request, pk=None):
+        """List or create reminder policies for this lancamento."""
+        from django.contrib.contenttypes.models import ContentType
+        from assistant.models import ReminderPolicy, ScheduledJob
+        from assistant.serializers import (
+            ReminderPolicySerializer,
+            ReminderPolicyWriteSerializer,
+            ScheduledJobSerializer,
+        )
+        from assistant.tasks import recalculate_policy_schedules
+
+        lancamento = self.get_object()
+        ct = ContentType.objects.get_for_model(Lancamento)
+
+        if request.method == "GET":
+            policies = ReminderPolicy.objects.filter(
+                org=request.profile.org,
+                target_content_type=ct,
+                target_object_id=lancamento.id,
+            ).order_by("-created_at")
+
+            source_ct = ContentType.objects.get_for_model(ReminderPolicy)
+            data = ReminderPolicySerializer(policies, many=True).data
+            for item in data:
+                jobs = ScheduledJob.objects.filter(
+                    source_content_type=source_ct,
+                    source_object_id=item["id"],
+                    status__in=["pending", "locked"],
+                ).order_by("due_at")[:10]
+                item["upcoming_jobs"] = ScheduledJobSerializer(jobs, many=True).data
+            return Response(data)
+
+        # POST — create a new policy for this lancamento
+        serializer = ReminderPolicyWriteSerializer(
+            data={
+                **request.data,
+                "target_type": "financeiro.lancamento",
+                "target_object_id": str(lancamento.id),
+                "module_key": "financeiro",
+            },
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        policy = serializer.save()
+        recalculate_policy_schedules.delay(str(policy.id))
+        return Response(
+            ReminderPolicySerializer(policy).data,
+            status=status.HTTP_201_CREATED,
+        )
+
 
 # =============================================================================
 # Parcela

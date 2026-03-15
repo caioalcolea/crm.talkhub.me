@@ -254,11 +254,34 @@ class LancamentoListSerializer(serializers.ModelSerializer):
 
 class LancamentoDetailSerializer(LancamentoListSerializer):
     parcelas = ParcelaSerializer(many=True, read_only=True)
+    reminder_policies = serializers.SerializerMethodField()
 
     class Meta(LancamentoListSerializer.Meta):
         fields = LancamentoListSerializer.Meta.fields + [
             "observacoes",
             "parcelas",
+            "reminder_policies",
+        ]
+
+    def get_reminder_policies(self, obj):
+        from django.contrib.contenttypes.models import ContentType
+        from assistant.models import ReminderPolicy
+        ct = ContentType.objects.get_for_model(obj)
+        policies = ReminderPolicy.objects.filter(
+            target_content_type=ct, target_object_id=obj.id
+        )
+        return [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "is_active": p.is_active,
+                "trigger_type": p.trigger_type,
+                "trigger_config": p.trigger_config,
+                "channel_config": p.channel_config,
+                "next_run_at": p.next_run_at.isoformat() if p.next_run_at else None,
+                "run_count": p.run_count,
+            }
+            for p in policies
         ]
 
 

@@ -6,7 +6,7 @@
   import { financeiro } from '$lib/api.js';
   import { formatCurrency } from '$lib/utils/formatting.js';
   import { orgSettings } from '$lib/stores/org.js';
-  import { Search, X, CheckCheck, ChevronDown, ChevronRight } from '@lucide/svelte';
+  import { Search, X, CheckCheck, ChevronDown, ChevronRight, Bell } from '@lucide/svelte';
 
   let { data } = $props();
   let searchInput = $state('');
@@ -14,6 +14,7 @@
   let vencimentoTo = $state('');
   let selectedIds = $state([]);
   let cur = $derived($orgSettings.default_currency || 'BRL');
+  let reminderIds = $derived(new Set(data.reminderLancamentoIds || []));
 
   const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -208,9 +209,16 @@
                 {group.count} parcela{group.count !== 1 ? 's' : ''}
               </span>
             </div>
-            <span class="font-mono text-sm font-semibold">
-              {formatCurrency(group.total, cur)}
-            </span>
+            <div class="flex items-center gap-2">
+              {#if group.parcelas.some(p => reminderIds.has(p.lancamento))}
+                <span class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                  <Bell class="size-3" /> Lembrete
+                </span>
+              {/if}
+              <span class="font-mono text-sm font-semibold">
+                {formatCurrency(group.total, cur)}
+              </span>
+            </div>
           </button>
 
           {#if expandedMonths.has(group.key)}
