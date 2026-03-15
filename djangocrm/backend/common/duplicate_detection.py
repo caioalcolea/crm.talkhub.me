@@ -105,18 +105,50 @@ class DuplicateDetector:
             if reason not in seen[cid]:
                 seen[cid].append(reason)
 
-        # 1. Email match
+        # 1. Email match (primary + extra_emails)
         if email:
             for c in base_qs.filter(email__iexact=email):
                 _add(c, "email")
+            # Also check extra_emails table
+            from contacts.models import ContactEmail
+            for extra in ContactEmail.objects.filter(
+                contact__org=org, email__iexact=email
+            ).select_related("contact"):
+                if not exclude_id or str(extra.contact_id) != str(exclude_id):
+                    _add(extra.contact, "email")
 
-        # 2. Phone match (normalized)
+        # 1b. Check if contact has extra_emails that match other contacts' primary emails
+        if contact:
+            for extra in contact.extra_emails.all():
+                for c in base_qs.filter(email__iexact=extra.email):
+                    _add(c, "email")
+
+        # 2. Phone match (normalized, primary + extra_phones)
         if phone:
             normalized = cls.normalize_phone(phone)
             if len(normalized) >= 7:
                 for c in base_qs.exclude(phone__isnull=True).exclude(phone=""):
                     if cls.normalize_phone(c.phone) == normalized:
                         _add(c, "phone")
+                # Also check extra_phones table
+                from contacts.models import ContactPhone
+                for extra in ContactPhone.objects.filter(
+                    contact__org=org,
+                ).select_related("contact"):
+                    if (
+                        cls.normalize_phone(extra.phone) == normalized
+                        and (not exclude_id or str(extra.contact_id) != str(exclude_id))
+                    ):
+                        _add(extra.contact, "phone")
+
+        # 2b. Check if contact has extra_phones that match other contacts' primary phones
+        if contact:
+            for extra in contact.extra_phones.all():
+                norm_extra = cls.normalize_phone(extra.phone)
+                if len(norm_extra) >= 7:
+                    for c in base_qs.exclude(phone__isnull=True).exclude(phone=""):
+                        if cls.normalize_phone(c.phone) == norm_extra:
+                            _add(c, "phone")
 
         # 3. Name match
         if first_name and last_name:

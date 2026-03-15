@@ -520,7 +520,7 @@ class ChatwootConnector(BaseConnector):
 
     def _get_or_create_contact(self, org, cw_contact, update_existing=True):
         """Get or create a CRM contact from Chatwoot contact data. Optionally update missing fields."""
-        from contacts.models import Contact
+        from contacts.models import Contact, ContactEmail, ContactPhone
 
         if not cw_contact:
             return None
@@ -542,13 +542,29 @@ class ChatwootConnector(BaseConnector):
                 org=org, description__contains=f"chatwoot_id:{cw_id}"
             ).first()
 
-        # 2) Try by email
+        # 2) Try by email (primary field)
         if not contact and email:
             contact = Contact.objects.filter(org=org, email=email).first()
 
-        # 3) Try by phone
+        # 2b) Try by extra_emails table
+        if not contact and email:
+            extra = ContactEmail.objects.filter(
+                contact__org=org, email__iexact=email
+            ).select_related("contact").first()
+            if extra:
+                contact = extra.contact
+
+        # 3) Try by phone (primary field)
         if not contact and phone:
             contact = Contact.objects.filter(org=org, phone=phone).first()
+
+        # 3b) Try by extra_phones table
+        if not contact and phone:
+            extra = ContactPhone.objects.filter(
+                contact__org=org, phone=phone
+            ).select_related("contact").first()
+            if extra:
+                contact = extra.contact
 
         # 4) For contacts without email/phone (groups), try by exact name
         #    Check both NULL and empty-string variants for email/phone
