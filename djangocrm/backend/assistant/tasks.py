@@ -87,6 +87,11 @@ def execute_job(self, job_id, org_id):
     job.save(update_fields=["status", "attempt_count", "updated_at"])
     job.refresh_from_db()
 
+    # Route campaign_step jobs to dedicated handler
+    if job.job_type == "campaign_step":
+        _execute_campaign_step_job(job, org_id)
+        return
+
     payload = job.payload or {}
     channel_config = payload.get("channel_config", {})
     task_config = payload.get("task_config", {})
@@ -178,6 +183,270 @@ def recalculate_policy_schedules(policy_id=None):
     logger.info("Recalculated schedules for %d policies", policies.count())
 
 
+def _execute_campaign_step_job(job, org_id):
+    """
+    Execute a campaign step job for a single recipient.
+
+    1. Load Campaign + CampaignRecipient from payload
+    2. Verify campaign is running and recipient is valid
+    3. Render template with contact data
+    4. Send via channel (email with tracking/unsub, or whatsapp)
+    5. Create ChannelDispatch record
+    6. Update CampaignRecipient status and Campaign counters
+    7. For nurture: generate job for next step
+    """
+    from django.conf import settings
+    from django.core.mail import EmailMessage
+    from django.db.models import F
+
+    from assistant.models import ChannelDispatch
+    from campaigns.models import Campaign, CampaignRecipient
+
+    payload = job.payload or {}
+    campaign_id = payload.get("campaign_id")
+    recipient_id = payload.get("recipient_id")
+    channel = payload.get("channel", "email")
+    step_order = payload.get("step_order", 0)
+    subject = payload.get("subject", "")
+    body_template = payload.get("body_template", "")
+
+    try:
+        campaign = Campaign.objects.get(id=campaign_id)
+        recipient = CampaignRecipient.objects.select_related("contact").get(
+            id=recipient_id
+        )
+    except (Campaign.DoesNotExist, CampaignRecipient.DoesNotExist):
+        job.status = "failed"
+        job.last_error = "Campaign or recipient not found"
+        job.save(update_fields=["status", "last_error", "updated_at"])
+        return
+
+    # Verify campaign is still running
+    if campaign.status not in ("running",):
+        job.status = "skipped"
+        job.save(update_fields=["status", "updated_at"])
+        return
+
+    # Skip unsubscribed recipients
+    if recipient.status == "unsubscribed":
+        job.status = "skipped"
+        job.save(update_fields=["status", "updated_at"])
+        return
+
+    contact = recipient.contact
+    body = _render_campaign_template(body_template, contact)
+    success = False
+    error_msg = ""
+    provider_message_id = ""
+
+    if channel == "email":
+        success, error_msg = _send_campaign_email(
+            campaign, recipient, contact, subject, body, org_id
+        )
+    elif channel == "whatsapp":
+        success, error_msg, provider_message_id = _send_campaign_whatsapp(
+            contact, body, org_id
+        )
+
+    # Create ChannelDispatch audit record
+    destination = contact.email if channel == "email" else (contact.phone or "")
+    ChannelDispatch.objects.create(
+        org=job.org,
+        scheduled_job=job,
+        channel_type=f"campaign_{channel}",
+        destination=destination,
+        message_payload={"subject": subject, "body": body[:500]},
+        status="sent" if success else "failed",
+        provider_message_id=provider_message_id,
+        error_message=error_msg,
+        sent_at=timezone.now() if success else None,
+    )
+
+    # Update recipient and campaign counters
+    _update_campaign_after_send(campaign, recipient, success, error_msg, step_order)
+
+    if success:
+        job.status = "completed"
+        job.save(update_fields=["status", "updated_at"])
+
+        # For nurture: generate next step job
+        if campaign.campaign_type == "nurture_sequence" and step_order > 0:
+            from campaigns.job_generator import generate_nurture_next_step_job
+            next_job = generate_nurture_next_step_job(
+                campaign, recipient, step_order
+            )
+            if not next_job:
+                # Last step completed for this recipient
+                recipient.status = "sent"
+                recipient.sent_at = timezone.now()
+                recipient.save(update_fields=["status", "sent_at", "updated_at"])
+                Campaign.objects.filter(id=campaign.id).update(
+                    sent_count=F("sent_count") + 1
+                )
+
+        # Check campaign completion
+        _check_campaign_completion(campaign)
+    else:
+        job.status = "failed"
+        job.last_error = error_msg[:1000]
+        job.save(update_fields=["status", "last_error", "updated_at"])
+
+        # Retry via Celery retry mechanism (handled by execute_job's except block)
+        # For campaign jobs we don't retry automatically — mark as failed
+        job.refresh_from_db()
+
+
+def _render_campaign_template(body_template, contact):
+    """Render campaign template with contact variables."""
+    text = body_template
+    text = text.replace("{{contact.first_name}}", contact.first_name or "")
+    text = text.replace("{{contact.last_name}}", contact.last_name or "")
+    text = text.replace("{{contact.email}}", contact.email or "")
+    text = text.replace("{{contact.organization}}", contact.organization or "")
+    text = text.replace("{{contact.phone}}", contact.phone or "")
+    return text
+
+
+def _send_campaign_email(campaign, recipient, contact, subject, body, org_id):
+    """Send campaign email with tracking pixel and unsubscribe link."""
+    from django.conf import settings
+    from django.core.mail import EmailMessage
+
+    if not contact.email:
+        return False, "Contato sem email"
+
+    try:
+        # Add tracking pixel
+        tracking_url = f"{settings.DOMAIN_NAME}/track/open/{recipient.id}/"
+        tracking_pixel = f'<img src="{tracking_url}" width="1" height="1" alt="" />'
+
+        # Add unsubscribe link
+        unsubscribe_url = f"{settings.DOMAIN_NAME}/track/unsubscribe/{recipient.id}/"
+        unsubscribe_link = (
+            f'<br/><p style="font-size:11px;color:#999;">'
+            f'<a href="{unsubscribe_url}">Descadastrar-se</a></p>'
+        )
+
+        html_body = body + tracking_pixel + unsubscribe_link
+
+        msg = EmailMessage(
+            subject=subject or "Sem assunto",
+            body=html_body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[contact.email],
+        )
+        msg.content_subtype = "html"
+        msg.send()
+        return True, ""
+    except Exception as exc:
+        logger.exception(
+            "Campaign email failed for %s campaign %s",
+            contact.email, campaign.id,
+        )
+        return False, str(exc)[:500]
+
+
+def _send_campaign_whatsapp(contact, body, org_id):
+    """Send campaign WhatsApp message via TalkHub."""
+    from django.conf import settings
+
+    if not contact.phone:
+        return False, "Contato sem telefone", ""
+
+    user_ns = getattr(contact, "omni_user_ns", None) or getattr(
+        contact, "talkhub_subscriber_id", None
+    )
+    if not user_ns:
+        return False, "Contato sem ID TalkHub Omni", ""
+
+    try:
+        from talkhub_omni.models import TalkHubConnection
+        from talkhub_omni.client import TalkHubClient
+
+        conn = TalkHubConnection.objects.filter(
+            org_id=org_id, is_active=True
+        ).first()
+        if not conn:
+            return False, "Sem conexão TalkHub ativa", ""
+
+        from cryptography.fernet import Fernet
+
+        try:
+            fernet_key = settings.SECRET_KEY[:32].ljust(32, "=")
+            f = Fernet(fernet_key.encode() if isinstance(fernet_key, str) else fernet_key)
+            api_key = f.decrypt(conn.api_key.encode()).decode()
+        except Exception:
+            api_key = conn.api_key
+
+        client = TalkHubClient(api_key=api_key, base_url=conn.base_url)
+        result = client.send_text(user_ns, body)
+        msg_id = str(result) if result else ""
+        return True, "", msg_id
+    except Exception as exc:
+        logger.exception(
+            "Campaign WhatsApp failed for %s", contact.phone,
+        )
+        return False, str(exc)[:500], ""
+
+
+def _update_campaign_after_send(campaign, recipient, success, error_msg, step_order):
+    """Update recipient status and campaign counters after a send attempt."""
+    from django.db.models import F
+    from campaigns.models import Campaign, CampaignStep
+
+    if success:
+        if campaign.campaign_type == "nurture_sequence":
+            # For nurture, update current_step; final "sent" is set when all steps done
+            recipient.current_step = step_order
+            recipient.save(update_fields=["current_step", "updated_at"])
+
+            # Update step sent_count
+            CampaignStep.objects.filter(
+                campaign=campaign, step_order=step_order
+            ).update(sent_count=F("sent_count") + 1)
+        else:
+            # For blast/broadcast, mark as sent immediately
+            recipient.status = "sent"
+            recipient.sent_at = timezone.now()
+            recipient.save(update_fields=["status", "sent_at", "updated_at"])
+            Campaign.objects.filter(id=campaign.id).update(
+                sent_count=F("sent_count") + 1
+            )
+    else:
+        recipient.status = "failed"
+        recipient.error_detail = error_msg[:500]
+        recipient.save(update_fields=["status", "error_detail", "updated_at"])
+        Campaign.objects.filter(id=campaign.id).update(
+            failed_count=F("failed_count") + 1
+        )
+
+
+def _check_campaign_completion(campaign):
+    """Check if all recipients have been processed and mark campaign completed."""
+    from assistant.models import ScheduledJob
+    from campaigns.models import CampaignRecipient
+
+    from django.contrib.contenttypes.models import ContentType
+
+    pending_recipients = CampaignRecipient.objects.filter(
+        campaign=campaign, status="pending"
+    ).count()
+
+    campaign_ct = ContentType.objects.get_for_model(campaign)
+    active_jobs = ScheduledJob.objects.filter(
+        source_content_type=campaign_ct,
+        source_object_id=campaign.id,
+        status__in=["pending", "locked"],
+    ).count()
+
+    # active_jobs <= 1 because the current job is still "locked"
+    if pending_recipients == 0 and active_jobs <= 1 and campaign.status == "running":
+        campaign.status = "completed"
+        campaign.completed_at = timezone.now()
+        campaign.save(update_fields=["status", "completed_at", "updated_at"])
+        logger.info("Campaign %s completed", campaign.id)
+
+
 def _build_context_for_job(job):
     """Build template context by resolving the job's target."""
     context = {}
@@ -205,6 +474,14 @@ def _build_context_for_job(job):
         elif model_name == "parcela":
             from assistant.template_engine import build_context_for_parcela
             context = build_context_for_parcela(target)
+        elif model_name == "contact":
+            context = {
+                "contact_first_name": getattr(target, "first_name", "") or "",
+                "contact_last_name": getattr(target, "last_name", "") or "",
+                "contact_email": getattr(target, "email", "") or "",
+                "contact_phone": getattr(target, "phone", "") or "",
+                "contact_organization": getattr(target, "organization", "") or "",
+            }
         elif model_name == "lead":
             from assistant.template_engine import build_context_for_lead
             context = build_context_for_lead(target)
@@ -306,7 +583,8 @@ def _update_policy_after_run(job, success):
     from assistant.engine import generate_jobs_for_policy
     from assistant.models import ReminderPolicy
 
-    if job.job_type != "reminder":
+    if job.job_type not in ("reminder",):
+        # campaign_step jobs update via _check_campaign_completion instead
         return
 
     policy_id = (job.payload or {}).get("policy_id")

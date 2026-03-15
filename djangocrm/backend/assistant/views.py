@@ -269,6 +269,7 @@ class RunsListView(APIView):
         org = request.profile.org
         source_filter = request.query_params.get("source", "all")
 
+        campaign_id = request.query_params.get("campaign_id")
         results = []
 
         # Include ScheduledJob completed/failed
@@ -281,6 +282,15 @@ class RunsListView(APIView):
                 jobs_qs = jobs_qs.filter(job_type="reminder")
             elif source_filter == "campaign":
                 jobs_qs = jobs_qs.filter(job_type="campaign_step")
+
+            # Filter by campaign_id if provided
+            if campaign_id:
+                from campaigns.models import Campaign
+                campaign_ct = ContentType.objects.get_for_model(Campaign)
+                jobs_qs = jobs_qs.filter(
+                    source_content_type=campaign_ct,
+                    source_object_id=campaign_id,
+                )
 
             for job in jobs_qs.order_by("-updated_at")[:50]:
                 results.append({

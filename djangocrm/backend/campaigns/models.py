@@ -121,6 +121,15 @@ class CampaignRecipient(BaseOrgModel):
     # Nurture sequence tracking
     current_step = models.PositiveIntegerField(default=0)
 
+    # Link to ScheduledJob for unified execution tracking
+    scheduled_job = models.ForeignKey(
+        "assistant.ScheduledJob",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="campaign_recipients",
+    )
+
     class Meta:
         db_table = "campaign_recipient"
         ordering = ("-created_at",)

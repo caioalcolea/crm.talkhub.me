@@ -40,7 +40,12 @@ export async function load({ locals, cookies, url }) {
     }
 
     if (tab === 'runs') {
-      promises.runs = apiRequest('/assistant/runs/?limit=50', {}, cookies).catch(() => ({ results: [], count: 0 }));
+      const source = url.searchParams.get('source') || '';
+      const campaignId = url.searchParams.get('campaign_id') || '';
+      const params = new URLSearchParams({ limit: '50' });
+      if (source) params.append('source', source);
+      if (campaignId) params.append('campaign_id', campaignId);
+      promises.runs = apiRequest(`/assistant/runs/?${params.toString()}`, {}, cookies).catch(() => []);
     }
 
     if (tab === 'templates') {
@@ -60,6 +65,8 @@ export async function load({ locals, cookies, url }) {
         status: url.searchParams.get('status') || '',
         module: url.searchParams.get('module') || '',
         is_active: url.searchParams.get('is_active') || '',
+        source: url.searchParams.get('source') || '',
+        campaign_id: url.searchParams.get('campaign_id') || '',
       },
       ...results,
     };

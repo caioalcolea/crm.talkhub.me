@@ -50,10 +50,10 @@ def _render_template(body_template, contact):
 def check_scheduled_campaigns():
     """
     Beat task (a cada minuto): verifica campanhas agendadas cujo
-    scheduled_at já passou e dispara a task de execução apropriada.
+    scheduled_at já passou e gera ScheduledJobs para execução via runtime unificado.
     """
     from campaigns.models import Campaign
-    from common.models import Org
+    from campaigns.job_generator import generate_campaign_jobs
 
     now = timezone.now()
     campaigns = Campaign.objects.filter(
@@ -67,12 +67,11 @@ def check_scheduled_campaigns():
         campaign.started_at = now
         campaign.save(update_fields=["status", "started_at", "updated_at"])
 
-        if campaign.campaign_type == "email_blast":
-            execute_email_blast.delay(str(campaign.id), str(campaign.org_id))
-        elif campaign.campaign_type == "whatsapp_broadcast":
-            execute_whatsapp_broadcast.delay(str(campaign.id), str(campaign.org_id))
-        elif campaign.campaign_type == "nurture_sequence":
-            execute_nurture_first_step.delay(str(campaign.id), str(campaign.org_id))
+        job_count = generate_campaign_jobs(campaign)
+        logger.info(
+            "Campaign %s started: %d jobs generated (%s)",
+            campaign.id, job_count, campaign.campaign_type,
+        )
 
 
 @shared_task(name="campaigns.tasks.execute_email_blast")

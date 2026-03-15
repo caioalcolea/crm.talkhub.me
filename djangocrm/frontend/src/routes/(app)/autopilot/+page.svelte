@@ -293,6 +293,11 @@
               <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" href="/campaigns/{campaign.id}/analytics">
                 <BarChart3 class="size-3" /> Analytics
               </Button>
+              {#if ['running', 'completed', 'paused'].includes(campaign.status)}
+                <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" onclick={() => goto(`/autopilot?tab=runs&source=campaign&campaign_id=${campaign.id}`)}>
+                  <History class="size-3" /> Envios
+                </Button>
+              {/if}
               {#if campaign.status === 'running'}
                 <form method="POST" action="?/pauseResumeCampaign" use:enhance>
                   <input type="hidden" name="id" value={campaign.id} />
@@ -322,6 +327,19 @@
   <!-- Tab content: Runs -->
   {:else if activeTab === 'runs'}
     {@const runs = data.runs?.results || (Array.isArray(data.runs) ? data.runs : [])}
+    <!-- Source filters -->
+    <div class="flex flex-wrap gap-2">
+      <Button variant={!data.filters.source ? 'default' : 'outline'} size="sm" onclick={() => goto('/autopilot?tab=runs')}>Todas</Button>
+      <Button variant={data.filters.source === 'reminder' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=runs&source=reminder')}>
+        <Bell class="size-3.5" /> Lembretes
+      </Button>
+      <Button variant={data.filters.source === 'campaign' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=runs&source=campaign')}>
+        <Megaphone class="size-3.5" /> Campanhas
+      </Button>
+      <Button variant={data.filters.source === 'automation' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=runs&source=automation')}>
+        <Zap class="size-3.5" /> Automações
+      </Button>
+    </div>
     {#if runs.length === 0}
       <div class="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
         <History class="text-muted-foreground mb-4 size-12" strokeWidth={1} />
@@ -354,11 +372,21 @@
                     </Badge>
                   </div>
                 </td>
-                <td class="px-3 py-2.5 text-xs">{run.job_type || run.source_type || '-'}</td>
-                <td class="max-w-[200px] truncate px-3 py-2.5 text-xs">{run.source_type || '-'}</td>
-                <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{formatDate(run.due_at || run.created_at)}</td>
+                <td class="px-3 py-2.5 text-xs">
+                  {#if run.type === 'campaign_step'}
+                    <span class="flex items-center gap-1"><Megaphone class="size-3" /> Campanha</span>
+                  {:else if run.type === 'reminder'}
+                    <span class="flex items-center gap-1"><Bell class="size-3" /> Lembrete</span>
+                  {:else if run.type === 'automation'}
+                    <span class="flex items-center gap-1"><Zap class="size-3" /> Automação</span>
+                  {:else}
+                    {run.type || '-'}
+                  {/if}
+                </td>
+                <td class="max-w-[200px] truncate px-3 py-2.5 text-xs">{run.name || '-'}</td>
+                <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{formatDate(run.executed_at || run.due_at || run.created_at)}</td>
                 <td class="hidden max-w-[200px] truncate px-3 py-2.5 text-xs md:table-cell text-destructive">
-                  {run.last_error || ''}
+                  {run.error || run.last_error || ''}
                 </td>
                 <td class="px-3 py-2.5 text-right">
                   {#if run.status === 'failed' || run.status === 'cancelled'}
