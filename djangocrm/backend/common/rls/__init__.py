@@ -136,6 +136,12 @@ ORG_SCOPED_TABLES = [
     # Cowork
     "cowork_coworkroom",
     "cowork_coworkinvite",
+    # Assistant (Autopilot)
+    "assistant_reminder_policy",
+    "assistant_scheduled_job",
+    "assistant_channel_dispatch",
+    "assistant_task_link",
+    "assistant_autopilot_template",
 ]
 
 # Centralized RLS configuration

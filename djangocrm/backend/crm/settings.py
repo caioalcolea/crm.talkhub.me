@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "automations",
     "campaigns",
     "cowork",
+    "assistant",
     # "teams",  # Merged into common app
 ]
 

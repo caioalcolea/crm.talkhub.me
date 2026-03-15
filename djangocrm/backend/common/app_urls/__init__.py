@@ -24,4 +24,5 @@ urlpatterns = [
     path("automations/", include("automations.urls", namespace="api_automations")),
     path("campaigns/", include("campaigns.urls", namespace="api_campaigns")),
     path("cowork/", include("cowork.urls", namespace="api_cowork")),
+    path("assistant/", include("assistant.urls", namespace="api_assistant")),
 ]

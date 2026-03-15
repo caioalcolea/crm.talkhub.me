@@ -164,4 +164,9 @@ app.conf.beat_schedule = {
         "task": "channels.tasks.poll_imap_emails",
         "schedule": crontab(minute="*/2"),
     },
+    # Assistant — Process scheduled jobs every minute
+    "assistant-process-scheduled-jobs": {
+        "task": "assistant.tasks.process_scheduled_jobs",
+        "schedule": crontab(minute="*"),
+    },
 }
