@@ -3,6 +3,7 @@
   import { deserialize } from '$app/forms';
   import { page } from '$app/stores';
   import { toast } from 'svelte-sonner';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import { Plus, Trophy, Target, User, Users, Trash2, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { SearchInput } from '$lib/components/ui/filter';
@@ -322,31 +323,20 @@
   <title>Objetivos de Vendas - TalkHub CRM</title>
 </svelte:head>
 
-<div class="space-y-6 p-6 md:p-8">
-  <!-- Header -->
-  <div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-    <div class="flex items-center gap-3">
-      <div
-        class="flex size-10 items-center justify-center rounded-[var(--radius-lg)] bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg"
-      >
-        <Trophy class="size-5 text-white" />
-      </div>
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight text-[var(--text-primary)]">Objetivos de Vendas</h1>
-        <p class="text-sm text-[var(--text-secondary)]">
-          Acompanhe metas e meça o desempenho da equipe
-        </p>
-      </div>
-    </div>
+<div class="flex flex-col">
+  <PageHeader title="Objetivos de Vendas" subtitle="Acompanhe metas e meça o desempenho da equipe">
+    {#snippet actions()}
+      {#if isAdmin}
+        <Button onclick={openCreateDrawer} class="gap-2">
+          <Plus class="size-4" />
+          <span class="hidden sm:inline">Novo Objetivo</span>
+          <span class="sm:hidden">Novo</span>
+        </Button>
+      {/if}
+    {/snippet}
+  </PageHeader>
 
-    {#if isAdmin}
-      <Button onclick={openCreateDrawer} class="gap-2">
-        <Plus class="size-4" />
-        Novo Objetivo
-      </Button>
-    {/if}
-  </div>
-
+  <div class="space-y-6 px-6 py-6 md:px-8">
   <!-- Filter Chips -->
   <div class="flex items-center gap-2">
     {#each [
@@ -550,6 +540,7 @@
       </div>
     </div>
   {/if}
+  </div>
 </div>
 
 <!-- Create/Edit Drawer -->

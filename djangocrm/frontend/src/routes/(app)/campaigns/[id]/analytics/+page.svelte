@@ -3,8 +3,9 @@
   import { page } from '$app/stores';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import {
-    ArrowLeft, Send, Eye, MousePointer, AlertTriangle,
+    Send, Eye, MousePointer, AlertTriangle,
     UserMinus, Mail, CheckCircle
   } from '@lucide/svelte';
 
@@ -54,21 +55,14 @@
   <title>{analytics.name || 'Analytics'} — Campanhas — TalkHub CRM</title>
 </svelte:head>
 
-<div class="mx-auto max-w-6xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center gap-3">
-    <Button href="/campaigns" variant="ghost" size="icon" class="size-8">
-      <ArrowLeft class="size-4" />
-    </Button>
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">{analytics.name || 'Campanha'}</h1>
-      <div class="flex items-center gap-2">
-        <Badge variant="secondary" class="text-xs">{analytics.campaign_type || ''}</Badge>
-        <Badge variant="outline" class="text-xs">{analytics.status || ''}</Badge>
-      </div>
-    </div>
-  </div>
+<div class="flex flex-col">
+  <PageHeader title={analytics.name || 'Campanha'} subtitle="{analytics.campaign_type || ''} · {analytics.status || ''}">
+    {#snippet actions()}
+      <Button href="/campaigns" variant="outline" size="sm">Voltar</Button>
+    {/snippet}
+  </PageHeader>
 
+  <div class="space-y-6 px-6 py-6 md:px-8">
   <!-- Metric Cards -->
   <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
     <div class="rounded-lg border p-4">
@@ -207,5 +201,6 @@
       </div>
       <p class="text-muted-foreground text-xs">{data.recipientTotal} destinatários no total</p>
     {/if}
+  </div>
   </div>
 </div>

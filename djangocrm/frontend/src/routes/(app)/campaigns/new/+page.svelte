@@ -5,7 +5,8 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Textarea } from '$lib/components/ui/textarea/index.js';
-  import { ArrowLeft, Megaphone, Plus, Trash2 } from '@lucide/svelte';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import { Megaphone, Plus, Trash2 } from '@lucide/svelte';
 
   let { form } = $props();
 
@@ -55,17 +56,15 @@
   <title>Nova Campanha — TalkHub CRM</title>
 </svelte:head>
 
-<div class="mx-auto max-w-3xl space-y-6 p-6">
-  <div class="flex items-center gap-3">
-    <Button href="/campaigns" variant="ghost" size="icon" class="size-8">
-      <ArrowLeft class="size-4" />
-    </Button>
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Nova Campanha</h1>
-      <p class="text-muted-foreground text-sm">Configure uma nova campanha de marketing.</p>
-    </div>
-  </div>
+<div class="flex flex-col">
+  <PageHeader title="Nova Campanha" subtitle="Configure uma nova campanha de marketing.">
+    {#snippet actions()}
+      <Button href="/campaigns" variant="outline" size="sm">Voltar</Button>
+    {/snippet}
+  </PageHeader>
 
+  <div class="space-y-6 px-6 py-6 md:px-8">
+  <div class="mx-auto w-full max-w-3xl">
   <form method="POST" action="?/create" use:enhance class="space-y-5 rounded-lg border p-6">
     <div class="space-y-2">
       <Label for="name">Nome da Campanha</Label>
@@ -205,4 +204,6 @@
       </Button>
     </div>
   </form>
+  </div>
+  </div>
 </div>

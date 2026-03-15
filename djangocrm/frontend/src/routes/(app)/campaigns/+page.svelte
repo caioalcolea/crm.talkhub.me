@@ -5,6 +5,7 @@
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import {
     Plus, Megaphone, Mail, MessageCircle, GitBranch,
     BarChart3, Trash2, Pause, Play, Eye
@@ -78,19 +79,18 @@
   <title>Campanhas — TalkHub CRM</title>
 </svelte:head>
 
-<div class="mx-auto max-w-6xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Campanhas</h1>
-      <p class="text-muted-foreground text-sm">Gerencie campanhas de email, WhatsApp e nurture sequences.</p>
-    </div>
-    <Button href="/campaigns/new" class="gap-2">
-      <Plus class="size-4" />
-      Nova Campanha
-    </Button>
-  </div>
+<div class="flex flex-col">
+  <PageHeader title="Campanhas" subtitle="Gerencie campanhas de email, WhatsApp e nurture sequences.">
+    {#snippet actions()}
+      <Button href="/campaigns/new" class="gap-2">
+        <Plus class="size-4" />
+        <span class="hidden sm:inline">Nova Campanha</span>
+        <span class="sm:hidden">Nova</span>
+      </Button>
+    {/snippet}
+  </PageHeader>
 
+  <div class="space-y-6 px-6 py-6 md:px-8">
   <!-- Filters -->
   <div class="flex gap-3">
     <Button
@@ -214,4 +214,5 @@
       {/each}
     </div>
   {/if}
+  </div>
 </div>

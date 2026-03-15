@@ -6,8 +6,9 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import {
-    ArrowLeft, Users, Calendar, Search, Megaphone,
+    Users, Calendar, Search, Megaphone,
     BarChart3, Pause, Play
   } from '@lucide/svelte';
 
@@ -67,33 +68,20 @@
   <title>{campaign.name || 'Campanha'} — TalkHub CRM</title>
 </svelte:head>
 
-<div class="mx-auto max-w-4xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <Button href="/campaigns" variant="ghost" size="icon" class="size-8">
-        <ArrowLeft class="size-4" />
-      </Button>
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight">{campaign.name || 'Campanha'}</h1>
-        <div class="flex items-center gap-2 mt-1">
-          <Badge variant="secondary" class="text-xs">{campaign.campaign_type || ''}</Badge>
-          <Badge variant="outline" class="text-xs">{statusLabels[campaign.status] || campaign.status}</Badge>
-          <span class="text-muted-foreground text-xs">{campaign.total_recipients || 0} destinatários</span>
-        </div>
-      </div>
-    </div>
-    <div class="flex gap-2">
+<div class="flex flex-col">
+  <PageHeader title={campaign.name || 'Campanha'} subtitle="{campaign.campaign_type || ''} · {statusLabels[campaign.status] || campaign.status} · {campaign.total_recipients || 0} destinatários">
+    {#snippet actions()}
+      <Button href="/campaigns" variant="outline" size="sm">Voltar</Button>
       <Button href="/campaigns/{campaign.id}/analytics" variant="outline" size="sm" class="gap-1.5">
         <BarChart3 class="size-3.5" />
-        Analytics
+        <span class="hidden sm:inline">Analytics</span>
       </Button>
       {#if campaign.status === 'running'}
         <form method="POST" action="?/pauseResume" use:enhance>
           <input type="hidden" name="action" value="pause" />
           <Button type="submit" variant="outline" size="sm" class="gap-1.5">
             <Pause class="size-3.5" />
-            Pausar
+            <span class="hidden sm:inline">Pausar</span>
           </Button>
         </form>
       {/if}
@@ -102,13 +90,15 @@
           <input type="hidden" name="action" value="resume" />
           <Button type="submit" size="sm" class="gap-1.5">
             <Play class="size-3.5" />
-            Retomar
+            <span class="hidden sm:inline">Retomar</span>
           </Button>
         </form>
       {/if}
-    </div>
-  </div>
+    {/snippet}
+  </PageHeader>
 
+  <div class="space-y-6 px-6 py-6 md:px-8">
+  <div class="mx-auto w-full max-w-4xl">
   <!-- Audience Builder (only for draft/scheduled) -->
   {#if campaign.status === 'draft' || campaign.status === 'scheduled'}
     <div class="rounded-lg border p-5 space-y-4">
@@ -238,4 +228,6 @@
       </div>
     </div>
   {/if}
+  </div>
+  </div>
 </div>
