@@ -532,37 +532,59 @@ class DashboardReportView(APIView):
 
         saldo = recebido_no_mes - pago_no_mes
 
-        # Monthly cash flow for the year
+        # Saldo projetado: total ABERTO RECEBER - total ABERTO PAGAR (ano)
+        saldo_projetado = float(total_receber - total_pagar)
+
+        # Monthly cash flow for the year (realized + projected)
         fluxo_mensal = []
+        fluxo_qs = (
+            parcelas_org.filter(competencia_ano=ano)
+            .exclude(status="CANCELADO")
+            .values("lancamento__tipo", "competencia_mes", "status")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+        # Build lookup: (tipo, mes, status) -> total
+        fluxo_lookup = {}
+        for row in fluxo_qs:
+            key = (row["lancamento__tipo"], row["competencia_mes"], row["status"])
+            fluxo_lookup[key] = float(row["total"])
+
+        saldo_acumulado = Decimal("0")
         for m in range(1, 13):
-            receber_m = (
-                parcelas_org.filter(
-                    lancamento__tipo="RECEBER",
-                    competencia_ano=ano,
-                    competencia_mes=m,
-                    status="PAGO",
-                ).aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
-            pagar_m = (
-                parcelas_org.filter(
-                    lancamento__tipo="PAGAR",
-                    competencia_ano=ano,
-                    competencia_mes=m,
-                    status="PAGO",
-                ).aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
+            receber_realizado = fluxo_lookup.get(("RECEBER", m, "PAGO"), 0)
+            pagar_realizado = fluxo_lookup.get(("PAGAR", m, "PAGO"), 0)
+            receber_projetado = fluxo_lookup.get(("RECEBER", m, "ABERTO"), 0)
+            pagar_projetado = fluxo_lookup.get(("PAGAR", m, "ABERTO"), 0)
+            saldo_mes = receber_realizado - pagar_realizado
+            saldo_acumulado += Decimal(str(saldo_mes))
             fluxo_mensal.append(
                 {
                     "mes": m,
-                    "receber": float(receber_m),
-                    "pagar": float(pagar_m),
-                    "saldo": float(receber_m - pagar_m),
+                    "receber": receber_realizado,
+                    "pagar": pagar_realizado,
+                    "receber_projetado": receber_projetado,
+                    "pagar_projetado": pagar_projetado,
+                    "saldo": saldo_mes,
+                    "saldo_projetado": receber_projetado - pagar_projetado,
+                    "saldo_acumulado": float(saldo_acumulado),
                 }
             )
+
+        # Próximo vencimento (next ABERTO parcela >= today)
+        proximo_vencimento = None
+        prox = (
+            parcelas_org.filter(status="ABERTO", data_vencimento__gte=today)
+            .select_related("lancamento")
+            .order_by("data_vencimento")
+            .first()
+        )
+        if prox:
+            proximo_vencimento = {
+                "data": str(prox.data_vencimento),
+                "descricao": prox.lancamento.descricao,
+                "valor": float(prox.valor_parcela_convertido),
+                "tipo": prox.lancamento.tipo,
+            }
 
         # Last 10 transactions
         ultimas = (
@@ -586,6 +608,8 @@ class DashboardReportView(APIView):
                 "total_vencido": float(total_vencido),
                 "pct_vencidas": pct_vencidas,
                 "saldo": float(saldo),
+                "saldo_projetado": saldo_projetado,
+                "proximo_vencimento": proximo_vencimento,
                 "fluxo_mensal": fluxo_mensal,
                 "ultimas_transacoes": ultimas_data,
             }

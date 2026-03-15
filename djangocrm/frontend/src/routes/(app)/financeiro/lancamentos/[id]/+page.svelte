@@ -180,8 +180,19 @@
     <!-- Info Grid -->
     <div class="grid grid-cols-1 gap-4 rounded-lg border p-4 sm:grid-cols-2 md:grid-cols-4">
       <div>
-        <span class="text-muted-foreground text-xs font-medium">Valor Total</span>
+        <span class="text-muted-foreground text-xs font-medium">
+          {#if l.is_recorrente}Valor por Período{:else}Valor Total{/if}
+        </span>
         <p class="text-lg font-bold">{formatCurrency(l.valor_convertido, orgCurrency)}</p>
+        {#if l.is_recorrente}
+          <p class="text-muted-foreground text-xs">
+            por período ({l.recorrencia_label || l.recorrencia_tipo || 'recorrente'})
+          </p>
+        {:else if l.numero_parcelas > 1}
+          <p class="text-muted-foreground text-xs">
+            em {l.numero_parcelas} parcelas de {formatCurrency(l.valor_parcela_display, orgCurrency)}
+          </p>
+        {/if}
         {#if l.currency !== orgCurrency}
           <p class="text-muted-foreground text-xs">
             {l.currency_symbol} {parseFloat(l.valor_total).toLocaleString('pt-BR')} ({l.currency})
@@ -241,7 +252,16 @@
 
     <!-- Parcelas -->
     <div>
-      <h2 class="mb-3 text-lg font-semibold">Parcelas</h2>
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Parcelas</h2>
+        {#if l.is_recorrente && l.parcelas?.length > 0}
+          {@const totalGerado = l.parcelas.reduce((sum, p) => sum + parseFloat(p.valor_parcela_convertido || 0), 0)}
+          <span class="text-muted-foreground text-sm">
+            Total gerado: <span class="font-medium">{formatCurrency(totalGerado, orgCurrency)}</span>
+            ({l.parcelas.length} parcelas)
+          </span>
+        {/if}
+      </div>
       <ParcelaTable
         parcelas={l.parcelas || []}
         onpay={handlePayParcela}

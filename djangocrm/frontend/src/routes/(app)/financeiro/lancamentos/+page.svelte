@@ -7,7 +7,7 @@
   import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { orgSettings } from '$lib/stores/org.js';
-  import { Plus, Search, X } from '@lucide/svelte';
+  import { Plus, Search, X, Repeat } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { financeiro } from '$lib/api.js';
 
@@ -215,12 +215,26 @@
             class="hover:bg-muted/30 cursor-pointer border-b transition-colors"
             onclick={() => goto(`/financeiro/lancamentos/${item.id}`)}
           >
-            <td class="max-w-[220px] truncate px-3 py-2.5 font-medium">{item.descricao}</td>
+            <td class="max-w-[220px] px-3 py-2.5">
+              <span class="block truncate font-medium">{item.descricao}</span>
+              {#if item.recorrencia_label}
+                <span class="inline-flex items-center gap-0.5 text-[10px] text-blue-600 dark:text-blue-400">
+                  <Repeat class="size-2.5" /> {item.recorrencia_label}
+                </span>
+              {/if}
+            </td>
             <td class="hidden px-3 py-2.5 sm:table-cell"><StatusBadge status={item.tipo} /></td>
             <td class="hidden px-3 py-2.5 text-xs md:table-cell">{item.account_name || item.contact_name || '-'}</td>
             <td class="hidden max-w-[150px] truncate px-3 py-2.5 text-xs lg:table-cell">{item.plano_de_contas_nome || '-'}</td>
             <td class="px-3 py-2.5 text-right font-mono text-xs">
-              {formatCurrency(item.valor_convertido, cur)}
+              {#if item.is_recorrente}
+                {formatCurrency(item.valor_parcela_display, cur)}<span class="text-muted-foreground">/{item.recorrencia_tipo === 'ANUAL' ? 'ano' : item.recorrencia_tipo === 'QUINZENAL' ? 'quinz' : item.recorrencia_tipo === 'SEMANAL' ? 'sem' : 'mês'}</span>
+              {:else if item.numero_parcelas > 1}
+                {formatCurrency(item.valor_convertido, cur)}
+                <span class="text-muted-foreground block text-[10px]">{item.numero_parcelas}x de {formatCurrency(item.valor_parcela_display, cur)}</span>
+              {:else}
+                {formatCurrency(item.valor_convertido, cur)}
+              {/if}
             </td>
             <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{item.parcelas_pagas}</td>
             <td class="px-3 py-2.5"><StatusBadge status={item.status} tipo={item.tipo} /></td>

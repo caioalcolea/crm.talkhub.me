@@ -11,7 +11,9 @@
     Wallet,
     AlertTriangle,
     TrendingUp,
-    TrendingDown
+    TrendingDown,
+    CalendarClock,
+    Repeat
   } from '@lucide/svelte';
 
   let { data } = $props();
@@ -41,10 +43,10 @@
 
 <div class="space-y-6 p-4 md:p-6">
   <!-- KPI Cards -->
-  <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+  <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
     <button class="cursor-pointer text-left" onclick={() => goto('/financeiro/receber')}>
       <KPICard
-        label="A Receber"
+        label="A Receber ({data.ano})"
         value={formatCurrency(d.total_receber, cur)}
         accentColor="emerald"
       >
@@ -56,7 +58,7 @@
 
     <button class="cursor-pointer text-left" onclick={() => goto('/financeiro/pagar')}>
       <KPICard
-        label="A Pagar"
+        label="A Pagar ({data.ano})"
         value={formatCurrency(d.total_pagar, cur)}
         accentColor="rose"
       >
@@ -105,6 +107,31 @@
         <Wallet class={cls} />
       {/snippet}
     </KPICard>
+
+    <KPICard
+      label="Saldo Projetado ({data.ano})"
+      value={formatCurrency(d.saldo_projetado || 0, cur)}
+      accentColor={(d.saldo_projetado || 0) >= 0 ? 'emerald' : 'rose'}
+    >
+      {#snippet icon({ class: cls })}
+        <TrendingUp class={cls} />
+      {/snippet}
+    </KPICard>
+
+    {#if d.proximo_vencimento}
+      <button class="cursor-pointer text-left" onclick={() => goto(`/financeiro/${d.proximo_vencimento.tipo === 'PAGAR' ? 'pagar' : 'receber'}`)}>
+        <KPICard
+          label="Próximo Vencimento"
+          value={formatDate(d.proximo_vencimento.data)}
+          subtitle="{d.proximo_vencimento.descricao} — {formatCurrency(d.proximo_vencimento.valor, cur)}"
+          accentColor="violet"
+        >
+          {#snippet icon({ class: cls })}
+            <CalendarClock class={cls} />
+          {/snippet}
+        </KPICard>
+      </button>
+    {/if}
   </div>
 
   <!-- Cash Flow Chart -->
@@ -139,10 +166,24 @@
               class="hover:bg-muted/30 cursor-pointer border-b transition-colors"
               onclick={() => goto(`/financeiro/lancamentos/${tx.id}`)}
             >
-              <td class="max-w-[200px] truncate px-3 py-2 font-medium">{tx.descricao}</td>
+              <td class="max-w-[220px] px-3 py-2">
+                <span class="block truncate font-medium">{tx.descricao}</span>
+                {#if tx.recorrencia_label}
+                  <span class="inline-flex items-center gap-0.5 text-[10px] text-blue-600 dark:text-blue-400">
+                    <Repeat class="size-2.5" /> {tx.recorrencia_label}
+                  </span>
+                {/if}
+              </td>
               <td class="px-3 py-2"><StatusBadge status={tx.tipo} /></td>
               <td class="px-3 py-2 text-right font-mono text-xs">
-                {formatCurrency(tx.valor_convertido, cur)}
+                {#if tx.is_recorrente}
+                  {formatCurrency(tx.valor_parcela_display, cur)}<span class="text-muted-foreground">/{tx.recorrencia_tipo === 'ANUAL' ? 'ano' : tx.recorrencia_tipo === 'QUINZENAL' ? 'quinz' : tx.recorrencia_tipo === 'SEMANAL' ? 'sem' : 'mês'}</span>
+                {:else if tx.numero_parcelas > 1}
+                  {formatCurrency(tx.valor_convertido, cur)}
+                  <span class="text-muted-foreground block text-[10px]">{tx.numero_parcelas}x de {formatCurrency(tx.valor_parcela_display, cur)}</span>
+                {:else}
+                  {formatCurrency(tx.valor_convertido, cur)}
+                {/if}
               </td>
               <td class="hidden px-3 py-2 text-xs sm:table-cell">{tx.parcelas_pagas}</td>
               <td class="px-3 py-2"><StatusBadge status={tx.status} tipo={tx.tipo} /></td>
