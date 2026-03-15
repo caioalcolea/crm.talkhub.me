@@ -31,7 +31,7 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 ### Core
 - **Leads** — Pipeline customizável por org, kanban drag-and-drop, conversão para oportunidade/conta
 - **Contas (Accounts)** — Cadastro de empresas, receita anual, moeda, endereço completo
-- **Contatos (Contacts)** — Pessoas vinculadas a contas, redes sociais, campos TalkHub Omni (subscriber_id, omni_user_ns, sms/email opt-in)
+- **Contatos (Contacts)** — Pessoas vinculadas a contas, redes sociais, campos TalkHub Omni. Múltiplos emails/telefones por contato (primary + secondary + extras). Merge de contatos com preservação de dados e preview. Detecção automática de duplicatas
 - **Oportunidades (Opportunities)** — Pipeline de vendas com stages, produtos/line items, valor, probabilidade
 - **Casos (Cases)** — Suporte ao cliente, kanban com pipeline customizável, SLA e escalação automática
 - **Tarefas (Tasks)** — Kanban, calendário, boards customizados, prioridades, status, conta vinculada
@@ -43,16 +43,19 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 - **Produtos** — Catálogo com SKU, preço, categoria, moeda (inclui criptomoedas)
 
 ### Financeiro
-- **Lançamentos** — Receitas e despesas com categorias (plano de contas)
-- **Contas a Pagar / Receber** — Gestão de pagamentos e recebimentos
-- **Plano de Contas** — Hierarquia de categorias financeiras
-- **Formas de Pagamento** — Cadastro de meios de pagamento
-- **Relatórios** — DRE, fluxo de caixa, por período
+- **Lançamentos** — Receitas e despesas com categorias (plano de contas), edição segura (3 níveis: tudo editável / metadados / somente leitura conforme status das parcelas)
+- **Lançamentos Recorrentes** — Salários, assinaturas, etc. Frequências: mensal, quinzenal, semanal, anual. Sem data fim obrigatória. Celery Beat gera 3 meses à frente automaticamente
+- **Taxa de Câmbio** — Fixa (manual) ou variável (automática via API). APIs: open.er-api.com + BCB PTAX (fallback BRL). Cache Redis 4h. Task diário atualiza taxas variáveis
+- **Contas a Pagar / Receber** — Gestão de pagamentos e recebimentos, parcelas com status (ABERTO/PAGO/CANCELADO)
+- **Plano de Contas** — Hierarquia de categorias financeiras (centro de custo)
+- **Formas de Pagamento** — Cadastro de meios de pagamento, edição e remoção via UI
+- **Relatórios** — DRE, fluxo de caixa, por período. Parcelas CANCELADO excluídas de todas as somas
+- **Moeda da Org** — Integração total com `Org.default_currency` em todo o sistema financeiro
 
 ### Integrations Hub
 - **integrations** — Hub genérico de integrações: conexões, sync jobs, logs, webhooks, field mapping, conflict resolution
 - **channels** — Abstração de canais de comunicação (TalkHub Omni, SMTP nativo, Chatwoot, Evolution API, etc.)
-- **conversations** — Inbox omnichannel: conversas e mensagens genéricas, real-time via fast polling (5s incremental)
+- **conversations** — Inbox omnichannel: conversas e mensagens genéricas, real-time via fast polling (5s incremental), soft-delete com lixeira e restauração (admin)
 - **chatwoot** — Conector Chatwoot: webhook bidirecional (7 eventos), sync de conversas/contatos/grupos, envio de mensagens
 - **talkhub_omni** — Conector TalkHub Omni: sync de contatos, tickets, tags, team members, estatísticas, canais por org
 
@@ -78,6 +81,7 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 - **Anexos** — Upload de arquivos em qualquer módulo
 - **Activity Feed** — Log de atividades em tempo real no dashboard
 - **Perfil** — Configurações pessoais, foto, dados de contato
+- **Config. da Org** — Nome, razão social, CNPJ, endereço, telefone, email, site, logo (usado em faturas/orçamentos PDF), moeda e país padrão
 
 ### Moedas e Países
 - **21 moedas** — BRL, USD, EUR, GBP, JPY, CAD, AUD, CHF, CNY, INR, MXN, ARS, CLP + criptomoedas (BTC, ETH, USDT, USDC, SOL, BNB, XRP, ADA)

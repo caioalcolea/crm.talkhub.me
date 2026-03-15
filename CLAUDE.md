@@ -31,7 +31,7 @@ crm.talkhub.me/
 │   │   ├── tasks/            # Tasks + kanban + boards + calendar
 │   │   ├── invoices/         # Invoices, estimates, recurring, products
 │   │   ├── orders/           # Orders
-│   │   ├── financeiro/       # Financial module (P&L, cash flow, PIX)
+│   │   ├── financeiro/       # Financial module (P&L, cash flow, PIX, exchange rates, recurring)
 │   │   ├── integrations/     # Generic integration hub
 │   │   ├── channels/         # Communication channels (SMTP, TalkHub, etc.)
 │   │   ├── conversations/    # Omnichannel inbox (real-time via fast polling)
@@ -211,6 +211,9 @@ bash docker/debug-traefik.sh
 25. **Financeiro recurring lancamentos**: `is_recorrente` + `recorrencia_tipo` (MENSAL/QUINZENAL/SEMANAL/ANUAL). Each parcela = full valor_total. Celery Beat generates 3 months ahead on 1st of each month. Stop via `recorrencia_ativa=False`.
 26. **Lancamento edit rules**: If all parcelas ABERTO → can edit everything (parcelas regenerated). If some PAGO → metadata only. If CANCELADO → read-only (except descricao/observacoes).
 27. **Org currency integration**: All frontend financial pages use `$orgSettings.default_currency` instead of hardcoded 'BRL'. Backend `FormOptionsView` returns `org_currency`. TransactionForm auto-hides exchange rate when currency == org base currency.
+28. **Org settings field mapping**: Frontend sends `website` (NOT `domain`) to match the Org model. The `description` field does not exist on the model — don't add it. All company profile fields (company_name, address_line, city, state, postcode, country, phone, email, website, tax_id) are editable via `PATCH /api/org/settings/`. Logo upload supports PNG/JPG/SVG (max 2MB); removal sends `logo: null`.
+29. **Org logo in PDFs**: Invoice and estimate templates already render `{% if org.logo %}<img src="{{ org.logo.url }}">{% endif %}`. WeasyPrint passes full org context. Company address fields (address_line, city, state, phone, email, tax_id) also appear in PDF templates. No backend changes needed for logo to work in print.
+30. **Formas de pagamento editáveis**: `FormaPagamentoViewSet` is a full `ModelViewSet` — supports PATCH/PUT out of the box. Frontend has edit dialog with `?/edit` action.
 
 ## Invitation System
 
@@ -352,6 +355,9 @@ startCoworkSession() → mode='full' → page renders [data-cowork-target]
 | Financeiro tasks | `backend/financeiro/tasks.py` (overdue, recurring, variable rates, PIX reconciliation) |
 | Financeiro frontend | `frontend/src/routes/(app)/financeiro/` (lancamentos, formas-pagamento, relatorios, PIX) |
 | Financeiro form | `frontend/src/lib/components/financeiro/TransactionForm.svelte` |
+| Org settings | `backend/common/serializers.py` (OrgSettingsSerializer), `frontend/src/routes/(app)/settings/organization/` (+page.svelte, +page.server.js) |
+| Org model | `backend/common/models.py` (Org: name, company_name, logo, address, phone, email, website, tax_id, currency, country) |
+| Invoice/Estimate PDF | `backend/invoices/pdf.py` (WeasyPrint), `backend/invoices/templates/invoices/pdf/` (invoice.html, estimate.html) |
 
 ## Chatwoot Integration
 
