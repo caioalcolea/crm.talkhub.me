@@ -135,3 +135,29 @@ class ContactDetailEditSwaggerSerializer(serializers.Serializer):
 
 class ContactCommentEditSwaggerSerializer(serializers.Serializer):
     comment = serializers.CharField()
+
+
+class MergeRequestSerializer(serializers.Serializer):
+    primary_id = serializers.UUIDField()
+    secondary_id = serializers.UUIDField()
+
+    def validate(self, data):
+        if data["primary_id"] == data["secondary_id"]:
+            raise serializers.ValidationError(
+                "Os contatos principal e secundário devem ser diferentes."
+            )
+        return data
+
+
+class DuplicateContactSerializer(serializers.ModelSerializer):
+    match_reasons = serializers.ListField(child=serializers.CharField(), read_only=True)
+    conversations_count = serializers.IntegerField(read_only=True)
+    channels = serializers.ListField(child=serializers.CharField(), read_only=True)
+
+    class Meta:
+        model = Contact
+        fields = (
+            "id", "first_name", "last_name", "email", "phone",
+            "organization", "source",
+            "match_reasons", "conversations_count", "channels",
+        )

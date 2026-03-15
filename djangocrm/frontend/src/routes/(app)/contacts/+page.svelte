@@ -24,13 +24,17 @@
     Send,
     Video,
     Sparkles,
-    Target
+    Target,
+    GitMerge,
+    Users,
+    ChevronRight
   } from '@lucide/svelte';
   import { PageHeader } from '$lib/components/layout';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
-  import { getCurrentUser } from '$lib/api.js';
+  import MergeContactModal from '$lib/components/contacts/MergeContactModal.svelte';
+  import { getCurrentUser, apiRequest as clientApiRequest } from '$lib/api.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
@@ -367,6 +371,45 @@
   let selectedContact = $state(null);
   let drawerLoading = $state(false);
   let isSubmitting = $state(false);
+
+  // Merge state
+  let mergeModalOpen = $state(false);
+  /** @type {any[]} */
+  let duplicatesForContact = $state([]);
+  let duplicatesCount = $state(0);
+  let loadingDuplicates = $state(false);
+
+  // Load duplicates when viewing a contact
+  $effect(() => {
+    if (drawerMode === 'view' && selectedContact?.id && drawerOpen) {
+      loadDuplicates(selectedContact.id);
+    } else {
+      duplicatesForContact = [];
+      duplicatesCount = 0;
+    }
+  });
+
+  /** @param {string} contactId */
+  async function loadDuplicates(contactId) {
+    loadingDuplicates = true;
+    try {
+      const result = await clientApiRequest(`/contacts/${contactId}/duplicates/`);
+      duplicatesForContact = result.duplicates || [];
+      duplicatesCount = result.count || 0;
+    } catch {
+      duplicatesForContact = [];
+      duplicatesCount = 0;
+    } finally {
+      loadingDuplicates = false;
+    }
+  }
+
+  /** @param {any} mergedContact */
+  async function handleMerged(mergedContact) {
+    mergeModalOpen = false;
+    await closeDrawer();
+    await invalidateAll();
+  }
 
   // Empty contact template for create mode
   const emptyContact = {
@@ -975,7 +1018,20 @@
   {#snippet activitySection()}
     <!-- Quick Actions (view mode only) -->
     {#if drawerMode !== 'create' && selectedContact}
-      <div class="mb-4 flex gap-2">
+      <!-- Duplicates badge -->
+      {#if duplicatesCount > 0}
+        <button
+          type="button"
+          class="mb-3 flex w-full items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400 dark:hover:bg-amber-950/50"
+          onclick={() => (mergeModalOpen = true)}
+        >
+          <Users class="size-4 shrink-0" />
+          <span class="flex-1 text-left">{duplicatesCount} contato(s) similar(es) encontrado(s)</span>
+          <ChevronRight class="size-4 shrink-0" />
+        </button>
+      {/if}
+
+      <div class="mb-4 flex flex-wrap gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -991,6 +1047,14 @@
         >
           <Sparkles class="mr-1 h-4 w-4" />
           Criar Negócio
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={() => (mergeModalOpen = true)}
+        >
+          <GitMerge class="mr-1 h-4 w-4" />
+          Mesclar
         </Button>
       </div>
     {/if}
@@ -1062,6 +1126,16 @@
     {/if}
   {/snippet}
 </CrmDrawer>
+
+<!-- Merge Contact Modal -->
+{#if selectedContact}
+  <MergeContactModal
+    bind:open={mergeModalOpen}
+    primaryContact={selectedContact}
+    suggestedDuplicates={duplicatesForContact}
+    onMerged={handleMerged}
+  />
+{/if}
 
 <!-- Hidden forms for server actions -->
 <form

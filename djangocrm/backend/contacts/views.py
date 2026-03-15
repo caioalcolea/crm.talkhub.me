@@ -28,6 +28,8 @@ from contacts.serializers import (
     ContactDetailEditSwaggerSerializer,
     ContactSerializer,
     CreateContactSerializer,
+    DuplicateContactSerializer,
+    MergeRequestSerializer,
 )
 from contacts.tasks import send_email_to_assigned_user
 from tasks.serializers import TaskSerializer
@@ -1054,4 +1056,130 @@ class ContactContextView(APIView):
             ]
 
         return Response(context)
+
+
+class ContactMergeView(APIView):
+    """POST /api/contacts/merge/ — Merge two contacts."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request):
+        serializer = MergeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        org = request.profile.org
+        primary_id = serializer.validated_data["primary_id"]
+        secondary_id = serializer.validated_data["secondary_id"]
+
+        # Validate both exist
+        if not Contact.objects.filter(id=primary_id, org=org).exists():
+            return Response(
+                {"error": True, "message": "Contato principal não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not Contact.objects.filter(id=secondary_id, org=org).exists():
+            return Response(
+                {"error": True, "message": "Contato secundário não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from contacts.merge import merge_contacts
+
+        user_email = request.user.email if request.user else "system"
+        try:
+            primary, stats = merge_contacts(org, primary_id, secondary_id, user_email)
+        except ValueError as e:
+            return Response(
+                {"error": True, "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            "error": False,
+            "message": "Contatos mesclados com sucesso.",
+            "contact": ContactSerializer(primary).data,
+            "stats": stats,
+        })
+
+
+class ContactMergePreviewView(APIView):
+    """POST /api/contacts/merge/preview/ — Preview a merge."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request):
+        serializer = MergeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        org = request.profile.org
+        primary_id = serializer.validated_data["primary_id"]
+        secondary_id = serializer.validated_data["secondary_id"]
+
+        try:
+            primary = Contact.objects.get(id=primary_id, org=org)
+            secondary = Contact.objects.get(id=secondary_id, org=org)
+        except Contact.DoesNotExist:
+            return Response(
+                {"error": True, "message": "Contato não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from contacts.merge import get_merge_preview
+
+        try:
+            preview = get_merge_preview(org, primary_id, secondary_id)
+        except ValueError as e:
+            return Response(
+                {"error": True, "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        preview["primary"] = ContactSerializer(primary).data
+        preview["secondary"] = ContactSerializer(secondary).data
+        return Response(preview)
+
+
+class ContactDuplicatesView(APIView):
+    """GET /api/contacts/<pk>/duplicates/ — Find potential duplicates."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        try:
+            contact = Contact.objects.get(id=pk, org=org)
+        except Contact.DoesNotExist:
+            return Response(
+                {"error": True, "message": "Contato não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from common.duplicate_detection import DuplicateDetector
+
+        results = DuplicateDetector.find_duplicate_contacts_with_reasons(
+            org, contact=contact,
+        )
+
+        # Enrich with conversations count and channels
+        from conversations.models import Conversation
+
+        duplicates = []
+        for r in results[:10]:
+            dup = r["contact"]
+            convs = Conversation.objects.filter(contact=dup, org=org)
+            channels = list(convs.values_list("channel", flat=True).distinct())
+            duplicates.append({
+                "id": str(dup.id),
+                "first_name": dup.first_name,
+                "last_name": dup.last_name,
+                "email": dup.email,
+                "phone": dup.phone,
+                "organization": dup.organization,
+                "source": dup.source,
+                "match_reasons": r["match_reasons"],
+                "conversations_count": convs.count(),
+                "channels": channels,
+            })
+
+        return Response({"duplicates": duplicates, "count": len(duplicates)})
 

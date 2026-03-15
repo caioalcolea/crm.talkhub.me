@@ -7,11 +7,12 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import { PageHeader } from '$lib/components/layout';
-  import { MessageSquare, Search, Filter, RefreshCw, PanelRight, Users, MessageCircle } from '@lucide/svelte';
+  import { MessageSquare, Search, Filter, RefreshCw, PanelRight, Users, MessageCircle, GitMerge } from '@lucide/svelte';
   import ConversationList from '$lib/components/conversations/ConversationList.svelte';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
+  import MergeContactModal from '$lib/components/contacts/MergeContactModal.svelte';
   import { apiRequest } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
   import {
@@ -26,6 +27,14 @@
   let channels = $derived(data.channels || []);
   let filters = $derived(data.filters || {});
   let showContextPanel = $state(false);
+
+  // Merge state
+  let mergeModalOpen = $state(false);
+  /** @type {any[]} */
+  let contextDuplicates = $state([]);
+  let contextDuplicatesCount = $state(0);
+  /** @type {any} */
+  let mergeTargetContact = $state(null);
 
   /** @type {any} */
   let selectedConversation = $state(null);
@@ -73,6 +82,46 @@
   $effect(() => {
     if (data.filters?.search) searchQuery = data.filters.search;
   });
+
+  // Load duplicates for the context panel contact
+  $effect(() => {
+    if (showContextPanel && selectedConversation?.contact) {
+      loadContactDuplicates(selectedConversation.contact);
+    } else {
+      contextDuplicates = [];
+      contextDuplicatesCount = 0;
+    }
+  });
+
+  /** @param {string} contactId */
+  async function loadContactDuplicates(contactId) {
+    try {
+      const result = await apiRequest(`/contacts/${contactId}/duplicates/`);
+      contextDuplicates = result.duplicates || [];
+      contextDuplicatesCount = result.count || 0;
+    } catch {
+      contextDuplicates = [];
+      contextDuplicatesCount = 0;
+    }
+  }
+
+  function openMergeFromContext() {
+    if (!selectedConversation?.contact) return;
+    // Build a minimal contact object for the modal
+    mergeTargetContact = {
+      id: selectedConversation.contact,
+      first_name: selectedConversation.contact_name?.split(' ')[0] || '',
+      last_name: selectedConversation.contact_name?.split(' ').slice(1).join(' ') || '',
+      email: null,
+      phone: null,
+    };
+    mergeModalOpen = true;
+  }
+
+  async function handleMergedFromContext() {
+    mergeModalOpen = false;
+    await refreshConversations(false);
+  }
 
   // --- WebSocket + Polling hybrid ---
   // Try WebSocket first; fall back to polling if WS fails 3x consecutively.
@@ -510,6 +559,16 @@
           <div class="mb-2 px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Contexto do Contato
           </div>
+          {#if contextDuplicatesCount > 0}
+            <button
+              type="button"
+              class="mb-2 flex w-full items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
+              onclick={openMergeFromContext}
+            >
+              <GitMerge class="size-3.5 shrink-0" />
+              <span class="flex-1 text-left">{contextDuplicatesCount} duplicata(s)</span>
+            </button>
+          {/if}
           <RelatedEntitiesPanel
             contactId={selectedConversation.contact}
             entityType="contact"
@@ -520,3 +579,13 @@
     </div>
   </div>
 </div>
+
+<!-- Merge Contact Modal (from context panel) -->
+{#if mergeTargetContact}
+  <MergeContactModal
+    bind:open={mergeModalOpen}
+    primaryContact={mergeTargetContact}
+    suggestedDuplicates={contextDuplicates}
+    onMerged={handleMergedFromContext}
+  />
+{/if}
