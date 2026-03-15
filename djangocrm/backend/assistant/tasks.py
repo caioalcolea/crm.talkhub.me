@@ -422,9 +422,13 @@ def _update_campaign_after_send(campaign, recipient, success, error_msg, step_or
 
 
 def _check_campaign_completion(campaign):
-    """Check if all recipients have been processed and mark campaign completed."""
+    """Check if all recipients have been processed and mark campaign completed.
+
+    Uses select_for_update to prevent race conditions when multiple workers
+    finish their last jobs concurrently.
+    """
     from assistant.models import ScheduledJob
-    from campaigns.models import CampaignRecipient
+    from campaigns.models import Campaign, CampaignRecipient
 
     from django.contrib.contenttypes.models import ContentType
 
@@ -440,11 +444,15 @@ def _check_campaign_completion(campaign):
     ).count()
 
     # active_jobs <= 1 because the current job is still "locked"
-    if pending_recipients == 0 and active_jobs <= 1 and campaign.status == "running":
-        campaign.status = "completed"
-        campaign.completed_at = timezone.now()
-        campaign.save(update_fields=["status", "completed_at", "updated_at"])
-        logger.info("Campaign %s completed", campaign.id)
+    if pending_recipients == 0 and active_jobs <= 1:
+        with transaction.atomic():
+            locked = Campaign.objects.select_for_update().get(id=campaign.id)
+            if locked.status != "running":
+                return
+            locked.status = "completed"
+            locked.completed_at = timezone.now()
+            locked.save(update_fields=["status", "completed_at", "updated_at"])
+            logger.info("Campaign %s completed", locked.id)
 
 
 def _build_context_for_job(job):
@@ -560,6 +568,7 @@ def _create_task_for_job(job, task_config, context, module_key):
         description=description,
         priority=priority,
         status="New",
+        created_by=job.assigned_user,
     )
 
     # Assign user if configured

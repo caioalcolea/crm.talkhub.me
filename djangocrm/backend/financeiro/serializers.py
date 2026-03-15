@@ -30,10 +30,13 @@ class PlanoDeContasGrupoSerializer(serializers.ModelSerializer):
             "descricao",
             "is_active",
             "ordem",
+            "color",
+            "applies_to",
+            "is_system_default",
             "contas_count",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at", "contas_count"]
+        read_only_fields = ["id", "created_at", "contas_count", "is_system_default"]
 
     def get_contas_count(self, obj):
         return obj.contas.filter(is_active=True).count()
@@ -53,9 +56,12 @@ class PlanoDeContasSerializer(serializers.ModelSerializer):
             "nome",
             "descricao",
             "is_active",
+            "code",
+            "is_system_default",
+            "sort_order",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "is_system_default"]
 
 
 class PlanoDeContasGrupoTreeSerializer(serializers.ModelSerializer):
@@ -72,6 +78,9 @@ class PlanoDeContasGrupoTreeSerializer(serializers.ModelSerializer):
             "descricao",
             "is_active",
             "ordem",
+            "color",
+            "applies_to",
+            "is_system_default",
             "contas",
         ]
 

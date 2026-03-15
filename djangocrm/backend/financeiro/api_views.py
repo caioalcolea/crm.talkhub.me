@@ -81,6 +81,20 @@ class PlanoDeContasGrupoViewSet(FinanceiroMixin, ModelViewSet):
             qs = qs.filter(is_active=True)
         return qs.prefetch_related("contas")
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_system_default:
+            return Response(
+                {"detail": "Grupos padrão do sistema não podem ser deletados. Use arquivar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Lancamento.objects.filter(plano_de_contas__grupo=instance).exists():
+            return Response(
+                {"detail": "Este grupo possui lançamentos vinculados. Arquive em vez de deletar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
 
 class PlanoDeContasViewSet(FinanceiroMixin, ModelViewSet):
     queryset = PlanoDeContas.objects.select_related("grupo").all()
@@ -94,6 +108,20 @@ class PlanoDeContasViewSet(FinanceiroMixin, ModelViewSet):
         if self.request.query_params.get("active_only") == "true":
             qs = qs.filter(is_active=True)
         return qs
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_system_default:
+            return Response(
+                {"detail": "Contas padrão do sistema não podem ser deletadas. Use arquivar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Lancamento.objects.filter(plano_de_contas=instance).exists():
+            return Response(
+                {"detail": "Esta conta possui lançamentos vinculados. Arquive em vez de deletar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 # =============================================================================
