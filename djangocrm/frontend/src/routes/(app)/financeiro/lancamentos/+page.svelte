@@ -3,6 +3,8 @@
   import { page } from '$app/stores';
   import { Button } from '$lib/components/ui/button/index.js';
   import { StatusBadge, TransactionForm } from '$lib/components/financeiro';
+  import { SearchableSelect } from '$lib/components/ui/searchable-select/index.js';
+  import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { orgSettings } from '$lib/stores/org.js';
   import { Plus, Search, X } from '@lucide/svelte';
@@ -21,6 +23,31 @@
   });
 
   let defaultCurrency = $derived(data.formOptions?.org_currency || cur);
+
+  // Build grouped planos for the filter dropdown
+  let planoFilterGroups = $derived.by(() => {
+    const planos = data.formOptions?.planos || [];
+    const grupos = data.formOptions?.plano_grupos || [];
+    if (grupos.length === 0) return [];
+    const grupoMap = new Map();
+    for (const g of grupos) {
+      grupoMap.set(g.id, { label: `${g.codigo} - ${g.nome}`, options: [] });
+    }
+    for (const p of planos) {
+      const group = grupoMap.get(p.grupo_id);
+      if (group) {
+        group.options.push({ value: p.id, label: p.nome });
+      }
+    }
+    return [...grupoMap.values()].filter((g) => g.options.length > 0);
+  });
+
+  let planoFilterOptions = $derived.by(() => {
+    if (planoFilterGroups.length > 0) return [];
+    return (data.formOptions?.planos || []).map((p) => ({ value: p.id, label: p.nome }));
+  });
+
+  let selectedPlano = $state(data.filters?.plano_de_contas || '');
 
   let formData = $state({
     tipo: 'RECEBER',
@@ -87,31 +114,40 @@
     if (tipo) params.set('tipo', tipo);
     const status = data.filters.status;
     if (status) params.set('status', status);
+    if (selectedPlano) params.set('plano_de_contas', selectedPlano);
     goto(`/financeiro/lancamentos?${params.toString()}`);
   }
 
   function clearFilters() {
     searchInput = '';
+    selectedPlano = '';
     goto('/financeiro/lancamentos');
   }
+
+  function handlePlanoFilterChange(val) {
+    selectedPlano = val;
+    applyFilters();
+  }
+
+  let hasActiveFilters = $derived(
+    !!(data.filters.search || data.filters.tipo || data.filters.status || selectedPlano)
+  );
 </script>
 
-<div class="space-y-4 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Lançamentos</h1>
-      <p class="text-muted-foreground text-sm">Gerencie contas a pagar e receber</p>
-    </div>
+<PageHeader title="Lançamentos" subtitle="{data.pagination.total} lançamento{data.pagination.total !== 1 ? 's' : ''}">
+  {#snippet actions()}
     <Button onclick={() => { resetForm(); showCreateModal = true; }}>
       <Plus class="mr-1.5 h-4 w-4" />
-      Novo Lançamento
+      <span class="hidden sm:inline">Novo Lançamento</span>
+      <span class="sm:hidden">Novo</span>
     </Button>
-  </div>
+  {/snippet}
+</PageHeader>
 
+<div class="space-y-4 p-4 md:p-6">
   <!-- Filters -->
-  <div class="flex flex-wrap items-center gap-2">
-    <div class="relative flex-1">
+  <div class="flex flex-wrap items-end gap-2">
+    <div class="relative min-w-0 flex-1">
       <Search class="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
       <input
         type="text"
@@ -140,7 +176,18 @@
       <option value="PAGO">Pago</option>
       <option value="CANCELADO">Cancelado</option>
     </select>
-    {#if data.filters.search || data.filters.tipo || data.filters.status}
+    <div class="w-52">
+      <SearchableSelect
+        bind:value={selectedPlano}
+        groups={planoFilterGroups}
+        options={planoFilterOptions}
+        placeholder="Centro de custo..."
+        searchPlaceholder="Buscar centro..."
+        emptyText="Nenhum centro encontrado."
+        onchange={handlePlanoFilterChange}
+      />
+    </div>
+    {#if hasActiveFilters}
       <Button variant="ghost" size="sm" onclick={clearFilters}>
         <X class="mr-1 h-3.5 w-3.5" /> Limpar
       </Button>
@@ -153,13 +200,13 @@
       <thead>
         <tr class="bg-muted/50 border-b">
           <th class="px-3 py-2.5 text-left font-medium">Descrição</th>
-          <th class="px-3 py-2.5 text-left font-medium">Tipo</th>
-          <th class="px-3 py-2.5 text-left font-medium">Pessoa</th>
-          <th class="px-3 py-2.5 text-left font-medium">Plano</th>
+          <th class="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Tipo</th>
+          <th class="hidden px-3 py-2.5 text-left font-medium md:table-cell">Pessoa</th>
+          <th class="hidden px-3 py-2.5 text-left font-medium lg:table-cell">Centro de Custo</th>
           <th class="px-3 py-2.5 text-right font-medium">Valor</th>
-          <th class="px-3 py-2.5 text-left font-medium">Parcelas</th>
+          <th class="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Parcelas</th>
           <th class="px-3 py-2.5 text-left font-medium">Status</th>
-          <th class="px-3 py-2.5 text-left font-medium">Vencimento</th>
+          <th class="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Vencimento</th>
         </tr>
       </thead>
       <tbody>
@@ -169,18 +216,18 @@
             onclick={() => goto(`/financeiro/lancamentos/${item.id}`)}
           >
             <td class="max-w-[220px] truncate px-3 py-2.5 font-medium">{item.descricao}</td>
-            <td class="px-3 py-2.5"><StatusBadge status={item.tipo} /></td>
-            <td class="px-3 py-2.5 text-xs">{item.account_name || item.contact_name || '-'}</td>
-            <td class="max-w-[150px] truncate px-3 py-2.5 text-xs">{item.plano_de_contas_nome || '-'}</td>
+            <td class="hidden px-3 py-2.5 sm:table-cell"><StatusBadge status={item.tipo} /></td>
+            <td class="hidden px-3 py-2.5 text-xs md:table-cell">{item.account_name || item.contact_name || '-'}</td>
+            <td class="hidden max-w-[150px] truncate px-3 py-2.5 text-xs lg:table-cell">{item.plano_de_contas_nome || '-'}</td>
             <td class="px-3 py-2.5 text-right font-mono text-xs">
               {#if item.currency_symbol}
                 <span class="text-muted-foreground mr-1 text-[10px]">{item.currency_symbol}</span>
               {/if}
               {formatCurrency(item.valor_convertido, cur)}
             </td>
-            <td class="px-3 py-2.5 text-xs">{item.parcelas_pagas}</td>
+            <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{item.parcelas_pagas}</td>
             <td class="px-3 py-2.5"><StatusBadge status={item.status} /></td>
-            <td class="px-3 py-2.5 text-xs">{formatDate(item.data_primeiro_vencimento)}</td>
+            <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{formatDate(item.data_primeiro_vencimento)}</td>
           </tr>
         {:else}
           <tr>

@@ -1,5 +1,6 @@
 <script>
   import { Button } from '$lib/components/ui/button/index.js';
+  import { SearchableSelect } from '$lib/components/ui/searchable-select/index.js';
 
   let {
     formData = $bindable({}),
@@ -26,6 +27,47 @@
   let orgCurrency = $derived(formOptions.org_currency || 'BRL');
   let isSameCurrency = $derived(formData.currency === orgCurrency);
   let showFinancials = $derived(mode === 'create' || (mode === 'edit' && canEditFinancials));
+
+  // Build grouped planos for SearchableSelect
+  let planoGroups = $derived.by(() => {
+    const planos = formOptions.planos || [];
+    const grupos = formOptions.plano_grupos || [];
+    if (grupos.length === 0) {
+      // Fallback: flat list
+      return [];
+    }
+    const grupoMap = new Map();
+    for (const g of grupos) {
+      grupoMap.set(g.id, { label: `${g.codigo} - ${g.nome}`, options: [] });
+    }
+    for (const p of planos) {
+      const group = grupoMap.get(p.grupo_id);
+      if (group) {
+        group.options.push({ value: p.id, label: p.nome });
+      }
+    }
+    return [...grupoMap.values()].filter((g) => g.options.length > 0);
+  });
+
+  // Flat fallback for planos (when no groups available)
+  let planoOptions = $derived.by(() => {
+    if (planoGroups.length > 0) return [];
+    return (formOptions.planos || []).map((p) => ({ value: p.id, label: p.nome }));
+  });
+
+  // Flat options for other selects
+  let accountOptions = $derived(
+    (formOptions.accounts || []).map((a) => ({ value: a.id, label: a.name }))
+  );
+  let contactOptions = $derived(
+    (formOptions.contacts || []).map((c) => ({ value: c.id, label: c.name }))
+  );
+  let formaOptions = $derived(
+    (formOptions.formas_pagamento || []).map((f) => ({ value: f.id, label: f.nome }))
+  );
+  let currencyOptions = $derived(
+    (formOptions.currencies || []).map((c) => ({ value: c.code, label: `${c.code} - ${c.symbol}` }))
+  );
 
   // Auto-set exchange rate to 1 when same currency
   $effect(() => {
@@ -75,65 +117,63 @@
     />
   </div>
 
-  <!-- Centro de Custo -->
+  <!-- Centro de Custo (grouped by plano grupo) -->
   <div>
-    <label for="plano_de_contas" class="text-sm font-medium">Centro de Custo</label>
-    <select
-      id="plano_de_contas"
-      bind:value={formData.plano_de_contas}
-      class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
-    >
-      <option value="">Nenhum</option>
-      {#each formOptions.planos || [] as plano}
-        <option value={plano.id}>{plano.nome}</option>
-      {/each}
-    </select>
+    <label class="text-sm font-medium">Centro de Custo</label>
+    <div class="mt-1">
+      <SearchableSelect
+        bind:value={formData.plano_de_contas}
+        groups={planoGroups}
+        options={planoOptions}
+        placeholder="Selecione o centro de custo..."
+        searchPlaceholder="Buscar centro de custo..."
+        emptyText="Nenhum centro de custo encontrado."
+      />
+    </div>
   </div>
 
   <!-- Account / Contact -->
-  <div class="grid grid-cols-2 gap-3">
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
     <div>
-      <label for="account" class="text-sm font-medium">Empresa</label>
-      <select
-        id="account"
-        bind:value={formData.account}
-        class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
-      >
-        <option value="">Nenhuma</option>
-        {#each formOptions.accounts || [] as acc}
-          <option value={acc.id}>{acc.name}</option>
-        {/each}
-      </select>
+      <label class="text-sm font-medium">Empresa</label>
+      <div class="mt-1">
+        <SearchableSelect
+          bind:value={formData.account}
+          options={accountOptions}
+          placeholder="Selecione a empresa..."
+          searchPlaceholder="Buscar empresa..."
+          emptyText="Nenhuma empresa encontrada."
+        />
+      </div>
     </div>
     <div>
-      <label for="contact" class="text-sm font-medium">Contato</label>
-      <select
-        id="contact"
-        bind:value={formData.contact}
-        class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
-      >
-        <option value="">Nenhum</option>
-        {#each formOptions.contacts || [] as ct}
-          <option value={ct.id}>{ct.name}</option>
-        {/each}
-      </select>
+      <label class="text-sm font-medium">Contato</label>
+      <div class="mt-1">
+        <SearchableSelect
+          bind:value={formData.contact}
+          options={contactOptions}
+          placeholder="Selecione o contato..."
+          searchPlaceholder="Buscar contato..."
+          emptyText="Nenhum contato encontrado."
+        />
+      </div>
     </div>
   </div>
 
   <!-- Currency + Value + Exchange Rate (only for create or full-edit) -->
   {#if showFinancials}
-    <div class="grid grid-cols-3 gap-3">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <div>
-        <label for="currency" class="text-sm font-medium">Moeda</label>
-        <select
-          id="currency"
-          bind:value={formData.currency}
-          class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
-        >
-          {#each formOptions.currencies || [] as curr}
-            <option value={curr.code}>{curr.code} - {curr.symbol}</option>
-          {/each}
-        </select>
+        <label class="text-sm font-medium">Moeda</label>
+        <div class="mt-1">
+          <SearchableSelect
+            bind:value={formData.currency}
+            options={currencyOptions}
+            placeholder="Moeda..."
+            searchPlaceholder="Buscar moeda..."
+            allowClear={false}
+          />
+        </div>
       </div>
       <div>
         <label for="valor_total" class="text-sm font-medium">Valor Total *</label>
@@ -184,7 +224,7 @@
     {/if}
 
     <!-- Parcelas + Vencimento + Forma -->
-    <div class="grid grid-cols-3 gap-3">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <div>
         <label for="numero_parcelas" class="text-sm font-medium">Parcelas</label>
         <input
@@ -211,17 +251,16 @@
         />
       </div>
       <div>
-        <label for="forma_pagamento" class="text-sm font-medium">Forma de Pgto</label>
-        <select
-          id="forma_pagamento"
-          bind:value={formData.forma_pagamento}
-          class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
-        >
-          <option value="">Nenhuma</option>
-          {#each formOptions.formas_pagamento || [] as forma}
-            <option value={forma.id}>{forma.nome}</option>
-          {/each}
-        </select>
+        <label class="text-sm font-medium">Forma de Pgto</label>
+        <div class="mt-1">
+          <SearchableSelect
+            bind:value={formData.forma_pagamento}
+            options={formaOptions}
+            placeholder="Selecione..."
+            searchPlaceholder="Buscar forma..."
+            emptyText="Nenhuma forma encontrada."
+          />
+        </div>
       </div>
     </div>
 
