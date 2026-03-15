@@ -509,7 +509,7 @@
   <!-- Main content: list + timeline -->
   <div class="flex flex-1 overflow-hidden">
     <!-- Left panel: conversation list -->
-    <div class="w-full shrink-0 overflow-y-auto border-r md:w-80 lg:w-96 {selectedConversation ? 'hidden md:block' : ''}"
+    <div class="w-full shrink-0 overflow-y-auto border-r md:w-80 lg:w-96 {selectedConversation ? 'hidden md:block' : ''}">
       <ConversationList
         {conversations}
         selected={selectedConversation?.id}

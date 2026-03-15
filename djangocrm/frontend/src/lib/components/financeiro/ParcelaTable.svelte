@@ -72,33 +72,33 @@
             </td>
           {/if}
           <td class="px-3 py-2 font-medium">
-            {parcela.numero}/{parcela.total_parcelas || parcela.totalParcelas || '?'}
+            {parcela.numero}/{parcela.total_parcelas || '?'}
           </td>
           <td class="max-w-[200px] truncate px-3 py-2">
-            {parcela.lancamento_descricao || parcela.lancamentoDescricao || '-'}
+            {parcela.lancamento_descricao || '-'}
           </td>
           <td class="hidden px-3 py-2 text-xs md:table-cell">
-            {parcela.account_name || parcela.accountName || parcela.contact_name || parcela.contactName || '-'}
+            {parcela.account_name || parcela.contact_name || '-'}
           </td>
           <td class="px-3 py-2 text-right font-mono text-xs">
-            {formatCurrency(parcela.valor_parcela_convertido || parcela.valorParcelaConvertido, currency)}
+            {formatCurrency(parcela.valor_parcela_convertido, currency)}
           </td>
           <td class="px-3 py-2 text-xs">
-            {formatDate(parcela.data_vencimento || parcela.dataVencimento)}
+            {formatDate(parcela.data_vencimento)}
           </td>
           <td class="hidden px-3 py-2 text-xs lg:table-cell">
-            {formatDate(parcela.data_pagamento || parcela.dataPagamento) || '-'}
+            {formatDate(parcela.data_pagamento) || '-'}
           </td>
           <td class="px-3 py-2">
-            <StatusBadge status={parcela.status} tipo={parcela.lancamento_tipo || parcela.lancamentoTipo || ''} />
+            <StatusBadge status={parcela.status} tipo={parcela.lancamento_tipo || ''} />
           </td>
           <td class="hidden px-3 py-2 text-xs md:table-cell">
-            {#if parcela.dias_atraso > 0 || parcela.diasAtraso > 0}
+            {#if parcela.dias_atraso > 0}
               <span class="text-destructive font-medium">
-                {parcela.status_message || parcela.statusMessage || `${parcela.dias_atraso || parcela.diasAtraso}d atraso`}
+                {parcela.status_message || `${parcela.dias_atraso}d atraso`}
               </span>
             {:else}
-              <span class="text-muted-foreground">{parcela.status_message || parcela.statusMessage || ''}</span>
+              <span class="text-muted-foreground">{parcela.status_message || ''}</span>
             {/if}
           </td>
           <td class="px-3 py-2 text-right">

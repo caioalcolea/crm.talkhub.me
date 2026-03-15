@@ -23,6 +23,7 @@ export async function load({ url, locals, cookies }) {
         ano: parseInt(ano),
         total_receber: 0,
         total_pagar: 0,
+        recebido_no_mes: 0,
         pago_no_mes: 0,
         total_vencido: 0,
         pct_vencidas: 0,

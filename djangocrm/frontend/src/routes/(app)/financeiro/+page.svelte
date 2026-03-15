@@ -42,25 +42,29 @@
 <div class="space-y-6 p-4 md:p-6">
   <!-- KPI Cards -->
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-    <KPICard
-      label="A Receber"
-      value={formatCurrency(d.total_receber, cur)}
-      accentColor="emerald"
-    >
-      {#snippet icon({ class: cls })}
-        <ArrowDownCircle class={cls} />
-      {/snippet}
-    </KPICard>
+    <button class="cursor-pointer text-left" onclick={() => goto('/financeiro/receber')}>
+      <KPICard
+        label="A Receber"
+        value={formatCurrency(d.total_receber, cur)}
+        accentColor="emerald"
+      >
+        {#snippet icon({ class: cls })}
+          <ArrowDownCircle class={cls} />
+        {/snippet}
+      </KPICard>
+    </button>
 
-    <KPICard
-      label="A Pagar"
-      value={formatCurrency(d.total_pagar, cur)}
-      accentColor="rose"
-    >
-      {#snippet icon({ class: cls })}
-        <ArrowUpCircle class={cls} />
-      {/snippet}
-    </KPICard>
+    <button class="cursor-pointer text-left" onclick={() => goto('/financeiro/pagar')}>
+      <KPICard
+        label="A Pagar"
+        value={formatCurrency(d.total_pagar, cur)}
+        accentColor="rose"
+      >
+        {#snippet icon({ class: cls })}
+          <ArrowUpCircle class={cls} />
+        {/snippet}
+      </KPICard>
+    </button>
 
     <KPICard
       label="Recebido no Mês"

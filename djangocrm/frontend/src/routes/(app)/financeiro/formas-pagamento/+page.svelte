@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { PageHeader } from '$lib/components/layout';
   import { Plus, Pencil, Trash2 } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
 
@@ -19,18 +20,16 @@
   }
 </script>
 
-<div class="space-y-4 p-6">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Formas de Pagamento</h1>
-      <p class="text-muted-foreground text-sm">Configure as formas de pagamento disponíveis</p>
-    </div>
+<PageHeader title="Formas de Pagamento" subtitle="Configure as formas de pagamento disponíveis">
+  {#snippet actions()}
     <Button onclick={() => { newNome = ''; showCreateModal = true; }}>
       <Plus class="mr-1.5 h-4 w-4" />
       Nova Forma
     </Button>
-  </div>
+  {/snippet}
+</PageHeader>
 
+<div class="space-y-4 p-4 md:p-6">
   <div class="overflow-x-auto rounded-lg border">
     <table class="w-full text-sm">
       <thead>

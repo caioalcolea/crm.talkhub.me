@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { PageHeader } from '$lib/components/layout';
   import { Plus, ChevronDown, ChevronRight, Trash2 } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
 
@@ -26,18 +27,16 @@
   }
 </script>
 
-<div class="space-y-4 p-6">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Centro de Custo</h1>
-      <p class="text-muted-foreground text-sm">Organize seus centros de custo em grupos hierárquicos</p>
-    </div>
+<PageHeader title="Centro de Custo" subtitle="Organize seus centros de custo em grupos hierárquicos">
+  {#snippet actions()}
     <Button onclick={() => { grupoForm = { codigo: '', nome: '', descricao: '', ordem: 0 }; showGrupoModal = true; }}>
       <Plus class="mr-1.5 h-4 w-4" />
       Novo Grupo
     </Button>
-  </div>
+  {/snippet}
+</PageHeader>
 
+<div class="space-y-4 p-4 md:p-6">
   <!-- Tree View -->
   <div class="space-y-2">
     {#each data.grupos as grupo (grupo.id)}

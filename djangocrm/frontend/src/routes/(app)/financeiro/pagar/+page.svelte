@@ -10,6 +10,8 @@
 
   let { data } = $props();
   let searchInput = $state('');
+  let vencimentoFrom = $state('');
+  let vencimentoTo = $state('');
   let selectedIds = $state([]);
   let cur = $derived($orgSettings.default_currency || 'BRL');
 
@@ -17,7 +19,21 @@
 
   $effect(() => {
     if (data?.filters?.search) searchInput = data.filters.search;
+    if (data?.filters?.vencimento_from) vencimentoFrom = data.filters.vencimento_from;
+    if (data?.filters?.vencimento_to) vencimentoTo = data.filters.vencimento_to;
   });
+
+  function buildFilterParams(extra = {}) {
+    const params = new URLSearchParams();
+    if (searchInput) params.set('search', searchInput);
+    if (data.filters.status) params.set('status', data.filters.status);
+    if (vencimentoFrom) params.set('vencimento_from', vencimentoFrom);
+    if (vencimentoTo) params.set('vencimento_to', vencimentoTo);
+    for (const [k, v] of Object.entries(extra)) {
+      if (v) params.set(k, v);
+    }
+    return params.toString();
+  }
 
   // Group parcelas by competencia_ano/competencia_mes
   let groupedParcelas = $derived.by(() => {
@@ -98,18 +114,18 @@
   }
 
   function applyFilters() {
-    const params = new URLSearchParams();
-    if (searchInput) params.set('search', searchInput);
-    if (data.filters.status) params.set('status', data.filters.status);
-    goto(`/financeiro/pagar?${params.toString()}`);
+    goto(`/financeiro/pagar?${buildFilterParams()}`);
   }
 
   function clearFilters() {
     searchInput = '';
+    vencimentoFrom = '';
+    vencimentoTo = '';
+    data.filters.status = '';
     goto('/financeiro/pagar');
   }
 
-  let hasActiveFilters = $derived(!!(data.filters.search || data.filters.status));
+  let hasActiveFilters = $derived(!!(data.filters.search || data.filters.status || vencimentoFrom || vencimentoTo));
 </script>
 
 <PageHeader title="Contas a Pagar" subtitle="{data.pagination.total} parcela{data.pagination.total !== 1 ? 's' : ''}">
@@ -147,6 +163,20 @@
       <option value="CANCELADO">Cancelado</option>
       <option value="all">Todos</option>
     </select>
+    <input
+      type="date"
+      bind:value={vencimentoFrom}
+      onchange={applyFilters}
+      class="border-input bg-background hidden h-9 rounded-md border px-3 text-sm sm:block"
+      title="Vencimento de"
+    />
+    <input
+      type="date"
+      bind:value={vencimentoTo}
+      onchange={applyFilters}
+      class="border-input bg-background hidden h-9 rounded-md border px-3 text-sm sm:block"
+      title="Vencimento até"
+    />
     {#if hasActiveFilters}
       <Button variant="ghost" size="sm" onclick={clearFilters}>
         <X class="mr-1 h-3.5 w-3.5" /> Limpar
@@ -212,7 +242,7 @@
             variant={pg === data.pagination.page ? 'default' : 'outline'}
             size="sm"
             class="h-8 w-8"
-            onclick={() => goto(`/financeiro/pagar?page=${pg}`)}
+            onclick={() => goto(`/financeiro/pagar?${buildFilterParams({ page: String(pg) })}`)}
           >
             {pg}
           </Button>
