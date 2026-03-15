@@ -13,7 +13,7 @@
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import MergeContactModal from '$lib/components/contacts/MergeContactModal.svelte';
-  import { apiRequest } from '$lib/api.js';
+  import { apiRequest, getCurrentUser } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
   import {
     wsConnect, wsDisconnect, wsWatch, wsUnwatch,
@@ -26,6 +26,9 @@
   let conversations = $state(data.conversations || []);
   let channels = $derived(data.channels || []);
   let filters = $derived(data.filters || {});
+  const currentUser = $derived(getCurrentUser());
+  const isAdmin = $derived(currentUser?.role === 'ADMIN' || currentUser?.is_organization_admin || currentUser?.is_superuser);
+  let isDeletedView = $derived(filters.status === 'deleted');
   let showContextPanel = $state(false);
 
   // Merge state
@@ -267,7 +270,11 @@
     try {
       const params = new URLSearchParams();
       if (filters.channel) params.set('channel', filters.channel);
-      if (filters.status) params.set('status', filters.status);
+      if (filters.status === 'deleted') {
+        params.set('deleted', 'true');
+      } else if (filters.status) {
+        params.set('status', filters.status);
+      }
       if (filters.assigned_to) params.set('assigned_to', filters.assigned_to);
       if (filters.search) params.set('search', filters.search);
       if (filters.is_group) params.set('is_group', filters.is_group);
@@ -362,7 +369,11 @@
       const params = new URLSearchParams();
       params.set('cursor', nextCursor);
       if (filters.channel) params.set('channel', filters.channel);
-      if (filters.status) params.set('status', filters.status);
+      if (filters.status === 'deleted') {
+        params.set('deleted', 'true');
+      } else if (filters.status) {
+        params.set('status', filters.status);
+      }
       if (filters.assigned_to) params.set('assigned_to', filters.assigned_to);
       if (filters.search) params.set('search', filters.search);
       if (filters.is_group) params.set('is_group', filters.is_group);
@@ -455,13 +466,14 @@
     <Select.Root type="single" value={filters.status || 'open'} onValueChange={(v) => updateFilter('status', v)}>
       <Select.Trigger class="w-36 h-8">
         <Filter class="size-3.5 mr-1.5 text-muted-foreground" />
-        {filters.status === 'open' ? 'Abertas' : filters.status === 'pending' ? 'Pendentes' : filters.status === 'resolved' ? 'Concluídas' : 'Todas'}
+        {filters.status === 'open' ? 'Abertas' : filters.status === 'pending' ? 'Pendentes' : filters.status === 'resolved' ? 'Concluídas' : filters.status === 'deleted' ? 'Deletados' : 'Todas'}
       </Select.Trigger>
       <Select.Content>
         <Select.Item value="open">Abertas</Select.Item>
         <Select.Item value="pending">Pendentes</Select.Item>
         <Select.Item value="resolved">Concluídas</Select.Item>
         <Select.Item value="">Todas</Select.Item>
+        <Select.Item value="deleted">Deletados</Select.Item>
       </Select.Content>
     </Select.Root>
 
@@ -518,7 +530,29 @@
             {messages}
             loading={loadingMessages}
             onContactChanged={handleConversationContactChanged}
-            onConversationChanged={(updated) => { selectedConversation = updated; }}
+            onConversationChanged={(updated) => {
+              // If conversation was soft-deleted or restored, remove from current view
+              if (updated.is_deleted && !isDeletedView) {
+                conversations = conversations.filter(c => c.id !== updated.id);
+                selectedConversation = null;
+                messages = [];
+                activeConversationId = null;
+              } else if (!updated.is_deleted && isDeletedView) {
+                conversations = conversations.filter(c => c.id !== updated.id);
+                selectedConversation = null;
+                messages = [];
+                activeConversationId = null;
+              } else if (updated._permanentlyDeleted) {
+                conversations = conversations.filter(c => c.id !== updated.id);
+                selectedConversation = null;
+                messages = [];
+                activeConversationId = null;
+              } else {
+                selectedConversation = updated;
+              }
+            }}
+            {isAdmin}
+            {isDeletedView}
           >
             {#snippet headerActions()}
               <Button

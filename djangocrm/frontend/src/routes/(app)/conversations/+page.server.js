@@ -10,7 +10,12 @@ export async function load({ cookies, url }) {
 
   const params = new URLSearchParams();
   if (channel) params.set('channel', channel);
-  if (status) params.set('status', status);
+  // "deleted" is a pseudo-status: maps to ?deleted=true (no status filter)
+  if (status === 'deleted') {
+    params.set('deleted', 'true');
+  } else if (status) {
+    params.set('status', status);
+  }
   if (assigned_to) params.set('assigned_to', assigned_to);
   if (search) params.set('search', search);
   if (is_group) params.set('is_group', is_group);

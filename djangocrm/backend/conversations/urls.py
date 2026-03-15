@@ -9,6 +9,9 @@ Endpoints:
     /api/conversations/<id>/unassign/               — Unassign agent
     /api/conversations/<id>/bot/pause/              — Pause bot
     /api/conversations/<id>/bot/resume/             — Resume bot
+    /api/conversations/<id>/delete/                 — Soft-delete
+    /api/conversations/<id>/restore/                — Restore (admin)
+    /api/conversations/<id>/permanent-delete/       — Permanent delete (admin)
 """
 
 from django.urls import path
@@ -18,6 +21,8 @@ from conversations.views import (
     ConversationBotView,
     ConversationDetailView,
     ConversationListView,
+    ConversationPermanentDeleteView,
+    ConversationSoftDeleteView,
     ConversationUpdatesView,
     MessageCreateView,
     MessageListView,
@@ -39,6 +44,25 @@ urlpatterns = [
         MessageCreateView.as_view(),
         name="message-create",
     ),
+    # Soft-delete / restore / permanent delete (BEFORE generic <str:action> routes)
+    path(
+        "<uuid:pk>/delete/",
+        ConversationSoftDeleteView.as_view(),
+        {"action": "delete"},
+        name="conversation-delete",
+    ),
+    path(
+        "<uuid:pk>/restore/",
+        ConversationSoftDeleteView.as_view(),
+        {"action": "restore"},
+        name="conversation-restore",
+    ),
+    path(
+        "<uuid:pk>/permanent-delete/",
+        ConversationPermanentDeleteView.as_view(),
+        name="conversation-permanent-delete",
+    ),
+    # Generic action routes (assign/unassign) — AFTER specific routes
     path(
         "<uuid:pk>/<str:action>/",
         ConversationAssignView.as_view(),

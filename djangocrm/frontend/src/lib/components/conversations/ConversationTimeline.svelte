@@ -9,20 +9,22 @@
   import MessageBubble from './MessageBubble.svelte';
   import { toast } from 'svelte-sonner';
   import { apiRequest } from '$lib/api.js';
-  import { User, Bot, Pause, Play, UserPlus, UserMinus, Loader2, ChevronUp, Link, Unlink, Target, Sparkles, Check } from '@lucide/svelte';
+  import { User, Bot, Pause, Play, UserPlus, UserMinus, Loader2, ChevronUp, Link, Unlink, Target, Sparkles, Check, Trash2, RotateCcw, AlertTriangle } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Props
    * @property {any} conversation
    * @property {any[]} messages
    * @property {boolean} [loading]
+   * @property {boolean} [isAdmin]
+   * @property {boolean} [isDeletedView]
    * @property {((contact: any) => void)} [onContactChanged]
    * @property {((conversation: any) => void)} [onConversationChanged]
    * @property {import('svelte').Snippet} [headerActions]
    */
 
   /** @type {Props} */
-  let { conversation, messages = [], loading = false, onContactChanged, onConversationChanged, headerActions } = $props();
+  let { conversation, messages = [], loading = false, isAdmin = false, isDeletedView = false, onContactChanged, onConversationChanged, headerActions } = $props();
 
   let loadingMore = $state(false);
   let timelineEl = $state(null);
@@ -151,10 +153,40 @@
   }
 
   async function unlinkContact() {
-    // Conversation.contact is a required FK (on_delete=CASCADE), so we can't set it to null.
-    // Just close the picker if open.
     showContactPicker = false;
     pickerContact = null;
+  }
+
+  async function softDeleteConversation() {
+    if (!confirm('Mover esta conversa para Deletados?')) return;
+    try {
+      await apiRequest(`/conversations/${conversation.id}/delete/`, { method: 'POST' });
+      toast.success('Conversa movida para Deletados');
+      onConversationChanged?.({ ...conversation, is_deleted: true });
+    } catch (e) {
+      toast.error('Erro ao excluir conversa');
+    }
+  }
+
+  async function restoreConversation() {
+    try {
+      await apiRequest(`/conversations/${conversation.id}/restore/`, { method: 'POST' });
+      toast.success('Conversa restaurada');
+      onConversationChanged?.({ ...conversation, is_deleted: false });
+    } catch (e) {
+      toast.error('Erro ao restaurar conversa');
+    }
+  }
+
+  async function permanentDeleteConversation() {
+    if (!confirm('Excluir permanentemente? Esta ação NÃO pode ser desfeita.')) return;
+    try {
+      await apiRequest(`/conversations/${conversation.id}/permanent-delete/`, { method: 'DELETE' });
+      toast.success('Conversa excluída permanentemente');
+      onConversationChanged?.({ ...conversation, _permanentlyDeleted: true });
+    } catch (e) {
+      toast.error('Erro ao excluir permanentemente');
+    }
   }
 </script>
 
@@ -184,7 +216,7 @@
           </button>
         {:else}
           <div class="flex items-center gap-1.5">
-            <p class="text-sm font-medium">{conversation.contact_name || 'Sem contato'}</p>
+            <p class="text-sm font-medium">{conversation.contact_name || (conversation.contact ? 'Sem nome' : 'Contato removido')}</p>
             <button
               type="button"
               onclick={() => (showContactPicker = true)}
@@ -289,6 +321,22 @@
         {@render headerActions()}
       {/if}
 
+      <!-- Delete / Restore / Permanent Delete -->
+      {#if conversation.is_deleted}
+        {#if isAdmin}
+          <Button variant="ghost" size="icon" class="size-8" onclick={restoreConversation} title="Restaurar conversa">
+            <RotateCcw class="size-4 text-green-600" />
+          </Button>
+          <Button variant="ghost" size="icon" class="size-8" onclick={permanentDeleteConversation} title="Excluir permanentemente">
+            <AlertTriangle class="size-4 text-destructive" />
+          </Button>
+        {/if}
+      {:else}
+        <Button variant="ghost" size="icon" class="size-8" onclick={softDeleteConversation} title="Excluir conversa">
+          <Trash2 class="size-4 text-muted-foreground" />
+        </Button>
+      {/if}
+
       {#if conversation.omni_user_ns}
         <Button variant="ghost" size="icon" class="size-8" onclick={() => toggleBot('pause')} title="Pausar bot">
           <Pause class="size-4" />
@@ -299,6 +347,17 @@
       {/if}
     </div>
   </div>
+
+  <!-- Deleted banner -->
+  {#if conversation.is_deleted}
+    <div class="flex items-center gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive">
+      <Trash2 class="size-3.5 shrink-0" />
+      <span>Esta conversa foi excluída{conversation.deleted_at ? ` em ${new Date(conversation.deleted_at).toLocaleDateString('pt-BR')}` : ''}.</span>
+      {#if isAdmin}
+        <button type="button" class="ml-auto font-medium underline hover:no-underline" onclick={restoreConversation}>Restaurar</button>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Messages timeline -->
   <div class="flex-1 overflow-y-auto px-4 py-3 space-y-1" bind:this={timelineEl}>

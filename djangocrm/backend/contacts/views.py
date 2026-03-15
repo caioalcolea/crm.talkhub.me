@@ -484,6 +484,17 @@ class ContactDetailView(APIView):
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Soft-delete all conversations for this contact before hard-deleting
+        # With on_delete=SET_NULL, conversations survive but lose contact reference.
+        # We soft-delete them so they go to the trash instead of becoming orphaned.
+        from conversations.models import Conversation as Conv
+        from django.utils import timezone as tz
+        Conv.objects.filter(contact=self.object, is_deleted=False).update(
+            is_deleted=True,
+            deleted_at=tz.now(),
+            deleted_by=self.request.profile,
+        )
+
         self.object.delete()
         return Response(
             {"error": False, "message": "Contact Deleted Successfully."},
@@ -1047,7 +1058,7 @@ class ContactContextView(APIView):
         if "conversations" in include:
             from conversations.models import Conversation
 
-            qs = Conversation.objects.filter(contact_id=pk, org=org)
+            qs = Conversation.objects.filter(contact_id=pk, org=org, is_deleted=False)
             context["conversations_count"] = qs.count()
             context["conversations"] = [
                 {

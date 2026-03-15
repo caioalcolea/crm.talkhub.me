@@ -132,6 +132,8 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "contact_name",
             "contact_address",
             "is_group",
+            "is_deleted",
+            "deleted_at",
             "last_message",
             "metadata_json",
             "created_at",
@@ -186,6 +188,8 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.SerializerMethodField()
     is_group = serializers.SerializerMethodField()
 
+    deleted_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Conversation
         fields = (
@@ -203,6 +207,9 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
             "contact_email",
             "contact_address",
             "is_group",
+            "is_deleted",
+            "deleted_at",
+            "deleted_by_name",
             "created_at",
             "updated_at",
         )
@@ -225,6 +232,11 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
     def get_assigned_to_name(self, obj):
         if obj.assigned_to and obj.assigned_to.user:
             return obj.assigned_to.user.email
+        return None
+
+    def get_deleted_by_name(self, obj):
+        if obj.deleted_by and obj.deleted_by.user:
+            return obj.deleted_by.user.email
         return None
 
 

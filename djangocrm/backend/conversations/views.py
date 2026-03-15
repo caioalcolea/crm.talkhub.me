@@ -25,7 +25,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from channels.registry import ChannelRegistry
-from common.permissions import HasOrgContext
+from common.permissions import HasOrgContext, IsOrgAdmin
 from conversations.models import Conversation, Message
 from conversations.serializers import (
     ConversationDetailSerializer,
@@ -53,6 +53,10 @@ class ConversationListView(APIView):
         queryset = Conversation.objects.filter(org=request.org).select_related(
             "contact", "assigned_to__user"
         )
+
+        # Soft-delete filter: default to non-deleted
+        show_deleted = request.query_params.get("deleted") == "true"
+        queryset = queryset.filter(is_deleted=show_deleted)
 
         # Filtros
         channel = request.query_params.get("channel")
@@ -443,7 +447,7 @@ class ContactConversationsView(APIView):
 
     def get(self, request, contact_id):
         queryset = Conversation.objects.filter(
-            org=request.org, contact_id=contact_id
+            org=request.org, contact_id=contact_id, is_deleted=False
         ).select_related(
             "contact", "assigned_to__user"
         ).prefetch_related(
@@ -486,10 +490,11 @@ class ConversationUpdatesView(APIView):
         except (ValueError, TypeError):
             return Response({"error": "Invalid timestamp"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get conversations updated since timestamp
+        # Get conversations updated since timestamp (exclude soft-deleted)
         updated_convs = Conversation.objects.filter(
             org=request.org,
             updated_at__gt=since_dt,
+            is_deleted=False,
         )
 
         # Filter by group/individual to match frontend tab
@@ -526,3 +531,64 @@ class ConversationUpdatesView(APIView):
             "messages": new_messages,
             "server_time": timezone.now().isoformat(),
         })
+
+
+class ConversationSoftDeleteView(APIView):
+    """POST /api/conversations/<id>/delete/ — Soft-delete (any user).
+       POST /api/conversations/<id>/restore/ — Restore (admin only)."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request, pk, action):
+        try:
+            conversation = Conversation.objects.get(id=pk, org=request.org)
+        except Conversation.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if action == "delete":
+            if conversation.is_deleted:
+                return Response({"error": "Already deleted"}, status=status.HTTP_400_BAD_REQUEST)
+            conversation.is_deleted = True
+            conversation.deleted_at = timezone.now()
+            conversation.deleted_by = getattr(request, "profile", None)
+            conversation.save(update_fields=["is_deleted", "deleted_at", "deleted_by", "updated_at"])
+            return Response({"message": "Conversa movida para deletados."})
+
+        elif action == "restore":
+            # Admin only
+            profile = getattr(request, "profile", None)
+            if not profile or (profile.role != "ADMIN" and not profile.is_admin):
+                return Response(
+                    {"error": "Apenas administradores podem restaurar conversas."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not conversation.is_deleted:
+                return Response({"error": "Not deleted"}, status=status.HTTP_400_BAD_REQUEST)
+            conversation.is_deleted = False
+            conversation.deleted_at = None
+            conversation.deleted_by = None
+            conversation.save(update_fields=["is_deleted", "deleted_at", "deleted_by", "updated_at"])
+            return Response({"message": "Conversa restaurada."})
+
+        return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ConversationPermanentDeleteView(APIView):
+    """DELETE /api/conversations/<id>/permanent-delete/ — Admin only, must be soft-deleted first."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext, IsOrgAdmin)
+
+    def delete(self, request, pk):
+        try:
+            conversation = Conversation.objects.get(id=pk, org=request.org)
+        except Conversation.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not conversation.is_deleted:
+            return Response(
+                {"error": "A conversa deve estar na lixeira antes de ser excluída permanentemente."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        conversation.delete()  # CASCADE deletes messages too
+        return Response(status=status.HTTP_204_NO_CONTENT)
