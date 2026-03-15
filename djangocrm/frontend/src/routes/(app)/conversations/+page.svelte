@@ -7,7 +7,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import { PageHeader } from '$lib/components/layout';
-  import { MessageSquare, Search, Filter, RefreshCw, PanelRight, Users, MessageCircle, GitMerge } from '@lucide/svelte';
+  import { MessageSquare, Search, Filter, RefreshCw, PanelRight, Users, MessageCircle, GitMerge, ArrowLeft } from '@lucide/svelte';
   import ConversationList from '$lib/components/conversations/ConversationList.svelte';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
@@ -423,7 +423,7 @@
 
 <PageHeader title="Conversas" subtitle="Gerencie suas conversas em tempo real" />
 
-<div class="flex h-[calc(100vh-10rem)] flex-col">
+<div class="flex h-[calc(100vh-8rem)] flex-col md:h-[calc(100vh-10rem)]">
   <!-- Tabs: Conversas | Grupos -->
   <div class="flex items-center border-b px-4">
     <button
@@ -452,8 +452,8 @@
   </div>
 
   <!-- Filters bar -->
-  <div class="flex flex-wrap items-center gap-3 border-b px-4 py-2.5">
-    <div class="relative flex-1 max-w-xs">
+  <div class="flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-4 md:py-2.5">
+    <div class="relative min-w-0 flex-1 max-w-xs">
       <Search class="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
       <Input
         placeholder="Buscar contato..."
@@ -509,7 +509,7 @@
   <!-- Main content: list + timeline -->
   <div class="flex flex-1 overflow-hidden">
     <!-- Left panel: conversation list -->
-    <div class="w-80 shrink-0 overflow-y-auto border-r lg:w-96">
+    <div class="w-full shrink-0 overflow-y-auto border-r md:w-80 lg:w-96 {selectedConversation ? 'hidden md:block' : ''}"
       <ConversationList
         {conversations}
         selected={selectedConversation?.id}
@@ -522,9 +522,23 @@
     </div>
 
     <!-- Right panel: timeline + input + context -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden {selectedConversation ? '' : 'hidden md:flex'}">
       <div class="flex flex-1 flex-col">
         {#if selectedConversation}
+          <!-- Mobile back button -->
+          <div class="flex items-center gap-2 border-b px-3 py-2 md:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-8"
+              onclick={() => { selectedConversation = null; messages = []; activeConversationId = null; }}
+            >
+              <ArrowLeft class="size-4" />
+            </Button>
+            <span class="truncate text-sm font-medium">
+              {selectedConversation.contact?.first_name || selectedConversation.contact?.name || 'Conversa'}
+            </span>
+          </div>
           <ConversationTimeline
             conversation={selectedConversation}
             {messages}

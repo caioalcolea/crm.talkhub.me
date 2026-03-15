@@ -204,6 +204,7 @@
       </div>
     {/if}
   {:else}
+    <div class="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
     <table class="w-full border-collapse">
       <thead>
         <tr class="border-b border-gray-100/60 dark:border-gray-800/60">
@@ -422,6 +423,7 @@
         {/each}
       </tbody>
     </table>
+    </div>
   {/if}
 {/snippet}
 

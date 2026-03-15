@@ -636,10 +636,10 @@
     stroke-width: 1.5;
   }
 
-  /* Refined scrollbar — thin for minimal aesthetic */
+  /* Scrollbar — visible and grabbable */
   ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
@@ -649,14 +649,10 @@
   ::-webkit-scrollbar-thumb {
     background: var(--border-strong);
     border-radius: var(--radius-full);
-    border: 2px solid transparent;
-    background-clip: content-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary);
-    border: 2px solid transparent;
-    background-clip: content-box;
   }
 
   /* Selection styling - Orange */
