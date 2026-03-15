@@ -10,6 +10,56 @@ from rest_framework import serializers
 from conversations.models import Conversation, Message
 
 
+def _get_contact_address(obj):
+    """Retorna o email/phone/username específico desta conversa pelo canal."""
+    meta = obj.metadata_json or {}
+    channel = obj.channel or ""
+
+    # Email channels
+    if channel in ("smtp_native", "email"):
+        return (
+            meta.get("email_to")
+            or meta.get("email_from")
+            or (obj.contact.email if obj.contact else "")
+        )
+
+    # WhatsApp / SMS
+    if channel in ("whatsapp", "sms"):
+        return (
+            meta.get("phone_number")
+            or (obj.contact.phone if obj.contact else "")
+        )
+
+    # Chatwoot (varies by sub-channel)
+    if channel == "chatwoot":
+        cw_channel = meta.get("chatwoot_channel_type", "")
+        if "Email" in cw_channel:
+            return (
+                meta.get("email_to")
+                or meta.get("email_from")
+                or (obj.contact.email if obj.contact else "")
+            )
+        if any(x in cw_channel for x in ("Whatsapp", "Sms")):
+            return (
+                meta.get("phone_number")
+                or (obj.contact.phone if obj.contact else "")
+            )
+        # Instagram, Facebook, Telegram, etc.
+        return meta.get("contact_identifier") or meta.get("source_id") or ""
+
+    # TalkHub Omni
+    if channel == "talkhub_omni":
+        return (
+            meta.get("phone_number")
+            or (obj.contact.phone if obj.contact else "")
+        )
+
+    # Fallback
+    if obj.contact:
+        return obj.contact.email or obj.contact.phone or ""
+    return ""
+
+
 class MessageSerializer(serializers.ModelSerializer):
     """Serializer para leitura de Message."""
 
@@ -60,6 +110,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     last_message = serializers.SerializerMethodField()
     contact_name = serializers.SerializerMethodField()
+    contact_address = serializers.SerializerMethodField()
     is_group = serializers.SerializerMethodField()
 
     class Meta:
@@ -72,6 +123,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "last_message_at",
             "contact",
             "contact_name",
+            "contact_address",
             "is_group",
             "last_message",
             "metadata_json",
@@ -114,12 +166,16 @@ class ConversationListSerializer(serializers.ModelSerializer):
             return f"{obj.contact.first_name} {obj.contact.last_name}".strip()
         return ""
 
+    def get_contact_address(self, obj):
+        return _get_contact_address(obj)
+
 
 class ConversationDetailSerializer(serializers.ModelSerializer):
     """Serializer de detalhe de conversa com info do contato."""
 
     contact_name = serializers.SerializerMethodField()
     contact_email = serializers.SerializerMethodField()
+    contact_address = serializers.SerializerMethodField()
     assigned_to_name = serializers.SerializerMethodField()
     is_group = serializers.SerializerMethodField()
 
@@ -138,6 +194,7 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
             "contact",
             "contact_name",
             "contact_email",
+            "contact_address",
             "is_group",
             "created_at",
             "updated_at",
@@ -154,6 +211,9 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
 
     def get_contact_email(self, obj):
         return obj.contact.email if obj.contact else ""
+
+    def get_contact_address(self, obj):
+        return _get_contact_address(obj)
 
     def get_assigned_to_name(self, obj):
         if obj.assigned_to and obj.assigned_to.user:

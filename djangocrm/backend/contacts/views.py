@@ -45,9 +45,11 @@ class ContactsListView(APIView, LimitOffsetPagination):
 
     def get_context_data(self, **kwargs):
         params = self.request.query_params
-        queryset = self.model.objects.filter(org=self.request.profile.org).order_by(
-            "-id"
-        )
+        queryset = self.model.objects.filter(
+            org=self.request.profile.org
+        ).prefetch_related(
+            'extra_emails', 'extra_phones', 'extra_addresses'
+        ).order_by("-id")
         if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             queryset = queryset.filter(
                 Q(assigned_to__in=[self.request.profile])

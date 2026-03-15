@@ -194,6 +194,9 @@
               <Link class="size-3.5" />
             </button>
           </div>
+          {#if conversation.contact_address}
+            <span class="text-[11px] text-muted-foreground">{conversation.contact_address}</span>
+          {/if}
           <div class="flex items-center gap-2">
             <ChannelBadge channelType={conversation.channel} />
             {#if conversation.assigned_to_name}

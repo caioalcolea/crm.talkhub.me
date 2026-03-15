@@ -36,6 +36,7 @@
   import MergeContactModal from '$lib/components/contacts/MergeContactModal.svelte';
   import ExtraContactInfo from '$lib/components/contacts/ExtraContactInfo.svelte';
   import { getCurrentUser, apiRequest as clientApiRequest } from '$lib/api.js';
+  import { transformApiContact } from '$lib/utils/contacts.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
@@ -408,8 +409,16 @@
   /** @param {any} mergedContact */
   async function handleMerged(mergedContact) {
     mergeModalOpen = false;
-    await closeDrawer();
+    // Keep drawer open — update selectedContact with merged data
+    const transformed = transformApiContact(mergedContact);
+    selectedContact = transformed;
+    drawerFormData = {
+      ...transformed,
+      tags: (transformed.tags || []).map((/** @type {any} */ t) => t.id || t)
+    };
+    // Reload list + duplicates
     await invalidateAll();
+    loadDuplicates(transformed.id);
   }
 
   // Empty contact template for create mode

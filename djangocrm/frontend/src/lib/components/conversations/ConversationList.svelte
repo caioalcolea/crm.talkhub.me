@@ -98,6 +98,12 @@
             </span>
           </div>
 
+          {#if conv.contact_address}
+            <p class="truncate text-[11px] text-muted-foreground/60">
+              {conv.contact_address}
+            </p>
+          {/if}
+
           {#if conv.metadata_json?.email_subject}
             <p class="mt-0.5 truncate text-xs text-muted-foreground/60 italic">
               {conv.metadata_json.email_subject}
