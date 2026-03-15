@@ -4,7 +4,7 @@
   import ConversationTimeline from './ConversationTimeline.svelte';
   import MessageInput from './MessageInput.svelte';
   import { X, Loader2, MessageSquare } from '@lucide/svelte';
-  import { apiRequest } from '$lib/api.js';
+  import { apiRequest, getCurrentUser } from '$lib/api.js';
 
   /**
    * @typedef {Object} Props
@@ -15,6 +15,9 @@
 
   /** @type {Props} */
   let { contactId, open = false, onOpenChange } = $props();
+
+  const currentUser = $derived(getCurrentUser());
+  const isAdmin = $derived(currentUser?.role === 'ADMIN' || currentUser?.is_organization_admin || currentUser?.is_superuser);
 
   /** @type {any} */
   let conversation = $state(null);
@@ -72,7 +75,18 @@
           <Loader2 class="size-6 animate-spin text-muted-foreground" />
         </div>
       {:else if conversation}
-        <ConversationTimeline {conversation} {messages} />
+        <ConversationTimeline
+          {conversation}
+          {messages}
+          {isAdmin}
+          onConversationChanged={(updated) => {
+            if (updated.is_deleted || updated._permanentlyDeleted) {
+              conversation = null;
+            } else {
+              conversation = updated;
+            }
+          }}
+        />
         <MessageInput
           conversationId={conversation.id}
           {channels}

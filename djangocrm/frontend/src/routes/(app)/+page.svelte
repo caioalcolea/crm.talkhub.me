@@ -1,5 +1,6 @@
 <script>
-  import { DollarSign, TrendingUp, Target, Percent, AlertCircle, Sparkles } from '@lucide/svelte';
+  import { DollarSign, TrendingUp, Target, Percent, AlertCircle, Sparkles, Menu } from '@lucide/svelte';
+  import { useSidebar } from '$lib/components/ui/sidebar/context.svelte.js';
   import {
     KPICard,
     FocusBar,
@@ -26,6 +27,7 @@
   const goalSummary = $derived(data.goalSummary || []);
 
   // Get org's default currency for KPI display
+  const sidebar = useSidebar();
   const orgCurrency = $derived($orgSettings.default_currency || 'BRL');
   const otherCurrencyCount = $derived(revenueMetrics.other_currency_count || 0);
   const currencyNote = $derived(
@@ -53,12 +55,20 @@
     class="gradient-mesh noise-overlay pointer-events-none fixed inset-0 -z-10 opacity-50 dark:opacity-30"
   ></div>
 
-  <div class="space-y-8 p-6 md:p-8">
+  <div class="space-y-8 p-4 md:p-8">
     <!-- Header Section with orange gradient accent -->
     <header>
       <div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
         <div class="space-y-2">
           <div class="flex items-center gap-3">
+            <!-- Mobile menu button -->
+            <button
+              onclick={() => sidebar.setOpenMobile(true)}
+              class="text-muted-foreground hover:text-foreground hover:bg-accent flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors md:hidden"
+              aria-label="Abrir menu"
+            >
+              <Menu class="size-5" />
+            </button>
             <div
               class="flex size-10 items-center justify-center rounded-[var(--radius-lg)] bg-gradient-to-br from-[var(--color-primary-default)] to-[var(--stage-contacted)] shadow-lg dark:shadow-[var(--color-primary-default)]/20"
             >

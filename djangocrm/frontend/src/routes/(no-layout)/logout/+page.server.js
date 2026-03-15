@@ -1,35 +1,22 @@
 /**
- * Logout Page - API Version
+ * Logout — clears JWT cookies and redirects to /login.
  *
- * Migrated from Prisma to Django REST API
- * Clears JWT tokens and session data
- *
- * To activate:
- *   mv +page.server.js +page.server.prisma.js
- *   mv +page.server.api.js +page.server.js
+ * Traefik routes /logout to the SvelteKit frontend (catch-all priority 10).
+ * This server load function runs before any page render, clears auth state,
+ * and immediately redirects — no +page.svelte needed because we always throw.
  */
 
 import { redirect } from '@sveltejs/kit';
 
 /** @type {import('./$types').PageServerLoad} */
-export async function load({ locals, cookies }) {
+export async function load({ cookies }) {
   // Clear all authentication-related cookies
-  const cookiesToClear = ['jwt_access', 'jwt_refresh', 'org', 'oauth_state', 'oauth_code_verifier'];
+  const cookiesToClear = ['jwt_access', 'jwt_refresh', 'org', 'oauth_state', 'oauth_code_verifier', 'invite_token', 'invite_org_id'];
 
   for (const cookieName of cookiesToClear) {
-    if (cookies.get(cookieName)) {
-      await cookies.delete(cookieName, { path: '/' });
-    }
-  }
-
-  // Clear locals
-  if (locals.user) {
-    delete locals.user;
-  }
-  if (locals.org) {
-    delete locals.org;
+    cookies.delete(cookieName, { path: '/' });
   }
 
   // Redirect to login page
-  throw redirect(303, '/login');
+  redirect(303, '/login');
 }

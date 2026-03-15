@@ -31,7 +31,7 @@ crm.talkhub.me/
 │   │   ├── tasks/            # Tasks + kanban + boards + calendar
 │   │   ├── invoices/         # Invoices, estimates, recurring, products
 │   │   ├── orders/           # Orders
-│   │   ├── financeiro/       # Financial module (P&L, cash flow, PIX)
+│   │   ├── financeiro/       # Financial module (P&L, cash flow, PIX, exchange rates, recurring)
 │   │   ├── integrations/     # Generic integration hub
 │   │   ├── channels/         # Communication channels (SMTP, TalkHub, etc.)
 │   │   ├── conversations/    # Omnichannel inbox (real-time via fast polling)
@@ -199,6 +199,21 @@ bash docker/debug-traefik.sh
 13. **Cowork iframe**: Next.js app runs with `basePath: '/cowork-app'`. Traefik does NOT strip prefix — Next.js handles it natively via basePath.
 14. **Cowork keyboard**: Phaser keyboard input is bypassed — uses raw DOM `keydown`/`keyup` events via `KeyTracker` to avoid iframe focus issues.
 15. **Cowork tile seams**: CANVAS renderer (not WebGL) is required to eliminate black lines between tiles at fractional zoom levels.
+16. **CoworkPiP z-index**: Full-mode overlay (z-15) is OUTSIDE AppShell in DOM. PageHeader wrapper and toolbar on cowork page MUST have `relative z-20` to stay above the overlay. Sidebar (z-10) doesn't overlap because the overlay is positioned to its right.
+17. **CoworkPiP full-mode positioning**: Cannot move iframe between DOM nodes (causes reload). Uses `position:fixed` overlay with ResizeObserver on `[data-cowork-target]`. Hardcoded rem fallback (`top:7.75rem; left:16rem`) ensures immediate visibility. CSS `var(--sidebar-width)` doesn't resolve outside the sidebar-provider wrapper — use hardcoded values.
+18. **CoworkPiP effect chain**: `startCoworkSession()` → DOM render → `registerFullTarget()` → ResizeObserver → `fullBounds` requires 4 effects in sequence. Polling retry (100ms × 30) and DOM query backup protect against timing issues. **Never use `opacity:0` as fallback** — use hardcoded visible position instead.
+19. **Conversation soft-delete**: All user-facing views (list, messages, assign, bot) filter `is_deleted=False`. Chatwoot webhooks also skip deleted conversations. Only `ConversationDetailView.get()` allows viewing deleted conversations (needed for the trash view). Permanent delete requires `is_deleted=True` first (two-step).
+20. **Contact FK is SET_NULL**: `Conversation.contact` uses `on_delete=SET_NULL` — contact deletion sets `contact=NULL` instead of cascading. Serializers and templates handle `contact is None` with "Contato removido" fallback.
+21. **Contact merge email/phone preservation**: Merge fills `secondary_email`/`secondary_phone` first (if empty), then overflows to `ContactEmail`/`ContactPhone` extras. The `_SCALAR_FIELDS` step runs before the preservation step, so in-memory mutations are visible to the preservation logic.
+22. **Secondary email/phone in channel matching**: All lookup chains follow the order: primary → secondary → extra table. Chatwoot connector, SMTP polling, data_unifier, and duplicate detection all include secondary fields.
+23. **Financeiro CANCELADO in reports**: All report views (FluxoPlanoContas, RelatorioMensal, EntityFinancial) exclude `status="CANCELADO"` parcelas from sums. Dashboard already filters by specific statuses.
+24. **Financeiro variable exchange rate**: `exchange_rate_type` field on Lancamento: FIXO (manual) or VARIAVEL (auto-fetch from API). Primary API: open.er-api.com, fallback: BCB PTAX for BRL pairs. Rates cached in Redis (4h TTL).
+25. **Financeiro recurring lancamentos**: `is_recorrente` + `recorrencia_tipo` (MENSAL/QUINZENAL/SEMANAL/ANUAL). Each parcela = full valor_total. Celery Beat generates 3 months ahead on 1st of each month. Stop via `recorrencia_ativa=False`.
+26. **Lancamento edit rules**: If all parcelas ABERTO → can edit everything (parcelas regenerated). If some PAGO → metadata only. If CANCELADO → read-only (except descricao/observacoes).
+27. **Org currency integration**: All frontend financial pages use `$orgSettings.default_currency` instead of hardcoded 'BRL'. Backend `FormOptionsView` returns `org_currency`. TransactionForm auto-hides exchange rate when currency == org base currency.
+28. **Org settings field mapping**: Frontend sends `website` (NOT `domain`) to match the Org model. The `description` field does not exist on the model — don't add it. All company profile fields (company_name, address_line, city, state, postcode, country, phone, email, website, tax_id) are editable via `PATCH /api/org/settings/`. Logo upload supports PNG/JPG/SVG (max 2MB); removal sends `logo: null`.
+29. **Org logo in PDFs**: Invoice and estimate templates already render `{% if org.logo %}<img src="{{ org.logo.url }}">{% endif %}`. WeasyPrint passes full org context. Company address fields (address_line, city, state, phone, email, tax_id) also appear in PDF templates. No backend changes needed for logo to work in print.
+30. **Formas de pagamento editáveis**: `FormaPagamentoViewSet` is a full `ModelViewSet` — supports PATCH/PUT out of the box. Frontend has edit dialog with `?/edit` action.
 
 ## Invitation System
 
@@ -231,7 +246,7 @@ bash docker/debug-traefik.sh
 
 - Priority 25: `/ws/` -> crm_ws:8001 (Django WebSocket)
 - Priority 22: `/cowork-ws/` -> cowork_backend:3100 (Socket.io, strip prefix)
-- Priority 20: `/api`, `/admin`, `/static`, `/swagger`, `/media`, `/invite`, `/health`, `/track`, `/webhooks`, `/logout`, `/schema` -> backend:8000
+- Priority 20: `/api`, `/admin`, `/static`, `/swagger`, `/media`, `/invite`, `/health`, `/track`, `/webhooks`, `/schema` -> backend:8000
 - Priority 18: `/cowork-app/` -> cowork_front:3200 (Next.js, no strip prefix — uses basePath)
 - Priority 10: `/*` (catch-all) -> frontend:3000
 
@@ -264,6 +279,32 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 - **CANVAS renderer**: Required to avoid tile seam artifacts at fractional zoom levels
 - **Raw DOM keyboard**: Bypasses Phaser's keyboard system for reliable iframe key capture
 
+### CoworkPiP — Persistent Iframe Overlay
+The iframe is rendered in `+layout.svelte` (outside AppShell) via `CoworkPiP.svelte`, NOT inside the cowork page. This keeps the Phaser game alive across route navigations.
+
+**Modes**: `hidden` → `full` → `pip` → `fullscreen`
+- **Full mode**: `position:fixed` overlay positioned over `[data-cowork-target]` div on `/cowork` page. Uses ResizeObserver for exact pixel bounds, hardcoded rem fallback (`top:7.75rem; left:16rem`) for immediate visibility.
+- **PiP mode**: `position:fixed; bottom:1.5rem; right:1.5rem; z-index:40`. Draggable, resizable (P/M/G presets). Auto-activates when navigating away from `/cowork`.
+- **Fullscreen**: `position:fixed; inset:0; z-index:50` + Browser Fullscreen API. Toolbar auto-hides after 3s.
+
+**Z-index stacking (full mode)**:
+- Iframe overlay: `z-index:15`
+- Sidebar: `z-index:10` (fixed, doesn't overlap — iframe positioned to its right)
+- PageHeader wrapper: `z-index:20` (relative, on cowork page only)
+- Toolbar: `z-index:20` (relative, stays clickable above iframe)
+- PiP: `z-index:40`, Fullscreen: `z-index:50`
+
+**Target registration flow**:
+```
+startCoworkSession() → mode='full' → page renders [data-cowork-target]
+  → page $effect calls registerFullTarget(el) → store.fullTarget = el
+  → CoworkPiP $effect detects fullTarget → ResizeObserver → fullBounds
+  → Backup: DOM query [data-cowork-target] + polling retry (100ms × 30)
+  → Fallback: hardcoded position:fixed;top:7.75rem;left:16rem;right:0;bottom:0
+```
+
+**Store**: `$lib/stores/cowork.svelte.js` — Svelte 5 `$state` with getters on plain object.
+
 ### Cowork File Map
 | Component | Files |
 |-----------|-------|
@@ -278,6 +319,9 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 | WebRTC manager | `cowork-app/src/lib/webrtc.ts` (peer connections, media streams) |
 | Socket client | `cowork-app/src/lib/socket.ts` (Socket.io connection, event handlers) |
 | postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
+| CoworkPiP overlay | `frontend/src/lib/components/cowork/CoworkPiP.svelte` (global iframe, all modes) |
+| Cowork store | `frontend/src/lib/stores/cowork.svelte.js` (session state, mode, fullTarget) |
+| Cowork page | `frontend/src/routes/(app)/cowork/+page.svelte` (room list, toolbar, target div) |
 
 ## Key Files for Common Tasks
 
@@ -291,9 +335,12 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 | Email templates | `backend/templates/` (all in pt-BR) |
 | UI components | `frontend/src/lib/components/` |
 | Constants (currencies, countries) | `frontend/src/lib/constants/` |
+| Contact merge | `backend/contacts/merge.py` (merge_contacts, get_merge_preview) |
+| Contact duplicate detection | `backend/common/duplicate_detection.py` |
 | Chatwoot connector | `backend/chatwoot/connector.py` (webhook handlers, sync, group detection) |
 | Chatwoot channel provider | `backend/chatwoot/provider.py` (send/receive messages) |
 | Conversation real-time | `backend/conversations/views.py` (`ConversationUpdatesView`) |
+| Conversation soft-delete | `backend/conversations/views.py` (SoftDelete, PermanentDelete views) |
 | Webhook routing | `backend/integrations/views.py` (`webhook_receiver`), `backend/integrations/tasks.py` |
 | Invitation system | `backend/common/views/invitation_views.py`, `frontend/.../login/+page.server.js` |
 | User management | `frontend/src/routes/(app)/users/+page.svelte`, `+page.server.js` |
@@ -301,6 +348,16 @@ SvelteKit /cowork → POST /api/cowork/auth/token/ → JWT (cowork-scoped)
 | Cowork Socket.io server | `cowork-server/server.js` |
 | Cowork Phaser game | `cowork-app/src/game/` (OfficeScene, Player, Chair, ChatManager) |
 | Cowork postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
+| CoworkPiP (persistent iframe) | `frontend/src/lib/components/cowork/CoworkPiP.svelte`, `frontend/src/lib/stores/cowork.svelte.js` |
+| Financeiro models | `backend/financeiro/models.py` (Lancamento, Parcela, FormaPagamento, PaymentTransaction) |
+| Financeiro views | `backend/financeiro/api_views.py` (ViewSets, reports, PIX) |
+| Financeiro exchange rates | `backend/financeiro/exchange_rates.py` (get_exchange_rate, API integration) |
+| Financeiro tasks | `backend/financeiro/tasks.py` (overdue, recurring, variable rates, PIX reconciliation) |
+| Financeiro frontend | `frontend/src/routes/(app)/financeiro/` (lancamentos, formas-pagamento, relatorios, PIX) |
+| Financeiro form | `frontend/src/lib/components/financeiro/TransactionForm.svelte` |
+| Org settings | `backend/common/serializers.py` (OrgSettingsSerializer), `frontend/src/routes/(app)/settings/organization/` (+page.svelte, +page.server.js) |
+| Org model | `backend/common/models.py` (Org: name, company_name, logo, address, phone, email, website, tax_id, currency, country) |
+| Invoice/Estimate PDF | `backend/invoices/pdf.py` (WeasyPrint), `backend/invoices/templates/invoices/pdf/` (invoice.html, estimate.html) |
 
 ## Chatwoot Integration
 
@@ -326,7 +383,8 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 ### Key Patterns
 - **Echo prevention**: Outgoing messages with `content_attributes.external_created=True` are skipped
 - **Group detection**: Checks `conversation_type=="group"`, `additional_attributes.type=="group"`, `"(GROUP)"` in contact name, and fallback name chain
-- **Contact dedup**: `_get_or_create_contact` matches by: (1) chatwoot_id stored in description, (2) email, (3) phone, (4) exact name for contacts without email/phone (groups). Handles both `NULL` and `""` for empty fields
+- **Contact dedup**: `_get_or_create_contact` matches by: (1) chatwoot_id stored in description, (2) email, (2b) secondary_email, (3) phone, (3b) secondary_phone, (4) extra_emails/phones tables, (5) exact name for groups. Handles both `NULL` and `""` for empty fields
+- **Soft-delete aware**: All webhook handlers filter `is_deleted=False` — won't resurrect or modify soft-deleted conversations
 - **Auto-dedup on sync**: `_dedup_contacts()` runs at start of every sync — merges duplicate contacts (same name, no email/phone), reassigns conversations, removes duplicates
 - **Sync all statuses**: Chatwoot API defaults to `status=open`. Sync iterates all statuses: open, pending, resolved, snoozed
 - **Contact sync**: `_get_or_create_contact` updates existing contacts with missing email/phone/name from Chatwoot
@@ -347,6 +405,36 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - Inbound: IMAP polling via Celery Beat every 2 minutes (`poll_imap_emails` task)
 - HTML email rendering with text/HTML toggle in conversation timeline
 - Reply threading via `In-Reply-To` / `References` headers
+- Contact lookup chain: primary email → secondary_email → extra_emails table
+
+## Contact Management
+
+### Multiple Emails/Phones per Contact
+- **Primary fields**: `email`, `phone` (direct on Contact model)
+- **Secondary fields**: `secondary_email`, `secondary_phone` (direct on Contact model, visible in create/edit forms)
+- **Extra entries**: `ContactEmail`, `ContactPhone`, `ContactAddress` junction tables (for 3rd+ values)
+- All channels (Chatwoot, SMTP, TalkHub Omni, data_unifier) check secondary fields in lookup chains
+- Duplicate detection checks secondary fields bidirectionally
+
+### Contact Merge
+- **Service**: `backend/contacts/merge.py` — `merge_contacts(org, primary_id, secondary_id)`
+- **Preview**: `get_merge_preview()` shows field-by-field diff before merge
+- **Email/Phone preservation**: All unique emails/phones from secondary are preserved — fills `secondary_email`/`secondary_phone` first, then `ContactEmail`/`ContactPhone` extras
+- **Conflict handling**: If both contacts have different values, secondary's values are saved as extras (never lost)
+- **FK/M2M reassignment**: Conversations, invoices, leads, opportunities, cases, tasks, orders, comments, attachments all transferred
+- **Audit trail**: Comment created on primary contact documenting the merge
+
+### Conversation Soft-Delete
+- **Fields**: `is_deleted` (bool), `deleted_at` (datetime), `deleted_by` (FK to Profile)
+- **Contact FK**: `on_delete=SET_NULL` (not CASCADE) — deleting a contact preserves conversations
+- **Contact delete handler**: All conversations soft-deleted before contact hard-delete
+- **Endpoints**:
+  - `POST /api/conversations/<id>/delete/` — any org user can soft-delete
+  - `POST /api/conversations/<id>/restore/` — admin only
+  - `DELETE /api/conversations/<id>/permanent-delete/` — admin only, must be in trash first
+- **Filtering**: All user-facing views filter `is_deleted=False` by default; `?deleted=true` shows trash
+- **Chatwoot protection**: Webhook handlers skip soft-deleted conversations (won't resurrect them)
+- **Frontend**: "Deletados" filter in inbox, trash banner, restore/permanent-delete buttons (admin only)
 
 ## Security Audit Fixes Applied
 

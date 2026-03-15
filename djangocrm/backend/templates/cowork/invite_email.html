@@ -1,0 +1,29 @@
+{% extends "root_email_template_new.html" %}
+
+{% block heading %}Convite para Sala Cowork{% endblock heading %}
+
+{% block content_body %}
+<p style="margin:0 0 8px 0;">
+  Olá <strong>{{ guest_name }}</strong>,
+</p>
+<p style="margin:0 0 8px 0;">
+  Você foi convidado para participar da sala de cowork
+  <strong>{{ room_name }}</strong> no TalkHub CRM.
+</p>
+<p style="margin:0 0 8px 0;">
+  Clique no botão abaixo para entrar na sala. Nenhuma conta é necessária.
+</p>
+{% endblock content_body %}
+
+{% block button_link %}
+<a class="btn-link" href="{{ join_url }}"
+   style="display:inline-block;padding:14px 32px;background-color:#EA580C;color:#ffffff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;line-height:1;">
+  Entrar na Sala
+</a>
+{% endblock button_link %}
+
+{% block extra_content %}
+<p style="font-size:13px;color:#757575;margin:0;">
+  Se você não esperava este convite, pode ignorar este e-mail com segurança.
+</p>
+{% endblock extra_content %}

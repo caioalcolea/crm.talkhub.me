@@ -206,8 +206,8 @@ class DataUnifier:
     def _find_existing_contact(
         self, normalized: dict, talkhub_subscriber_id: str | None
     ):
-        """Buscar contact existente por subscriber_id, email ou phone."""
-        from contacts.models import Contact
+        """Buscar contact existente por subscriber_id, email ou phone (including extras)."""
+        from contacts.models import Contact, ContactEmail, ContactPhone
 
         qs = Contact.objects.filter(org=self.org)
 
@@ -217,19 +217,39 @@ class DataUnifier:
             if contact:
                 return contact
 
-        # 2. Email (case-insensitive)
+        # 2. Email (case-insensitive) — primary field
         email = normalized.get("email")
         if email:
             contact = qs.filter(email__iexact=email).first()
             if contact:
                 return contact
+            # 2b. Check secondary_email field
+            contact = qs.filter(secondary_email__iexact=email).first()
+            if contact:
+                return contact
+            # 2c. Check extra_emails table
+            extra = ContactEmail.objects.filter(
+                contact__org=self.org, email__iexact=email
+            ).select_related("contact").first()
+            if extra:
+                return extra.contact
 
-        # 3. Phone
+        # 3. Phone — primary field
         phone = normalized.get("phone")
         if phone:
             contact = qs.filter(phone=phone).first()
             if contact:
                 return contact
+            # 3b. Check secondary_phone field
+            contact = qs.filter(secondary_phone=phone).first()
+            if contact:
+                return contact
+            # 3c. Check extra_phones table
+            extra = ContactPhone.objects.filter(
+                contact__org=self.org, phone=phone
+            ).select_related("contact").first()
+            if extra:
+                return extra.contact
 
         return None
 

@@ -312,10 +312,24 @@ def _poll_org_emails(org, smtp_config, imap_config):
                 if not text_body and not html_body and not subject:
                     continue
 
-                # Find or create contact
+                # Find or create contact (check primary email + extra_emails)
+                from contacts.models import ContactEmail
+
                 contact = Contact.objects.filter(
                     org=org, email__iexact=from_email
                 ).first()
+                if not contact:
+                    # Check secondary_email field
+                    contact = Contact.objects.filter(
+                        org=org, secondary_email__iexact=from_email
+                    ).first()
+                if not contact:
+                    # Check extra_emails table for additional emails
+                    extra = ContactEmail.objects.filter(
+                        contact__org=org, email__iexact=from_email
+                    ).select_related("contact").first()
+                    if extra:
+                        contact = extra.contact
                 if not contact:
                     name_parts = from_name.split(" ", 1)
                     contact = Contact.objects.create(

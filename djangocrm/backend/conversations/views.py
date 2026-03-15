@@ -11,6 +11,7 @@ Views do app conversations.
 """
 
 import logging
+import traceback
 import uuid
 
 from django.db import transaction
@@ -24,7 +25,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from channels.registry import ChannelRegistry
-from common.permissions import HasOrgContext
+from common.permissions import HasOrgContext, IsOrgAdmin
 from conversations.models import Conversation, Message
 from conversations.serializers import (
     ConversationDetailSerializer,
@@ -52,6 +53,10 @@ class ConversationListView(APIView):
         queryset = Conversation.objects.filter(org=request.org).select_related(
             "contact", "assigned_to__user"
         )
+
+        # Soft-delete filter: default to non-deleted
+        show_deleted = request.query_params.get("deleted") == "true"
+        queryset = queryset.filter(is_deleted=show_deleted)
 
         # Filtros
         channel = request.query_params.get("channel")
@@ -142,7 +147,7 @@ class ConversationDetailView(APIView):
     def get(self, request, pk):
         try:
             conversation = Conversation.objects.select_related(
-                "contact", "assigned_to__user"
+                "contact", "assigned_to__user", "deleted_by__user"
             ).get(id=pk, org=request.org)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -152,8 +157,8 @@ class ConversationDetailView(APIView):
     def patch(self, request, pk):
         try:
             conversation = Conversation.objects.select_related(
-                "contact", "assigned_to__user"
-            ).get(id=pk, org=request.org)
+                "contact", "assigned_to__user", "deleted_by__user"
+            ).get(id=pk, org=request.org, is_deleted=False)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -203,7 +208,9 @@ class MessageListView(APIView):
 
     def get(self, request, conversation_id):
         try:
-            conversation = Conversation.objects.get(id=conversation_id, org=request.org)
+            conversation = Conversation.objects.get(
+                id=conversation_id, org=request.org, is_deleted=False
+            )
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -227,7 +234,7 @@ class MessageCreateView(APIView):
     def post(self, request, conversation_id):
         try:
             conversation = Conversation.objects.select_related("contact").get(
-                id=conversation_id, org=request.org
+                id=conversation_id, org=request.org, is_deleted=False
             )
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -284,7 +291,7 @@ class MessageCreateView(APIView):
         # Criar Message no banco
         sender_name = ""
         if hasattr(request, "profile") and request.profile and request.profile.user:
-            sender_name = request.profile.user.get_full_name() or request.profile.user.email
+            sender_name = request.profile.user.email
 
         # Enrich metadata for email channels
         extra_meta = serializer.validated_data.get("metadata_json") or {}
@@ -330,29 +337,30 @@ class MessageCreateView(APIView):
                 if not conv.last_message_at or message.timestamp > conv.last_message_at:
                     conv.last_message_at = message.timestamp
                     conv.save(update_fields=["last_message_at", "updated_at"])
-
-            # Broadcast via WebSocket
-            try:
-                from conversations.broadcast import broadcast_new_message
-
-                broadcast_new_message(
-                    str(request.org.id),
-                    str(conversation.id),
-                    MessageSerializer(message).data,
-                )
-            except Exception:
-                pass  # Non-critical — clients will catch up via polling
-
-            return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
         except Exception as e:
             logger.error(
-                "Failed to save/serialize message for conversation %s: %s",
+                "Failed to save message for conversation %s: %s",
                 conversation_id, e, exc_info=True,
             )
+            traceback.print_exc()
             return Response(
                 {"error": f"Erro ao salvar mensagem: {e}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        # Broadcast via WebSocket (outside save try/except for clear error separation)
+        try:
+            from conversations.broadcast import broadcast_new_message
+
+            broadcast_new_message(
+                str(request.org.id),
+                str(conversation.id),
+                MessageSerializer(message).data,
+            )
+        except Exception:
+            pass  # Non-critical — clients will catch up via polling
+
+        return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 
 class ConversationAssignView(APIView):
@@ -364,7 +372,7 @@ class ConversationAssignView(APIView):
         try:
             conversation = Conversation.objects.select_related(
                 "contact", "assigned_to__user"
-            ).get(id=pk, org=request.org)
+            ).get(id=pk, org=request.org, is_deleted=False)
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -410,7 +418,7 @@ class ConversationBotView(APIView):
     def post(self, request, pk, action):
         try:
             conversation = Conversation.objects.select_related("contact").get(
-                id=pk, org=request.org
+                id=pk, org=request.org, is_deleted=False
             )
         except Conversation.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -441,7 +449,7 @@ class ContactConversationsView(APIView):
 
     def get(self, request, contact_id):
         queryset = Conversation.objects.filter(
-            org=request.org, contact_id=contact_id
+            org=request.org, contact_id=contact_id, is_deleted=False
         ).select_related(
             "contact", "assigned_to__user"
         ).prefetch_related(
@@ -484,10 +492,11 @@ class ConversationUpdatesView(APIView):
         except (ValueError, TypeError):
             return Response({"error": "Invalid timestamp"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get conversations updated since timestamp
+        # Get conversations updated since timestamp (exclude soft-deleted)
         updated_convs = Conversation.objects.filter(
             org=request.org,
             updated_at__gt=since_dt,
+            is_deleted=False,
         )
 
         # Filter by group/individual to match frontend tab
@@ -524,3 +533,64 @@ class ConversationUpdatesView(APIView):
             "messages": new_messages,
             "server_time": timezone.now().isoformat(),
         })
+
+
+class ConversationSoftDeleteView(APIView):
+    """POST /api/conversations/<id>/delete/ — Soft-delete (any user).
+       POST /api/conversations/<id>/restore/ — Restore (admin only)."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request, pk, action):
+        try:
+            conversation = Conversation.objects.get(id=pk, org=request.org)
+        except Conversation.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if action == "delete":
+            if conversation.is_deleted:
+                return Response({"error": "Already deleted"}, status=status.HTTP_400_BAD_REQUEST)
+            conversation.is_deleted = True
+            conversation.deleted_at = timezone.now()
+            conversation.deleted_by = getattr(request, "profile", None)
+            conversation.save(update_fields=["is_deleted", "deleted_at", "deleted_by", "updated_at"])
+            return Response({"message": "Conversa movida para deletados."})
+
+        elif action == "restore":
+            # Admin only
+            profile = getattr(request, "profile", None)
+            if not profile or (profile.role != "ADMIN" and not profile.is_admin):
+                return Response(
+                    {"error": "Apenas administradores podem restaurar conversas."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not conversation.is_deleted:
+                return Response({"error": "Not deleted"}, status=status.HTTP_400_BAD_REQUEST)
+            conversation.is_deleted = False
+            conversation.deleted_at = None
+            conversation.deleted_by = None
+            conversation.save(update_fields=["is_deleted", "deleted_at", "deleted_by", "updated_at"])
+            return Response({"message": "Conversa restaurada."})
+
+        return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ConversationPermanentDeleteView(APIView):
+    """DELETE /api/conversations/<id>/permanent-delete/ — Admin only, must be soft-deleted first."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext, IsOrgAdmin)
+
+    def delete(self, request, pk):
+        try:
+            conversation = Conversation.objects.get(id=pk, org=request.org)
+        except Conversation.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not conversation.is_deleted:
+            return Response(
+                {"error": "A conversa deve estar na lixeira antes de ser excluída permanentemente."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        conversation.delete()  # CASCADE deletes messages too
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -37,9 +37,7 @@ export async function load({ locals, cookies, url }) {
   };
 
   try {
-    const queryParams = buildQueryParams({});
-    queryParams.append('limit', limit.toString());
-    queryParams.append('offset', ((page - 1) * limit).toString());
+    const queryParams = buildQueryParams({ page, limit });
 
     if (filters.search) queryParams.append('search', filters.search);
     if (filters.active) queryParams.append('active', filters.active);

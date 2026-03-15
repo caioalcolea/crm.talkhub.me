@@ -250,7 +250,7 @@ export const handle = sequence(Sentry.sentryHandle(), async function _handle({ e
   // Check if public route
   const isPublicRoute = PUBLIC_ROUTES.some(
     (route) => pathname === route || pathname.startsWith(route + '/')
-  );
+  ) || pathname.startsWith('/cowork/'); // /cowork/{token} is public (guest invite)
 
   // Check if auth-only route
   const isAuthOnlyRoute = AUTH_ONLY_ROUTES.some(

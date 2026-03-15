@@ -69,17 +69,25 @@ export const actions = {
     try {
       let response;
 
+      const removeLogo = formData.get('remove_logo') === 'true';
+
       if (hasLogoFile) {
         // Enviar como multipart/form-data quando tem logo
         const body = new FormData();
         body.append('name', formData.get('name') || '');
-        const domain = formData.get('domain');
-        if (domain) body.append('domain', /** @type {string} */ (domain));
-        const description = formData.get('description');
-        if (description) body.append('description', /** @type {string} */ (description));
+        body.append('company_name', formData.get('company_name') || '');
+        body.append('website', formData.get('website') || '');
+        body.append('email', formData.get('email') || '');
+        body.append('phone', formData.get('phone') || '');
+        body.append('tax_id', formData.get('tax_id') || '');
+        body.append('address_line', formData.get('address_line') || '');
+        body.append('city', formData.get('city') || '');
+        body.append('state', formData.get('state') || '');
+        body.append('postcode', formData.get('postcode') || '');
+        body.append('country', formData.get('country') || '');
         body.append('default_currency', formData.get('default_currency') || 'BRL');
-        const country = formData.get('default_country');
-        if (country) body.append('default_country', /** @type {string} */ (country));
+        const defaultCountry = formData.get('default_country');
+        if (defaultCountry) body.append('default_country', /** @type {string} */ (defaultCountry));
         body.append('logo', /** @type {File} */ (logoFile));
 
         response = await apiRequest(
@@ -89,18 +97,30 @@ export const actions = {
         );
       } else {
         // Enviar como JSON quando não tem logo
+        const body = {
+          name: formData.get('name'),
+          company_name: formData.get('company_name') || '',
+          website: formData.get('website') || '',
+          email: formData.get('email') || '',
+          phone: formData.get('phone') || '',
+          tax_id: formData.get('tax_id') || '',
+          address_line: formData.get('address_line') || '',
+          city: formData.get('city') || '',
+          state: formData.get('state') || '',
+          postcode: formData.get('postcode') || '',
+          country: formData.get('country') || '',
+          default_currency: formData.get('default_currency'),
+          default_country: formData.get('default_country') || null
+        };
+
+        // Enviar logo: null para remover o logo existente
+        if (removeLogo) {
+          body.logo = null;
+        }
+
         response = await apiRequest(
           '/org/settings/',
-          {
-            method: 'PATCH',
-            body: {
-              name: formData.get('name'),
-              domain: formData.get('domain') || null,
-              description: formData.get('description') || null,
-              default_currency: formData.get('default_currency'),
-              default_country: formData.get('default_country') || null
-            }
-          },
+          { method: 'PATCH', body },
           { cookies }
         );
       }

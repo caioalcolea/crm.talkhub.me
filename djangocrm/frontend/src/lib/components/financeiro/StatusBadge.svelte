@@ -1,7 +1,7 @@
 <script>
   import { cn } from '$lib/utils.js';
 
-  let { status = 'ABERTO', class: className } = $props();
+  let { status = 'ABERTO', tipo = '', class: className } = $props();
 
   const statusConfig = {
     ABERTO: { label: 'Aberto', class: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400' },
@@ -11,7 +11,13 @@
     RECEBER: { label: 'Receber', class: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' }
   };
 
-  const config = $derived(statusConfig[status] || { label: status, class: 'bg-gray-100 text-gray-800' });
+  const config = $derived.by(() => {
+    const base = statusConfig[status] || { label: status, class: 'bg-gray-100 text-gray-800' };
+    if (status === 'PAGO' && tipo === 'RECEBER') {
+      return { ...base, label: 'Recebido' };
+    }
+    return base;
+  });
 </script>
 
 <span class={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', config.class, className)}>

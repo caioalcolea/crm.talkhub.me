@@ -53,6 +53,10 @@ export default function CoworkPage() {
   const [playerNames, setPlayerNames] = useState<Map<string, string>>(new Map());
   const mediaManagerRef = useRef<ProximityMediaManager | null>(null);
 
+  // Pre-acquired media stream from user gesture (overlay click).
+  // Stored here so it can be passed to ProximityMediaManager when it's created.
+  const preAcquiredStreamRef = useRef<MediaStream | null>(null);
+
   // Whiteboard state
   const [whiteboardOpen, setWhiteboardOpen] = useState(false);
   const [activeWhiteboardId, setActiveWhiteboardId] = useState<string | null>(null);
@@ -117,6 +121,11 @@ export default function CoworkPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Stop pre-acquired media tracks to release camera/mic
+      if (preAcquiredStreamRef.current) {
+        preAcquiredStreamRef.current.getTracks().forEach((t) => t.stop());
+        preAcquiredStreamRef.current = null;
+      }
       bridge.destroy();
       disconnectSocket();
     };
@@ -150,6 +159,11 @@ export default function CoworkPage() {
     manager.setSendSignal((targetId, signal) => {
       bridge.emitWebRTCSignal(targetId, signal);
     });
+
+    // Pass pre-acquired stream from overlay click gesture
+    if (preAcquiredStreamRef.current) {
+      manager.setPreAcquiredStream(preAcquiredStreamRef.current);
+    }
 
     const onProximity = (data: { nearbyIds: string[] }) => {
       manager.updateNearby(data.nearbyIds);
@@ -274,8 +288,8 @@ export default function CoworkPage() {
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
+        width: "100%",
+        height: "100%",
         backgroundColor: "#1e293b",
         position: "relative",
       }}
@@ -361,6 +375,28 @@ export default function CoworkPage() {
               canvas.setAttribute("tabindex", "1");
               canvas.focus();
             }
+
+            // Pre-acquire media on user gesture — critical for iframe permission.
+            // Browsers require getUserMedia to be called in response to a user
+            // interaction (click/tap). If we wait until proximity triggers it,
+            // the browser may silently deny the request inside an iframe.
+            if (!preAcquiredStreamRef.current) {
+              navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { max: 15 } },
+              })
+                .then((stream) => {
+                  console.log("[Cowork] Pre-acquired media stream on user gesture");
+                  preAcquiredStreamRef.current = stream;
+                  // If manager already exists, pass the stream immediately
+                  if (mediaManagerRef.current) {
+                    mediaManagerRef.current.setPreAcquiredStream(stream);
+                  }
+                })
+                .catch(() => {
+                  console.log("[Cowork] Media permission denied on overlay click (will retry on proximity)");
+                });
+            }
           }}
           style={overlayStyle}
         >
@@ -389,8 +425,8 @@ export default function CoworkPage() {
 
 // ── Inline styles (no Tailwind in cowork-app) ──────────────
 const centerStyle: React.CSSProperties = {
-  width: "100vw",
-  height: "100vh",
+  width: "100%",
+  height: "100%",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",

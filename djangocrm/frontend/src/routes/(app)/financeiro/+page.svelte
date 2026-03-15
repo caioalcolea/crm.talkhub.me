@@ -1,53 +1,50 @@
 <script>
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
   import { KPICard } from '$lib/components/dashboard';
   import { CashFlowChart, StatusBadge } from '$lib/components/financeiro';
+  import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
+  import { orgSettings } from '$lib/stores/org.js';
   import {
     ArrowDownCircle,
     ArrowUpCircle,
     Wallet,
     AlertTriangle,
-    Percent,
-    TrendingUp
+    TrendingUp,
+    TrendingDown
   } from '@lucide/svelte';
 
   let { data } = $props();
 
   const d = $derived(data.dashboard);
   const currentYear = new Date().getFullYear();
+  let cur = $derived($orgSettings.default_currency || 'BRL');
 
   function changeYear(ano) {
     goto(`/financeiro?ano=${ano}`);
   }
 </script>
 
-<div class="space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Painel Financeiro</h1>
-      <p class="text-muted-foreground text-sm">Visão geral das contas a pagar e receber</p>
-    </div>
-    <div class="flex items-center gap-2">
-      <select
-        value={data.ano}
-        onchange={(e) => changeYear(e.target.value)}
-        class="border-input bg-background rounded-md border px-3 py-1.5 text-sm"
-      >
-        {#each Array.from({ length: 5 }, (_, i) => currentYear - 2 + i) as year}
-          <option value={year}>{year}</option>
-        {/each}
-      </select>
-    </div>
-  </div>
+<PageHeader title="Painel Financeiro" subtitle="Visão geral das contas a pagar e receber">
+  {#snippet actions()}
+    <select
+      value={data.ano}
+      onchange={(e) => changeYear(e.target.value)}
+      class="border-input bg-background rounded-md border px-3 py-1.5 text-sm"
+    >
+      {#each Array.from({ length: 5 }, (_, i) => currentYear - 2 + i) as year}
+        <option value={year}>{year}</option>
+      {/each}
+    </select>
+  {/snippet}
+</PageHeader>
 
+<div class="space-y-6 p-4 md:p-6">
   <!-- KPI Cards -->
-  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+  <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
     <KPICard
-      label="Total a Receber"
-      value={formatCurrency(d.total_receber, 'BRL')}
+      label="A Receber"
+      value={formatCurrency(d.total_receber, cur)}
       accentColor="emerald"
     >
       {#snippet icon({ class: cls })}
@@ -56,8 +53,8 @@
     </KPICard>
 
     <KPICard
-      label="Total a Pagar"
-      value={formatCurrency(d.total_pagar, 'BRL')}
+      label="A Pagar"
+      value={formatCurrency(d.total_pagar, cur)}
       accentColor="rose"
     >
       {#snippet icon({ class: cls })}
@@ -66,18 +63,28 @@
     </KPICard>
 
     <KPICard
-      label="Pago no Mês"
-      value={formatCurrency(d.pago_no_mes, 'BRL')}
+      label="Recebido no Mês"
+      value={formatCurrency(d.recebido_no_mes, cur)}
       accentColor="blue"
     >
       {#snippet icon({ class: cls })}
-        <Wallet class={cls} />
+        <TrendingUp class={cls} />
       {/snippet}
     </KPICard>
 
     <KPICard
-      label="Total Vencido"
-      value={formatCurrency(d.total_vencido, 'BRL')}
+      label="Pago no Mês"
+      value={formatCurrency(d.pago_no_mes, cur)}
+      accentColor="orange"
+    >
+      {#snippet icon({ class: cls })}
+        <TrendingDown class={cls} />
+      {/snippet}
+    </KPICard>
+
+    <KPICard
+      label="Vencido"
+      value={formatCurrency(d.total_vencido, cur)}
       accentColor="amber"
     >
       {#snippet icon({ class: cls })}
@@ -86,22 +93,12 @@
     </KPICard>
 
     <KPICard
-      label="% Vencidas"
-      value={`${d.pct_vencidas}%`}
-      accentColor="orange"
-    >
-      {#snippet icon({ class: cls })}
-        <Percent class={cls} />
-      {/snippet}
-    </KPICard>
-
-    <KPICard
-      label="Saldo"
-      value={formatCurrency(d.saldo, 'BRL')}
+      label="Saldo do Mês"
+      value={formatCurrency(d.saldo, cur)}
       accentColor={d.saldo >= 0 ? 'emerald' : 'rose'}
     >
       {#snippet icon({ class: cls })}
-        <TrendingUp class={cls} />
+        <Wallet class={cls} />
       {/snippet}
     </KPICard>
   </div>
@@ -127,9 +124,9 @@
             <th class="px-3 py-2 text-left font-medium">Descrição</th>
             <th class="px-3 py-2 text-left font-medium">Tipo</th>
             <th class="px-3 py-2 text-right font-medium">Valor</th>
-            <th class="px-3 py-2 text-left font-medium">Parcelas</th>
+            <th class="hidden px-3 py-2 text-left font-medium sm:table-cell">Parcelas</th>
             <th class="px-3 py-2 text-left font-medium">Status</th>
-            <th class="px-3 py-2 text-left font-medium">Vencimento</th>
+            <th class="hidden px-3 py-2 text-left font-medium md:table-cell">Vencimento</th>
           </tr>
         </thead>
         <tbody>
@@ -141,11 +138,11 @@
               <td class="max-w-[200px] truncate px-3 py-2 font-medium">{tx.descricao}</td>
               <td class="px-3 py-2"><StatusBadge status={tx.tipo} /></td>
               <td class="px-3 py-2 text-right font-mono text-xs">
-                {formatCurrency(tx.valor_convertido, 'BRL')}
+                {formatCurrency(tx.valor_convertido, cur)}
               </td>
-              <td class="px-3 py-2 text-xs">{tx.parcelas_pagas}</td>
-              <td class="px-3 py-2"><StatusBadge status={tx.status} /></td>
-              <td class="px-3 py-2 text-xs">{formatDate(tx.data_primeiro_vencimento)}</td>
+              <td class="hidden px-3 py-2 text-xs sm:table-cell">{tx.parcelas_pagas}</td>
+              <td class="px-3 py-2"><StatusBadge status={tx.status} tipo={tx.tipo} /></td>
+              <td class="hidden px-3 py-2 text-xs md:table-cell">{formatDate(tx.data_primeiro_vencimento)}</td>
             </tr>
           {:else}
             <tr>

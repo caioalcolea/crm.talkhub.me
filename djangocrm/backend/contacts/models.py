@@ -26,6 +26,14 @@ class Contact(AssignableMixin, OrgScopedMixin, BaseModel):
         blank=True,
         validators=[flexible_phone_validator],
     )
+    secondary_email = models.EmailField(_("Secondary Email"), blank=True, null=True)
+    secondary_phone = models.CharField(
+        _("Secondary Phone"),
+        max_length=25,
+        null=True,
+        blank=True,
+        validators=[flexible_phone_validator],
+    )
 
     # Professional Information
     organization = models.CharField(_("Company"), max_length=255, blank=True, null=True)
@@ -128,3 +136,97 @@ class Contact(AssignableMixin, OrgScopedMixin, BaseModel):
 
     def __str__(self):
         return self.first_name
+
+
+class ContactEmail(BaseModel):
+    """Additional email addresses for a contact (beyond the primary email)."""
+
+    LABEL_CHOICES = [
+        ("work", "Trabalho"),
+        ("personal", "Pessoal"),
+        ("other", "Outro"),
+    ]
+
+    contact = models.ForeignKey(
+        Contact, on_delete=models.CASCADE, related_name="extra_emails"
+    )
+    email = models.EmailField(_("Email"))
+    label = models.CharField(
+        _("Label"), max_length=20, choices=LABEL_CHOICES, default="work"
+    )
+
+    class Meta:
+        verbose_name = "Contact Email"
+        verbose_name_plural = "Contact Emails"
+        db_table = "contact_emails"
+        ordering = ("label", "email")
+
+    def __str__(self):
+        return f"{self.email} ({self.label})"
+
+
+class ContactPhone(BaseModel):
+    """Additional phone numbers for a contact (beyond the primary phone)."""
+
+    LABEL_CHOICES = [
+        ("work", "Trabalho"),
+        ("personal", "Pessoal"),
+        ("mobile", "Celular"),
+        ("whatsapp", "WhatsApp"),
+        ("other", "Outro"),
+    ]
+
+    contact = models.ForeignKey(
+        Contact, on_delete=models.CASCADE, related_name="extra_phones"
+    )
+    phone = models.CharField(
+        _("Phone"), max_length=25, validators=[flexible_phone_validator]
+    )
+    label = models.CharField(
+        _("Label"), max_length=20, choices=LABEL_CHOICES, default="mobile"
+    )
+
+    class Meta:
+        verbose_name = "Contact Phone"
+        verbose_name_plural = "Contact Phones"
+        db_table = "contact_phones"
+        ordering = ("label", "phone")
+
+    def __str__(self):
+        return f"{self.phone} ({self.label})"
+
+
+class ContactAddress(BaseModel):
+    """Additional addresses for a contact (beyond the primary address)."""
+
+    LABEL_CHOICES = [
+        ("work", "Trabalho"),
+        ("home", "Residência"),
+        ("billing", "Cobrança"),
+        ("shipping", "Entrega"),
+        ("other", "Outro"),
+    ]
+
+    contact = models.ForeignKey(
+        Contact, on_delete=models.CASCADE, related_name="extra_addresses"
+    )
+    label = models.CharField(
+        _("Label"), max_length=20, choices=LABEL_CHOICES, default="work"
+    )
+    address_line = models.CharField(_("Address"), max_length=255, blank=True)
+    city = models.CharField(_("City"), max_length=255, blank=True)
+    state = models.CharField(_("State"), max_length=255, blank=True)
+    postcode = models.CharField(_("Postal Code"), max_length=64, blank=True)
+    country = models.CharField(
+        _("Country"), max_length=3, choices=COUNTRIES, blank=True
+    )
+
+    class Meta:
+        verbose_name = "Contact Address"
+        verbose_name_plural = "Contact Addresses"
+        db_table = "contact_addresses"
+        ordering = ("label",)
+
+    def __str__(self):
+        parts = [self.address_line, self.city, self.state]
+        return ", ".join(p for p in parts if p) or f"Endereço ({self.label})"

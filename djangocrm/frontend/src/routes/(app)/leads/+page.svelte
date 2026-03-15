@@ -57,7 +57,7 @@
   import { CommentSection } from '$lib/components/ui/comment-section';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser } from '$lib/api.js';
+  import { getCurrentUser, apiRequest } from '$lib/api.js';
   import { browser } from '$app/environment';
   import { orgSettings } from '$lib/stores/org.js';
   import { ViewToggle } from '$lib/components/ui/view-toggle';
@@ -750,7 +750,7 @@
     const viewId = $page.url.searchParams.get('view');
     const action = $page.url.searchParams.get('action');
 
-    if (action === 'create') {
+    if (action === 'create' && !drawerOpen) {
       const contactIdParam = $page.url.searchParams.get('contactId');
       if (contactIdParam) {
         contactIdFromUrl = contactIdParam;

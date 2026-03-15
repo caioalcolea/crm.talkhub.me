@@ -7,13 +7,12 @@ export async function load({ params, locals, cookies }) {
   if (!org) throw error(401, 'Contexto de organização é obrigatório');
 
   try {
-    const lancamento = await apiRequest(
-      `/financeiro/lancamentos/${params.id}/`,
-      {},
-      { cookies, org }
-    );
+    const [lancamento, formOptions] = await Promise.all([
+      apiRequest(`/financeiro/lancamentos/${params.id}/`, {}, { cookies, org }),
+      apiRequest('/financeiro/form-options/', {}, { cookies, org }),
+    ]);
 
-    return { lancamento };
+    return { lancamento, formOptions };
   } catch (err) {
     throw error(404, 'Lançamento não encontrado');
   }

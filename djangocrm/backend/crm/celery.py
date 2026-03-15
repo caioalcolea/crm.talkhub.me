@@ -119,6 +119,16 @@ app.conf.beat_schedule = {
         "task": "financeiro.tasks.check_overdue_parcelas",
         "schedule": crontab(hour=1, minute=30),
     },
+    # Financeiro — Generate recurring parcelas on 1st of each month at 2 AM
+    "generate-recurring-parcelas": {
+        "task": "financeiro.tasks.generate_recurring_parcelas",
+        "schedule": crontab(day_of_month=1, hour=2, minute=0),
+    },
+    # Financeiro — Update variable exchange rates daily at 6:30 AM
+    "update-variable-exchange-rates": {
+        "task": "financeiro.tasks.update_variable_exchange_rates",
+        "schedule": crontab(hour=6, minute=30),
+    },
     # Invitations — Expire pending invitations daily at 2:30 AM
     "expire-pending-invitations": {
         "task": "common.tasks.expire_pending_invitations",

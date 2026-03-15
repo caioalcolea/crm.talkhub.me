@@ -53,6 +53,26 @@ export const actions = {
     }
   },
 
+  edit: async ({ request, locals, cookies }) => {
+    const org = locals.org;
+    if (!org) return fail(401, { error: 'Contexto de organização é obrigatório' });
+
+    const form = await request.formData();
+    const id = form.get('id');
+    const body = { nome: form.get('nome') };
+
+    try {
+      await apiRequest(
+        `/financeiro/formas-pagamento/${id}/`,
+        { method: 'PATCH', body },
+        { cookies, org }
+      );
+      return { success: true };
+    } catch (err) {
+      return fail(400, { error: err.message || 'Falha na operação' });
+    }
+  },
+
   delete: async ({ request, locals, cookies }) => {
     const org = locals.org;
     if (!org) return fail(401, { error: 'Contexto de organização é obrigatório' });

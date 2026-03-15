@@ -22,7 +22,9 @@ class Conversation(BaseOrgModel):
 
     contact = models.ForeignKey(
         "contacts.Contact",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="conversations",
     )
     channel = models.CharField(max_length=50)
@@ -40,6 +42,17 @@ class Conversation(BaseOrgModel):
     metadata_json = models.JSONField(default=dict, blank=True)
     tags = models.ManyToManyField("common.Tags", related_name="conversation_tags", blank=True)
 
+    # Soft-delete fields
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        "common.Profile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deleted_conversations",
+    )
+
     class Meta:
         db_table = "conversation"
         ordering = ("-last_message_at",)
@@ -54,10 +67,11 @@ class Conversation(BaseOrgModel):
             models.Index(fields=["org", "-updated_at"], name="conv_org_updated"),
             models.Index(fields=["org", "status", "-last_message_at"], name="conv_org_status_msg"),
             models.Index(fields=["org", "channel", "-last_message_at"], name="conv_org_chan_msg"),
+            models.Index(fields=["org", "is_deleted", "-last_message_at"], name="conv_org_del_msg"),
         ]
 
     def __str__(self):
-        return f"Conversation {self.channel} - {self.contact} ({self.status})"
+        return f"Conversation {self.channel} - {self.contact or 'No contact'} ({self.status})"
 
 
 class Message(BaseOrgModel):

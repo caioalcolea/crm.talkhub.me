@@ -1,4 +1,7 @@
 <script>
+  import { useSidebar } from '$lib/components/ui/sidebar/context.svelte.js';
+  import { Menu } from '@lucide/svelte';
+
   /**
    * @typedef {Object} Props
    * @property {string} title - Page title
@@ -8,6 +11,8 @@
 
   /** @type {Props} */
   let { title, subtitle = '', actions } = $props();
+
+  const sidebar = useSidebar();
 </script>
 
 <header
@@ -23,12 +28,21 @@
     ></div>
   </div>
 
-  <div class="relative flex min-h-[4.5rem] items-center justify-between gap-6 px-6 py-4 md:px-8">
+  <div class="relative flex min-h-[3.5rem] items-center justify-between gap-3 px-4 py-3 md:min-h-[4.5rem] md:gap-6 md:px-8 md:py-4">
+    <!-- Mobile menu button -->
+    <button
+      onclick={() => sidebar.setOpenMobile(true)}
+      class="text-muted-foreground hover:text-foreground hover:bg-accent -ml-1 flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors md:hidden"
+      aria-label="Abrir menu"
+    >
+      <Menu class="size-5" />
+    </button>
+
     <!-- Title Section -->
     <div class="flex min-w-0 flex-1 flex-col gap-1">
       <div class="flex items-baseline gap-3">
         <h1
-          class="text-foreground truncate text-2xl font-bold tracking-tight md:text-[1.75rem]"
+          class="text-foreground truncate text-xl font-bold tracking-tight md:text-[1.75rem]"
           style="letter-spacing: -0.025em;"
         >
           {title}

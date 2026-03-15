@@ -10,6 +10,63 @@ from rest_framework import serializers
 from conversations.models import Conversation, Message
 
 
+def _get_contact_address(obj):
+    """Retorna o email/phone/username específico desta conversa pelo canal."""
+    meta = obj.metadata_json or {}
+    channel = obj.channel or ""
+
+    c = obj.contact
+
+    # Email channels
+    if channel in ("smtp_native", "email"):
+        return (
+            meta.get("email_to")
+            or meta.get("email_from")
+            or (c.email if c else "")
+            or (c.secondary_email if c else "")
+        )
+
+    # WhatsApp / SMS
+    if channel in ("whatsapp", "sms"):
+        return (
+            meta.get("phone_number")
+            or (c.phone if c else "")
+            or (c.secondary_phone if c else "")
+        )
+
+    # Chatwoot (varies by sub-channel)
+    if channel == "chatwoot":
+        cw_channel = meta.get("chatwoot_channel_type", "")
+        if "Email" in cw_channel:
+            return (
+                meta.get("email_to")
+                or meta.get("email_from")
+                or (c.email if c else "")
+                or (c.secondary_email if c else "")
+            )
+        if any(x in cw_channel for x in ("Whatsapp", "Sms")):
+            return (
+                meta.get("phone_number")
+                or (c.phone if c else "")
+                or (c.secondary_phone if c else "")
+            )
+        # Instagram, Facebook, Telegram, etc.
+        return meta.get("contact_identifier") or meta.get("source_id") or ""
+
+    # TalkHub Omni
+    if channel == "talkhub_omni":
+        return (
+            meta.get("phone_number")
+            or (c.phone if c else "")
+            or (c.secondary_phone if c else "")
+        )
+
+    # Fallback
+    if c:
+        return c.email or c.secondary_email or c.phone or c.secondary_phone or ""
+    return ""
+
+
 class MessageSerializer(serializers.ModelSerializer):
     """Serializer para leitura de Message."""
 
@@ -60,6 +117,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     last_message = serializers.SerializerMethodField()
     contact_name = serializers.SerializerMethodField()
+    contact_address = serializers.SerializerMethodField()
     is_group = serializers.SerializerMethodField()
 
     class Meta:
@@ -72,7 +130,10 @@ class ConversationListSerializer(serializers.ModelSerializer):
             "last_message_at",
             "contact",
             "contact_name",
+            "contact_address",
             "is_group",
+            "is_deleted",
+            "deleted_at",
             "last_message",
             "metadata_json",
             "created_at",
@@ -114,14 +175,20 @@ class ConversationListSerializer(serializers.ModelSerializer):
             return f"{obj.contact.first_name} {obj.contact.last_name}".strip()
         return ""
 
+    def get_contact_address(self, obj):
+        return _get_contact_address(obj)
+
 
 class ConversationDetailSerializer(serializers.ModelSerializer):
     """Serializer de detalhe de conversa com info do contato."""
 
     contact_name = serializers.SerializerMethodField()
     contact_email = serializers.SerializerMethodField()
+    contact_address = serializers.SerializerMethodField()
     assigned_to_name = serializers.SerializerMethodField()
     is_group = serializers.SerializerMethodField()
+
+    deleted_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -138,7 +205,11 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
             "contact",
             "contact_name",
             "contact_email",
+            "contact_address",
             "is_group",
+            "is_deleted",
+            "deleted_at",
+            "deleted_by_name",
             "created_at",
             "updated_at",
         )
@@ -155,9 +226,17 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
     def get_contact_email(self, obj):
         return obj.contact.email if obj.contact else ""
 
+    def get_contact_address(self, obj):
+        return _get_contact_address(obj)
+
     def get_assigned_to_name(self, obj):
         if obj.assigned_to and obj.assigned_to.user:
-            return obj.assigned_to.user.get_full_name() or obj.assigned_to.user.email
+            return obj.assigned_to.user.email
+        return None
+
+    def get_deleted_by_name(self, obj):
+        if obj.deleted_by and obj.deleted_by.user:
+            return obj.deleted_by.user.email
         return None
 
 

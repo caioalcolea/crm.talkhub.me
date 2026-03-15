@@ -52,51 +52,185 @@ class DuplicateDetector:
         """
         Find potential duplicate contacts based on email, phone, or name.
 
-        Args:
-            org: The organization to search within
-            email: Email address to match
-            phone: Phone number to match (normalized)
-            first_name: First name for fuzzy matching
-            last_name: Last name for fuzzy matching
-            exclude_id: ID to exclude from results (for updates)
-
         Returns:
             List of potential duplicate Contact objects
         """
+        results = cls.find_duplicate_contacts_with_reasons(
+            org, email=email, phone=phone,
+            first_name=first_name, last_name=last_name,
+            exclude_id=exclude_id,
+        )
+        return [r["contact"] for r in results]
+
+    @classmethod
+    def find_duplicate_contacts_with_reasons(
+        cls,
+        org,
+        email: str | None = None,
+        phone: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        exclude_id=None,
+        contact: "Contact | None" = None,
+    ) -> list[dict]:
+        """
+        Find potential duplicate contacts with match reasons.
+
+        If ``contact`` is provided, its fields are used as defaults for
+        email/phone/name and additional integration ID checks are performed.
+
+        Returns:
+            List of dicts: {"contact": Contact, "match_reasons": [...], "score": int}
+        """
         from contacts.models import Contact
 
-        duplicates = []
-        base_qs = Contact.objects.filter(org=org, is_active=True)
+        # Use contact fields as defaults
+        if contact:
+            email = email or contact.email
+            phone = phone or contact.phone
+            first_name = first_name or contact.first_name
+            last_name = last_name or contact.last_name
+            if not exclude_id:
+                exclude_id = contact.id
 
+        # Collect secondary fields for additional matching
+        secondary_email = contact.secondary_email if contact else None
+        secondary_phone = contact.secondary_phone if contact else None
+
+        seen: dict[str, list[str]] = {}  # contact.id -> reasons
+        base_qs = Contact.objects.filter(org=org, is_active=True)
         if exclude_id:
             base_qs = base_qs.exclude(pk=exclude_id)
 
-        # Exact email match (case-insensitive)
-        if email:
-            email_matches = base_qs.filter(email__iexact=email)
-            duplicates.extend(list(email_matches))
+        def _add(c, reason):
+            cid = str(c.id)
+            if cid not in seen:
+                seen[cid] = []
+            if reason not in seen[cid]:
+                seen[cid].append(reason)
 
-        # Normalized phone match
+        # 1. Email match (primary + secondary + extra_emails)
+        if email:
+            for c in base_qs.filter(email__iexact=email):
+                _add(c, "email")
+            # Check secondary_email field
+            for c in base_qs.filter(secondary_email__iexact=email):
+                _add(c, "email")
+            # Also check extra_emails table
+            from contacts.models import ContactEmail
+            for extra in ContactEmail.objects.filter(
+                contact__org=org, email__iexact=email
+            ).select_related("contact"):
+                if not exclude_id or str(extra.contact_id) != str(exclude_id):
+                    _add(extra.contact, "email")
+
+        # 1b. Check secondary_email against other contacts
+        if secondary_email:
+            for c in base_qs.filter(email__iexact=secondary_email):
+                _add(c, "email")
+            for c in base_qs.filter(secondary_email__iexact=secondary_email):
+                _add(c, "email")
+
+        # 1c. Check if contact has extra_emails that match other contacts' primary emails
+        if contact:
+            for extra in contact.extra_emails.all():
+                for c in base_qs.filter(email__iexact=extra.email):
+                    _add(c, "email")
+
+        # 2. Phone match (normalized, primary + secondary + extra_phones)
         if phone:
             normalized = cls.normalize_phone(phone)
             if len(normalized) >= 7:
-                # Get all contacts with phones and filter in Python
-                phone_candidates = base_qs.exclude(phone__isnull=True).exclude(phone="")
-                for contact in phone_candidates:
-                    if cls.normalize_phone(contact.phone) == normalized:
-                        if contact not in duplicates:
-                            duplicates.append(contact)
+                for c in base_qs.exclude(phone__isnull=True).exclude(phone=""):
+                    if cls.normalize_phone(c.phone) == normalized:
+                        _add(c, "phone")
+                # Check secondary_phone field
+                for c in base_qs.exclude(secondary_phone__isnull=True).exclude(secondary_phone=""):
+                    if cls.normalize_phone(c.secondary_phone) == normalized:
+                        _add(c, "phone")
+                # Also check extra_phones table
+                from contacts.models import ContactPhone
+                for extra in ContactPhone.objects.filter(
+                    contact__org=org,
+                ).select_related("contact"):
+                    if (
+                        cls.normalize_phone(extra.phone) == normalized
+                        and (not exclude_id or str(extra.contact_id) != str(exclude_id))
+                    ):
+                        _add(extra.contact, "phone")
 
-        # Name match (first + last name combination)
+        # 2b. Check secondary_phone against other contacts
+        if secondary_phone:
+            norm_sec = cls.normalize_phone(secondary_phone)
+            if len(norm_sec) >= 7:
+                for c in base_qs.exclude(phone__isnull=True).exclude(phone=""):
+                    if cls.normalize_phone(c.phone) == norm_sec:
+                        _add(c, "phone")
+                for c in base_qs.exclude(secondary_phone__isnull=True).exclude(secondary_phone=""):
+                    if cls.normalize_phone(c.secondary_phone) == norm_sec:
+                        _add(c, "phone")
+
+        # 2c. Check if contact has extra_phones that match other contacts' primary phones
+        if contact:
+            for extra in contact.extra_phones.all():
+                norm_extra = cls.normalize_phone(extra.phone)
+                if len(norm_extra) >= 7:
+                    for c in base_qs.exclude(phone__isnull=True).exclude(phone=""):
+                        if cls.normalize_phone(c.phone) == norm_extra:
+                            _add(c, "phone")
+
+        # 3. Name match
         if first_name and last_name:
-            name_matches = base_qs.filter(
+            for c in base_qs.filter(
                 first_name__iexact=first_name, last_name__iexact=last_name
-            )
-            for contact in name_matches:
-                if contact not in duplicates:
-                    duplicates.append(contact)
+            ):
+                _add(c, "name")
 
-        return duplicates
+        # 4. Integration ID matches (when checking a specific contact)
+        if contact:
+            # Chatwoot ID in description
+            chatwoot_ids = set(
+                re.findall(r"chatwoot_id:(\d+)", contact.description or "")
+            )
+            if chatwoot_ids:
+                for cw_id in chatwoot_ids:
+                    for c in base_qs.filter(
+                        description__contains=f"chatwoot_id:{cw_id}"
+                    ):
+                        _add(c, "chatwoot_id")
+
+            # TalkHub subscriber ID
+            if contact.talkhub_subscriber_id:
+                for c in base_qs.filter(
+                    talkhub_subscriber_id=contact.talkhub_subscriber_id
+                ):
+                    _add(c, "talkhub_subscriber_id")
+
+            # Omni user NS
+            if contact.omni_user_ns:
+                for c in base_qs.filter(omni_user_ns=contact.omni_user_ns):
+                    _add(c, "omni_user_ns")
+
+        # Build result list sorted by score desc
+        contact_map = {}
+        for cid in seen:
+            if cid not in contact_map:
+                try:
+                    contact_map[cid] = base_qs.get(pk=cid)
+                except Contact.DoesNotExist:
+                    continue
+
+        results = []
+        for cid, reasons in seen.items():
+            if cid in contact_map:
+                results.append({
+                    "contact": contact_map[cid],
+                    "match_reasons": reasons,
+                    "score": len(reasons),
+                })
+
+        results.sort(key=lambda r: r["score"], reverse=True)
+        return results
 
     @classmethod
     def find_duplicate_leads(

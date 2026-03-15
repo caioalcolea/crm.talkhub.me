@@ -23,11 +23,17 @@ from common.serializers import AttachmentsSerializer, CommentSerializer
 from common.utils import COUNTRIES
 from contacts import swagger_params
 from contacts.models import Contact
+from contacts.models import ContactAddress, ContactEmail, ContactPhone
 from contacts.serializers import (
+    ContactAddressSerializer,
     ContactCommentEditSwaggerSerializer,
     ContactDetailEditSwaggerSerializer,
+    ContactEmailSerializer,
+    ContactPhoneSerializer,
     ContactSerializer,
     CreateContactSerializer,
+    DuplicateContactSerializer,
+    MergeRequestSerializer,
 )
 from contacts.tasks import send_email_to_assigned_user
 from tasks.serializers import TaskSerializer
@@ -39,9 +45,11 @@ class ContactsListView(APIView, LimitOffsetPagination):
 
     def get_context_data(self, **kwargs):
         params = self.request.query_params
-        queryset = self.model.objects.filter(org=self.request.profile.org).order_by(
-            "-id"
-        )
+        queryset = self.model.objects.filter(
+            org=self.request.profile.org
+        ).prefetch_related(
+            'extra_emails', 'extra_phones', 'extra_addresses'
+        ).order_by("-id")
         if self.request.profile.role != "ADMIN" and not self.request.profile.is_admin:
             queryset = queryset.filter(
                 Q(assigned_to__in=[self.request.profile])
@@ -476,6 +484,17 @@ class ContactDetailView(APIView):
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Soft-delete all conversations for this contact before hard-deleting
+        # With on_delete=SET_NULL, conversations survive but lose contact reference.
+        # We soft-delete them so they go to the trash instead of becoming orphaned.
+        from conversations.models import Conversation as Conv
+        from django.utils import timezone as tz
+        Conv.objects.filter(contact=self.object, is_deleted=False).update(
+            is_deleted=True,
+            deleted_at=tz.now(),
+            deleted_by=self.request.profile,
+        )
+
         self.object.delete()
         return Response(
             {"error": False, "message": "Contact Deleted Successfully."},
@@ -1039,7 +1058,7 @@ class ContactContextView(APIView):
         if "conversations" in include:
             from conversations.models import Conversation
 
-            qs = Conversation.objects.filter(contact_id=pk, org=org)
+            qs = Conversation.objects.filter(contact_id=pk, org=org, is_deleted=False)
             context["conversations_count"] = qs.count()
             context["conversations"] = [
                 {
@@ -1054,4 +1073,208 @@ class ContactContextView(APIView):
             ]
 
         return Response(context)
+
+
+class ContactMergeView(APIView):
+    """POST /api/contacts/merge/ — Merge two contacts."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request):
+        serializer = MergeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        org = request.profile.org
+        primary_id = serializer.validated_data["primary_id"]
+        secondary_id = serializer.validated_data["secondary_id"]
+
+        # Validate both exist
+        if not Contact.objects.filter(id=primary_id, org=org).exists():
+            return Response(
+                {"error": True, "message": "Contato principal não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not Contact.objects.filter(id=secondary_id, org=org).exists():
+            return Response(
+                {"error": True, "message": "Contato secundário não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from contacts.merge import merge_contacts
+
+        user_email = request.user.email if request.user else "system"
+        try:
+            primary, stats = merge_contacts(org, primary_id, secondary_id, user_email)
+        except ValueError as e:
+            return Response(
+                {"error": True, "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            "error": False,
+            "message": "Contatos mesclados com sucesso.",
+            "contact": ContactSerializer(primary).data,
+            "stats": stats,
+        })
+
+
+class ContactMergePreviewView(APIView):
+    """POST /api/contacts/merge/preview/ — Preview a merge."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request):
+        serializer = MergeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        org = request.profile.org
+        primary_id = serializer.validated_data["primary_id"]
+        secondary_id = serializer.validated_data["secondary_id"]
+
+        try:
+            primary = Contact.objects.get(id=primary_id, org=org)
+            secondary = Contact.objects.get(id=secondary_id, org=org)
+        except Contact.DoesNotExist:
+            return Response(
+                {"error": True, "message": "Contato não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from contacts.merge import get_merge_preview
+
+        try:
+            preview = get_merge_preview(org, primary_id, secondary_id)
+        except ValueError as e:
+            return Response(
+                {"error": True, "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        preview["primary"] = ContactSerializer(primary).data
+        preview["secondary"] = ContactSerializer(secondary).data
+        return Response(preview)
+
+
+class ContactDuplicatesView(APIView):
+    """GET /api/contacts/<pk>/duplicates/ — Find potential duplicates."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        try:
+            contact = Contact.objects.get(id=pk, org=org)
+        except Contact.DoesNotExist:
+            return Response(
+                {"error": True, "message": "Contato não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from common.duplicate_detection import DuplicateDetector
+
+        results = DuplicateDetector.find_duplicate_contacts_with_reasons(
+            org, contact=contact,
+        )
+
+        # Enrich with conversations count and channels
+        from conversations.models import Conversation
+
+        duplicates = []
+        for r in results[:10]:
+            dup = r["contact"]
+            convs = Conversation.objects.filter(contact=dup, org=org)
+            channels = list(convs.values_list("channel", flat=True).distinct())
+            duplicates.append({
+                "id": str(dup.id),
+                "first_name": dup.first_name,
+                "last_name": dup.last_name,
+                "email": dup.email,
+                "phone": dup.phone,
+                "organization": dup.organization,
+                "source": dup.source,
+                "match_reasons": r["match_reasons"],
+                "conversations_count": convs.count(),
+                "channels": channels,
+            })
+
+        return Response({"duplicates": duplicates, "count": len(duplicates)})
+
+
+class ContactExtraEmailView(APIView):
+    """CRUD for extra email addresses on a contact."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def _get_contact(self, pk, request):
+        return get_object_or_404(Contact, pk=pk, org=request.profile.org)
+
+    def get(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        return Response(ContactEmailSerializer(contact.extra_emails.all(), many=True).data)
+
+    def post(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        serializer = ContactEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(contact=contact)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, contact_id, pk=None):
+        contact = self._get_contact(contact_id, request)
+        email_obj = get_object_or_404(ContactEmail, pk=pk, contact=contact)
+        email_obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ContactExtraPhoneView(APIView):
+    """CRUD for extra phone numbers on a contact."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def _get_contact(self, pk, request):
+        return get_object_or_404(Contact, pk=pk, org=request.profile.org)
+
+    def get(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        return Response(ContactPhoneSerializer(contact.extra_phones.all(), many=True).data)
+
+    def post(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        serializer = ContactPhoneSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(contact=contact)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, contact_id, pk=None):
+        contact = self._get_contact(contact_id, request)
+        phone_obj = get_object_or_404(ContactPhone, pk=pk, contact=contact)
+        phone_obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ContactExtraAddressView(APIView):
+    """CRUD for extra addresses on a contact."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def _get_contact(self, pk, request):
+        return get_object_or_404(Contact, pk=pk, org=request.profile.org)
+
+    def get(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        return Response(ContactAddressSerializer(contact.extra_addresses.all(), many=True).data)
+
+    def post(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        serializer = ContactAddressSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(contact=contact)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, contact_id, pk=None):
+        contact = self._get_contact(contact_id, request)
+        addr_obj = get_object_or_404(ContactAddress, pk=pk, contact=contact)
+        addr_obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 

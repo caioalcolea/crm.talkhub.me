@@ -97,6 +97,7 @@ class OrgSettingsSerializer(serializers.ModelSerializer):
 
     currency_symbol = serializers.SerializerMethodField()
     logo_url = serializers.SerializerMethodField()
+    logo = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = Org

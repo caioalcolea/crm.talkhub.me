@@ -420,11 +420,12 @@ class ChatwootConnector(BaseConnector):
         status_map = {"open": "open", "pending": "pending", "resolved": "resolved", "snoozed": "pending"}
         cw_status = cw_conv.get("status", "open")
 
-        # Get or create conversation
+        # Get or create conversation (skip soft-deleted)
         conv, created = Conversation.objects.update_or_create(
             org=org,
             channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
             defaults={
                 "contact": contact,
                 "integration_provider": "chatwoot",
@@ -520,7 +521,7 @@ class ChatwootConnector(BaseConnector):
 
     def _get_or_create_contact(self, org, cw_contact, update_existing=True):
         """Get or create a CRM contact from Chatwoot contact data. Optionally update missing fields."""
-        from contacts.models import Contact
+        from contacts.models import Contact, ContactEmail, ContactPhone
 
         if not cw_contact:
             return None
@@ -542,13 +543,37 @@ class ChatwootConnector(BaseConnector):
                 org=org, description__contains=f"chatwoot_id:{cw_id}"
             ).first()
 
-        # 2) Try by email
+        # 2) Try by email (primary field)
         if not contact and email:
             contact = Contact.objects.filter(org=org, email=email).first()
 
-        # 3) Try by phone
+        # 2b) Try by secondary_email
+        if not contact and email:
+            contact = Contact.objects.filter(org=org, secondary_email__iexact=email).first()
+
+        # 2c) Try by extra_emails table
+        if not contact and email:
+            extra = ContactEmail.objects.filter(
+                contact__org=org, email__iexact=email
+            ).select_related("contact").first()
+            if extra:
+                contact = extra.contact
+
+        # 3) Try by phone (primary field)
         if not contact and phone:
             contact = Contact.objects.filter(org=org, phone=phone).first()
+
+        # 3b) Try by secondary_phone
+        if not contact and phone:
+            contact = Contact.objects.filter(org=org, secondary_phone=phone).first()
+
+        # 3c) Try by extra_phones table
+        if not contact and phone:
+            extra = ContactPhone.objects.filter(
+                contact__org=org, phone=phone
+            ).select_related("contact").first()
+            if extra:
+                contact = extra.contact
 
         # 4) For contacts without email/phone (groups), try by exact name
         #    Check both NULL and empty-string variants for email/phone
@@ -899,10 +924,11 @@ class ChatwootConnector(BaseConnector):
 
         account_id = payload.get("account", {}).get("id")
 
-        # Find or create conversation
+        # Find or create conversation (skip soft-deleted)
         conv = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).first()
 
         if not conv:
@@ -1004,10 +1030,11 @@ class ChatwootConnector(BaseConnector):
 
         account_id = payload.get("account", {}).get("id")
 
-        # Check if already exists
+        # Check if already exists (skip soft-deleted)
         existing = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).exists()
         if existing:
             return {"status": "skipped", "reason": "already_exists"}
@@ -1072,6 +1099,7 @@ class ChatwootConnector(BaseConnector):
         conv = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).first()
 
         if not conv:
@@ -1129,6 +1157,7 @@ class ChatwootConnector(BaseConnector):
         conv = Conversation.objects.filter(
             org=org, channel="chatwoot",
             metadata_json__chatwoot_conversation_id=cw_conv_id,
+            is_deleted=False,
         ).first()
 
         if not conv:

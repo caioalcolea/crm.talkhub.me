@@ -1,6 +1,37 @@
+import logging
+import time
+
+import requests
+from django.conf import settings
 from rest_framework import serializers
 
 from cowork.models import CoworkInvite, CoworkRoom
+
+logger = logging.getLogger(__name__)
+
+# Module-level cache for room counts from cowork-server (5s TTL)
+_room_counts_cache = {"data": {}, "expires": 0}
+
+COWORK_SERVER_URL = "http://crm_cowork_backend:3100"
+
+
+def _get_room_counts():
+    """Fetch room participant counts from the Socket.io cowork-server."""
+    now = time.time()
+    if now < _room_counts_cache["expires"]:
+        return _room_counts_cache["data"]
+
+    try:
+        resp = requests.get(f"{COWORK_SERVER_URL}/rooms/status", timeout=2)
+        if resp.status_code == 200:
+            data = resp.json().get("rooms", {})
+            _room_counts_cache["data"] = data
+            _room_counts_cache["expires"] = now + 5
+            return data
+    except Exception:
+        logger.debug("Failed to fetch room counts from cowork-server")
+
+    return _room_counts_cache["data"]
 
 
 class CoworkRoomSerializer(serializers.ModelSerializer):
@@ -24,8 +55,8 @@ class CoworkRoomSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def get_participant_count(self, obj):
-        # Will be populated from Socket.io server state in the future
-        return 0
+        counts = _get_room_counts()
+        return counts.get(str(obj.id), 0)
 
     def get_invite_count(self, obj):
         return obj.invites.filter(is_active=True).count()
@@ -62,10 +93,7 @@ class CoworkInviteSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "token", "use_count", "created_at"]
 
     def get_invite_url(self, obj):
-        request = self.context.get("request")
-        if request:
-            return f"{request.scheme}://{request.get_host()}/cowork/{obj.token}"
-        return f"/cowork/{obj.token}"
+        return f"{settings.DOMAIN_NAME}/cowork/{obj.token}"
 
 
 class CoworkInviteCreateSerializer(serializers.ModelSerializer):

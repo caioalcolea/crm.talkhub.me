@@ -1,18 +1,19 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import { PageHeader } from '$lib/components/layout';
-  import { MessageSquare, Search, Filter, RefreshCw, PanelRight, Users, MessageCircle } from '@lucide/svelte';
+  import { MessageSquare, Search, Filter, RefreshCw, PanelRight, Users, MessageCircle, GitMerge, ArrowLeft } from '@lucide/svelte';
   import ConversationList from '$lib/components/conversations/ConversationList.svelte';
   import ConversationTimeline from '$lib/components/conversations/ConversationTimeline.svelte';
   import MessageInput from '$lib/components/conversations/MessageInput.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
-  import { apiRequest } from '$lib/api.js';
+  import MergeContactModal from '$lib/components/contacts/MergeContactModal.svelte';
+  import { apiRequest, getCurrentUser } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
   import {
     wsConnect, wsDisconnect, wsWatch, wsUnwatch,
@@ -25,7 +26,18 @@
   let conversations = $state(data.conversations || []);
   let channels = $derived(data.channels || []);
   let filters = $derived(data.filters || {});
+  const currentUser = $derived(getCurrentUser());
+  const isAdmin = $derived(currentUser?.role === 'ADMIN' || currentUser?.is_organization_admin || currentUser?.is_superuser);
+  let isDeletedView = $derived(filters.status === 'deleted');
   let showContextPanel = $state(false);
+
+  // Merge state
+  let mergeModalOpen = $state(false);
+  /** @type {any[]} */
+  let contextDuplicates = $state([]);
+  let contextDuplicatesCount = $state(0);
+  /** @type {any} */
+  let mergeTargetContact = $state(null);
 
   /** @type {any} */
   let selectedConversation = $state(null);
@@ -47,14 +59,17 @@
   // Derived: current tab (conversations or groups)
   let currentTab = $derived(filters.is_group === 'true' ? 'groups' : 'conversations');
 
-  // Sync conversations when data changes (e.g. from server-side navigation)
+  // Sync conversations from server data (runs when data changes, e.g. navigation/filters)
   $effect(() => {
     conversations = data.conversations || [];
     nextCursor = data.nextCursor || null;
     hasMore = data.hasMore ?? false;
-    // Clear selection when switching tabs to prevent mixing
+  });
+
+  // Clear stale selection when conversations list changes (e.g. tab switch)
+  $effect(() => {
     if (selectedConversation) {
-      const stillExists = conversations.find(c => c.id === selectedConversation.id);
+      const stillExists = conversations.some(c => c.id === selectedConversation.id);
       if (!stillExists) {
         selectedConversation = null;
         messages = [];
@@ -71,11 +86,51 @@
     if (data.filters?.search) searchQuery = data.filters.search;
   });
 
+  // Load duplicates for the context panel contact
+  $effect(() => {
+    if (showContextPanel && selectedConversation?.contact) {
+      loadContactDuplicates(selectedConversation.contact);
+    } else {
+      contextDuplicates = [];
+      contextDuplicatesCount = 0;
+    }
+  });
+
+  /** @param {string} contactId */
+  async function loadContactDuplicates(contactId) {
+    try {
+      const result = await apiRequest(`/contacts/${contactId}/duplicates/`);
+      contextDuplicates = result.duplicates || [];
+      contextDuplicatesCount = result.count || 0;
+    } catch {
+      contextDuplicates = [];
+      contextDuplicatesCount = 0;
+    }
+  }
+
+  function openMergeFromContext() {
+    if (!selectedConversation?.contact) return;
+    // Build a minimal contact object for the modal
+    mergeTargetContact = {
+      id: selectedConversation.contact,
+      first_name: selectedConversation.contact_name?.split(' ')[0] || '',
+      last_name: selectedConversation.contact_name?.split(' ').slice(1).join(' ') || '',
+      email: null,
+      phone: null,
+    };
+    mergeModalOpen = true;
+  }
+
+  async function handleMergedFromContext() {
+    mergeModalOpen = false;
+    await refreshConversations(false);
+  }
+
   // --- WebSocket + Polling hybrid ---
   // Try WebSocket first; fall back to polling if WS fails 3x consecutively.
 
-  // Connect WebSocket on mount
-  wsConnect();
+  // Connect WebSocket on mount (only once, not on every re-render)
+  onMount(() => { wsConnect(); });
 
   // WS event handlers
   const unsubConvUpdate = onWsMessage('conversation_update', (convData) => {
@@ -215,7 +270,11 @@
     try {
       const params = new URLSearchParams();
       if (filters.channel) params.set('channel', filters.channel);
-      if (filters.status) params.set('status', filters.status);
+      if (filters.status === 'deleted') {
+        params.set('deleted', 'true');
+      } else if (filters.status) {
+        params.set('status', filters.status);
+      }
       if (filters.assigned_to) params.set('assigned_to', filters.assigned_to);
       if (filters.search) params.set('search', filters.search);
       if (filters.is_group) params.set('is_group', filters.is_group);
@@ -230,7 +289,8 @@
       // Also refresh messages for the selected conversation
       if (activeConversationId) {
         const freshMessages = await apiRequest(`/conversations/${activeConversationId}/messages/`);
-        messages = freshMessages?.results || freshMessages || [];
+        const rawMsgs = freshMessages?.results || freshMessages || [];
+        messages = [...rawMsgs].reverse();
 
         // Update selected conversation data
         const updated = conversations.find(c => c.id === activeConversationId);
@@ -260,7 +320,8 @@
       const data = await apiRequest(`/conversations/${convId}/messages/`);
       // Only apply if this is still the active conversation (prevents race conditions)
       if (activeConversationId === convId) {
-        messages = data.results || data || [];
+        const raw = data.results || data || [];
+        messages = [...raw].reverse();
       }
     } catch (e) {
       console.error('Erro ao carregar mensagens:', e);
@@ -308,7 +369,11 @@
       const params = new URLSearchParams();
       params.set('cursor', nextCursor);
       if (filters.channel) params.set('channel', filters.channel);
-      if (filters.status) params.set('status', filters.status);
+      if (filters.status === 'deleted') {
+        params.set('deleted', 'true');
+      } else if (filters.status) {
+        params.set('status', filters.status);
+      }
       if (filters.assigned_to) params.set('assigned_to', filters.assigned_to);
       if (filters.search) params.set('search', filters.search);
       if (filters.is_group) params.set('is_group', filters.is_group);
@@ -358,7 +423,7 @@
 
 <PageHeader title="Conversas" subtitle="Gerencie suas conversas em tempo real" />
 
-<div class="flex h-[calc(100vh-10rem)] flex-col">
+<div class="flex h-[calc(100vh-8rem)] flex-col md:h-[calc(100vh-10rem)]">
   <!-- Tabs: Conversas | Grupos -->
   <div class="flex items-center border-b px-4">
     <button
@@ -387,8 +452,8 @@
   </div>
 
   <!-- Filters bar -->
-  <div class="flex flex-wrap items-center gap-3 border-b px-4 py-2.5">
-    <div class="relative flex-1 max-w-xs">
+  <div class="flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-4 md:py-2.5">
+    <div class="relative min-w-0 flex-1 max-w-xs">
       <Search class="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
       <Input
         placeholder="Buscar contato..."
@@ -401,13 +466,14 @@
     <Select.Root type="single" value={filters.status || 'open'} onValueChange={(v) => updateFilter('status', v)}>
       <Select.Trigger class="w-36 h-8">
         <Filter class="size-3.5 mr-1.5 text-muted-foreground" />
-        {filters.status === 'open' ? 'Abertas' : filters.status === 'pending' ? 'Pendentes' : filters.status === 'resolved' ? 'Concluídas' : 'Todas'}
+        {filters.status === 'open' ? 'Abertas' : filters.status === 'pending' ? 'Pendentes' : filters.status === 'resolved' ? 'Concluídas' : filters.status === 'deleted' ? 'Deletados' : 'Todas'}
       </Select.Trigger>
       <Select.Content>
         <Select.Item value="open">Abertas</Select.Item>
         <Select.Item value="pending">Pendentes</Select.Item>
         <Select.Item value="resolved">Concluídas</Select.Item>
         <Select.Item value="">Todas</Select.Item>
+        <Select.Item value="deleted">Deletados</Select.Item>
       </Select.Content>
     </Select.Root>
 
@@ -443,7 +509,7 @@
   <!-- Main content: list + timeline -->
   <div class="flex flex-1 overflow-hidden">
     <!-- Left panel: conversation list -->
-    <div class="w-80 shrink-0 overflow-y-auto border-r lg:w-96">
+    <div class="w-full shrink-0 overflow-y-auto border-r md:w-80 lg:w-96 {selectedConversation ? 'hidden md:block' : ''}"
       <ConversationList
         {conversations}
         selected={selectedConversation?.id}
@@ -456,15 +522,51 @@
     </div>
 
     <!-- Right panel: timeline + input + context -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden {selectedConversation ? '' : 'hidden md:flex'}">
       <div class="flex flex-1 flex-col">
         {#if selectedConversation}
+          <!-- Mobile back button -->
+          <div class="flex items-center gap-2 border-b px-3 py-2 md:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-8"
+              onclick={() => { selectedConversation = null; messages = []; activeConversationId = null; }}
+            >
+              <ArrowLeft class="size-4" />
+            </Button>
+            <span class="truncate text-sm font-medium">
+              {selectedConversation.contact?.first_name || selectedConversation.contact?.name || 'Conversa'}
+            </span>
+          </div>
           <ConversationTimeline
             conversation={selectedConversation}
             {messages}
             loading={loadingMessages}
             onContactChanged={handleConversationContactChanged}
-            onConversationChanged={(updated) => { selectedConversation = updated; }}
+            onConversationChanged={(updated) => {
+              // If conversation was soft-deleted or restored, remove from current view
+              if (updated.is_deleted && !isDeletedView) {
+                conversations = conversations.filter(c => c.id !== updated.id);
+                selectedConversation = null;
+                messages = [];
+                activeConversationId = null;
+              } else if (!updated.is_deleted && isDeletedView) {
+                conversations = conversations.filter(c => c.id !== updated.id);
+                selectedConversation = null;
+                messages = [];
+                activeConversationId = null;
+              } else if (updated._permanentlyDeleted) {
+                conversations = conversations.filter(c => c.id !== updated.id);
+                selectedConversation = null;
+                messages = [];
+                activeConversationId = null;
+              } else {
+                selectedConversation = updated;
+              }
+            }}
+            {isAdmin}
+            {isDeletedView}
           >
             {#snippet headerActions()}
               <Button
@@ -505,6 +607,16 @@
           <div class="mb-2 px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Contexto do Contato
           </div>
+          {#if contextDuplicatesCount > 0}
+            <button
+              type="button"
+              class="mb-2 flex w-full items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
+              onclick={openMergeFromContext}
+            >
+              <GitMerge class="size-3.5 shrink-0" />
+              <span class="flex-1 text-left">{contextDuplicatesCount} duplicata(s)</span>
+            </button>
+          {/if}
           <RelatedEntitiesPanel
             contactId={selectedConversation.contact}
             entityType="contact"
@@ -515,3 +627,13 @@
     </div>
   </div>
 </div>
+
+<!-- Merge Contact Modal (from context panel) -->
+{#if mergeTargetContact}
+  <MergeContactModal
+    bind:open={mergeModalOpen}
+    primaryContact={mergeTargetContact}
+    suggestedDuplicates={contextDuplicates}
+    onMerged={handleMergedFromContext}
+  />
+{/if}

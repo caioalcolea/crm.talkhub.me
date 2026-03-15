@@ -5,6 +5,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serial
 
 from django.db import connection
 from rest_framework import serializers, status
+from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -252,7 +253,7 @@ class OrgUpdateView(APIView):
 
 class ProfileView(APIView):
     permission_classes = (IsAuthenticated, HasOrgContext)
-    parser_classes = None  # Use default parsers (JSON + MultiPart)
+    parser_classes = (JSONParser, MultiPartParser)
 
     @extend_schema(
         tags=["profile"],
