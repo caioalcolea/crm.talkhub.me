@@ -66,53 +66,51 @@ def merge_contacts(org, primary_id, secondary_id, user_email="system"):
         # --- 1b. Preserve conflicting email/phone/address as extra entries ---
         from contacts.models import ContactAddress, ContactEmail, ContactPhone
 
-        # If both have emails and they're different, save secondary's as extra
-        if (
-            primary.email
-            and secondary.email
-            and primary.email.lower() != secondary.email.lower()
-        ):
-            ContactEmail.objects.get_or_create(
-                contact=primary,
-                email=secondary.email,
-                defaults={"label": "other"},
-            )
+        # Collect all unique emails/phones from secondary that primary doesn't have
+        primary_emails = {e.lower() for e in [primary.email or "", primary.secondary_email or ""] if e}
+        primary_phones = {p for p in [primary.phone or "", primary.secondary_phone or ""] if p}
 
-        # If both have phones and they're different, save secondary's as extra
-        if (
-            primary.phone
-            and secondary.phone
-            and primary.phone != secondary.phone
-        ):
-            ContactPhone.objects.get_or_create(
-                contact=primary,
-                phone=secondary.phone,
-                defaults={"label": "other"},
-            )
+        # Add primary's extra emails/phones to known sets
+        for ce in primary.extra_emails.all():
+            if ce.email:
+                primary_emails.add(ce.email.lower())
+        for cp in primary.extra_phones.all():
+            if cp.phone:
+                primary_phones.add(cp.phone)
 
-        # If both have secondary emails and they're different, save as extra
-        if (
-            primary.secondary_email
-            and secondary.secondary_email
-            and primary.secondary_email.lower() != secondary.secondary_email.lower()
-        ):
-            ContactEmail.objects.get_or_create(
-                contact=primary,
-                email=secondary.secondary_email,
-                defaults={"label": "other"},
-            )
+        # Gather secondary's emails that primary doesn't already have
+        secondary_new_emails = []
+        for e in [secondary.email, secondary.secondary_email]:
+            if e and e.lower() not in primary_emails:
+                secondary_new_emails.append(e)
+                primary_emails.add(e.lower())
 
-        # If both have secondary phones and they're different, save as extra
-        if (
-            primary.secondary_phone
-            and secondary.secondary_phone
-            and primary.secondary_phone != secondary.secondary_phone
-        ):
-            ContactPhone.objects.get_or_create(
-                contact=primary,
-                phone=secondary.secondary_phone,
-                defaults={"label": "other"},
-            )
+        # Gather secondary's phones that primary doesn't already have
+        secondary_new_phones = []
+        for p in [secondary.phone, secondary.secondary_phone]:
+            if p and p not in primary_phones:
+                secondary_new_phones.append(p)
+                primary_phones.add(p)
+
+        # Place secondary emails: fill secondary_email first, then extras
+        for email in secondary_new_emails:
+            if not primary.secondary_email:
+                primary.secondary_email = email
+            else:
+                ContactEmail.objects.get_or_create(
+                    contact=primary, email=email,
+                    defaults={"label": "other"},
+                )
+
+        # Place secondary phones: fill secondary_phone first, then extras
+        for phone in secondary_new_phones:
+            if not primary.secondary_phone:
+                primary.secondary_phone = phone
+            else:
+                ContactPhone.objects.get_or_create(
+                    contact=primary, phone=phone,
+                    defaults={"label": "other"},
+                )
 
         # If both have addresses and they're different, save secondary's as extra
         if (
