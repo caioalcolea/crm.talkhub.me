@@ -6,12 +6,30 @@ from common.serializers import (
     ProfileSerializer,
     TeamsSerializer,
 )
-from contacts.models import Contact
+from contacts.models import Contact, ContactAddress, ContactEmail, ContactPhone
 
 
 # Note: Removed unused serializer properties that were computed but never used by frontend:
 # - get_team_users, get_team_and_assigned_users, get_assigned_users_not_in_teams
 # - created_on_arrow (frontend computes its own humanized timestamps)
+
+
+class ContactEmailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactEmail
+        fields = ("id", "email", "label")
+
+
+class ContactPhoneSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactPhone
+        fields = ("id", "phone", "label")
+
+
+class ContactAddressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactAddress
+        fields = ("id", "label", "address_line", "city", "state", "postcode", "country")
 
 
 class ContactSerializer(serializers.ModelSerializer):
@@ -21,6 +39,9 @@ class ContactSerializer(serializers.ModelSerializer):
     assigned_to = ProfileSerializer(read_only=True, many=True)
     contact_attachment = AttachmentsSerializer(read_only=True, many=True)
     org = OrganizationSerializer()
+    extra_emails = ContactEmailSerializer(many=True, read_only=True)
+    extra_phones = ContactPhoneSerializer(many=True, read_only=True)
+    extra_addresses = ContactAddressSerializer(many=True, read_only=True)
 
     class Meta:
         model = Contact
@@ -63,6 +84,10 @@ class ContactSerializer(serializers.ModelSerializer):
             "org",
             "account",
             "contact_attachment",
+            # Extra contact info
+            "extra_emails",
+            "extra_phones",
+            "extra_addresses",
         )
 
 

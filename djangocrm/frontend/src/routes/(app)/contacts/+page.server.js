@@ -101,6 +101,26 @@ export async function load({ url, locals, cookies }) {
       country: contact.country,
       // Notes
       description: contact.description,
+      // Extra contact info (multiple emails, phones, addresses)
+      extraEmails: (contact.extra_emails || []).map((e) => ({
+        id: e.id,
+        email: e.email,
+        label: e.label
+      })),
+      extraPhones: (contact.extra_phones || []).map((p) => ({
+        id: p.id,
+        phone: p.phone,
+        label: p.label
+      })),
+      extraAddresses: (contact.extra_addresses || []).map((a) => ({
+        id: a.id,
+        label: a.label,
+        addressLine: a.address_line,
+        city: a.city,
+        state: a.state,
+        postcode: a.postcode,
+        country: a.country
+      })),
       // Timestamps
       createdAt: contact.created_at,
       updatedAt: contact.updated_at,

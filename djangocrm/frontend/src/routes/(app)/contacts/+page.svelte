@@ -34,6 +34,7 @@
   import { CommentSection } from '$lib/components/ui/comment-section';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import MergeContactModal from '$lib/components/contacts/MergeContactModal.svelte';
+  import ExtraContactInfo from '$lib/components/contacts/ExtraContactInfo.svelte';
   import { getCurrentUser, apiRequest as clientApiRequest } from '$lib/api.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -1056,6 +1057,18 @@
           <GitMerge class="mr-1 h-4 w-4" />
           Mesclar
         </Button>
+      </div>
+    {/if}
+
+    <!-- Extra Contact Info (multiple emails, phones, addresses) -->
+    {#if drawerMode !== 'create' && selectedContact}
+      <div class="mb-4 border-t border-[var(--border-default)] pt-4">
+        <ExtraContactInfo
+          contactId={selectedContact.id}
+          bind:extraEmails={selectedContact.extraEmails}
+          bind:extraPhones={selectedContact.extraPhones}
+          bind:extraAddresses={selectedContact.extraAddresses}
+        />
       </div>
     {/if}
 

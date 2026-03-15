@@ -23,9 +23,13 @@ from common.serializers import AttachmentsSerializer, CommentSerializer
 from common.utils import COUNTRIES
 from contacts import swagger_params
 from contacts.models import Contact
+from contacts.models import ContactAddress, ContactEmail, ContactPhone
 from contacts.serializers import (
+    ContactAddressSerializer,
     ContactCommentEditSwaggerSerializer,
     ContactDetailEditSwaggerSerializer,
+    ContactEmailSerializer,
+    ContactPhoneSerializer,
     ContactSerializer,
     CreateContactSerializer,
     DuplicateContactSerializer,
@@ -1182,4 +1186,82 @@ class ContactDuplicatesView(APIView):
             })
 
         return Response({"duplicates": duplicates, "count": len(duplicates)})
+
+
+class ContactExtraEmailView(APIView):
+    """CRUD for extra email addresses on a contact."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def _get_contact(self, pk, request):
+        return get_object_or_404(Contact, pk=pk, org=request.profile.org)
+
+    def get(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        return Response(ContactEmailSerializer(contact.extra_emails.all(), many=True).data)
+
+    def post(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        serializer = ContactEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(contact=contact)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, contact_id, pk=None):
+        contact = self._get_contact(contact_id, request)
+        email_obj = get_object_or_404(ContactEmail, pk=pk, contact=contact)
+        email_obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ContactExtraPhoneView(APIView):
+    """CRUD for extra phone numbers on a contact."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def _get_contact(self, pk, request):
+        return get_object_or_404(Contact, pk=pk, org=request.profile.org)
+
+    def get(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        return Response(ContactPhoneSerializer(contact.extra_phones.all(), many=True).data)
+
+    def post(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        serializer = ContactPhoneSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(contact=contact)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, contact_id, pk=None):
+        contact = self._get_contact(contact_id, request)
+        phone_obj = get_object_or_404(ContactPhone, pk=pk, contact=contact)
+        phone_obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ContactExtraAddressView(APIView):
+    """CRUD for extra addresses on a contact."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def _get_contact(self, pk, request):
+        return get_object_or_404(Contact, pk=pk, org=request.profile.org)
+
+    def get(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        return Response(ContactAddressSerializer(contact.extra_addresses.all(), many=True).data)
+
+    def post(self, request, contact_id):
+        contact = self._get_contact(contact_id, request)
+        serializer = ContactAddressSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(contact=contact)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, contact_id, pk=None):
+        contact = self._get_contact(contact_id, request)
+        addr_obj = get_object_or_404(ContactAddress, pk=pk, contact=contact)
+        addr_obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 

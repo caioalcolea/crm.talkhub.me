@@ -5,7 +5,7 @@
   import ContactAutocomplete from './ContactAutocomplete.svelte';
   import { apiRequest } from '$lib/api.js';
   import { toast } from 'svelte-sonner';
-  import { Loader2, AlertTriangle, ArrowRight, User, MessageSquare, GitMerge } from '@lucide/svelte';
+  import { Loader2, AlertTriangle, ArrowRight, User, MessageSquare, GitMerge, Mail, Phone, MapPin } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Props
@@ -337,6 +337,30 @@
             {#each preview.channels_unified as ch}
               <Badge variant="outline" class="text-[10px]">{ch}</Badge>
             {/each}
+          </div>
+        {/if}
+
+        <!-- Data preservation info -->
+        {@const priEmail = primaryContact?.email}
+        {@const secEmail = secondaryContact?.email}
+        {@const priPhone = primaryContact?.phone}
+        {@const secPhone = secondaryContact?.phone}
+        {@const hasConflictingEmail = priEmail && secEmail && priEmail.toLowerCase() !== secEmail.toLowerCase()}
+        {@const hasConflictingPhone = priPhone && secPhone && priPhone !== secPhone}
+        {#if hasConflictingEmail || hasConflictingPhone}
+          <div class="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/30">
+            <Mail class="mt-0.5 size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+            <div class="text-xs text-blue-700 dark:text-blue-300">
+              <p class="font-medium">Dados preservados como adicionais:</p>
+              <ul class="mt-1 list-inside list-disc space-y-0.5">
+                {#if hasConflictingEmail}
+                  <li>E-mail <strong>{secEmail}</strong> será adicionado como e-mail adicional</li>
+                {/if}
+                {#if hasConflictingPhone}
+                  <li>Telefone <strong>{secPhone}</strong> será adicionado como telefone adicional</li>
+                {/if}
+              </ul>
+            </div>
           </div>
         {/if}
 

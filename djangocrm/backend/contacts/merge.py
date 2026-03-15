@@ -62,6 +62,56 @@ def merge_contacts(org, primary_id, secondary_id, user_email="system"):
             if not primary_val and secondary_val:
                 setattr(primary, field, secondary_val)
 
+        # --- 1b. Preserve conflicting email/phone/address as extra entries ---
+        from contacts.models import ContactAddress, ContactEmail, ContactPhone
+
+        # If both have emails and they're different, save secondary's as extra
+        if (
+            primary.email
+            and secondary.email
+            and primary.email.lower() != secondary.email.lower()
+        ):
+            ContactEmail.objects.get_or_create(
+                contact=primary,
+                email=secondary.email,
+                defaults={"label": "other"},
+            )
+
+        # If both have phones and they're different, save secondary's as extra
+        if (
+            primary.phone
+            and secondary.phone
+            and primary.phone != secondary.phone
+        ):
+            ContactPhone.objects.get_or_create(
+                contact=primary,
+                phone=secondary.phone,
+                defaults={"label": "other"},
+            )
+
+        # If both have addresses and they're different, save secondary's as extra
+        if (
+            primary.address_line
+            and secondary.address_line
+            and primary.address_line != secondary.address_line
+        ):
+            ContactAddress.objects.get_or_create(
+                contact=primary,
+                address_line=secondary.address_line,
+                defaults={
+                    "label": "other",
+                    "city": secondary.city or "",
+                    "state": secondary.state or "",
+                    "postcode": secondary.postcode or "",
+                    "country": secondary.country or "",
+                },
+            )
+
+        # Move secondary's extra_emails/phones/addresses to primary
+        secondary.extra_emails.update(contact=primary)
+        secondary.extra_phones.update(contact=primary)
+        secondary.extra_addresses.update(contact=primary)
+
         # --- 2. Boolean OR ---
         for field in _BOOL_OR_FIELDS:
             if getattr(secondary, field, False):
