@@ -12,6 +12,7 @@ from assistant.models import (
 
 class ReminderPolicySerializer(serializers.ModelSerializer):
     target_type = serializers.SerializerMethodField()
+    target_display = serializers.SerializerMethodField()
 
     class Meta:
         model = ReminderPolicy
@@ -22,6 +23,7 @@ class ReminderPolicySerializer(serializers.ModelSerializer):
             "target_content_type",
             "target_object_id",
             "target_type",
+            "target_display",
             "module_key",
             "owner_user",
             "is_active",
@@ -54,6 +56,13 @@ class ReminderPolicySerializer(serializers.ModelSerializer):
         if obj.target_content_type:
             return f"{obj.target_content_type.app_label}.{obj.target_content_type.model}"
         return None
+
+    def get_target_display(self, obj):
+        try:
+            target = obj.target
+            return str(target)[:100] if target else ""
+        except Exception:
+            return ""
 
 
 class ReminderPolicyWriteSerializer(serializers.ModelSerializer):

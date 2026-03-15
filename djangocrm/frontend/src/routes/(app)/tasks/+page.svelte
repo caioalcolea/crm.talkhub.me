@@ -37,6 +37,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import {
@@ -1592,6 +1593,16 @@
             <span>Criado em {formatRelativeDate(selectedTask.createdAt)}</span>
           </div>
         {/if}
+      </div>
+
+      <!-- Reminders Section -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <ReminderSection
+          targetType="tasks.task"
+          targetId={selectedTask.id}
+          moduleKey="tasks"
+          dateFieldLabel="prazo"
+        />
       </div>
 
       <!-- Comments Section -->

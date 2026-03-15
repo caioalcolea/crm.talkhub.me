@@ -203,6 +203,9 @@
                   <Badge variant="secondary" class="text-[10px]">{moduleLabels[reminder.module_key] || reminder.module_key}</Badge>
                   <Badge variant="outline" class="text-[10px]">{triggerLabels[reminder.trigger_type] || reminder.trigger_type}</Badge>
                 </div>
+                {#if reminder.target_display}
+                  <p class="text-muted-foreground mt-1 truncate text-xs" title={reminder.target_display}>{reminder.target_display}</p>
+                {/if}
               </div>
               <Badge variant={reminder.is_active ? 'default' : 'outline'} class="text-[10px]">
                 {reminder.is_active ? 'Ativo' : 'Inativo'}

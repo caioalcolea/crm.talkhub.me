@@ -1,10 +1,44 @@
 <script>
   import { Button } from '$lib/components/ui/button/index.js';
-  import { financeiro, assistant } from '$lib/api.js';
+  import { assistant } from '$lib/api.js';
   import { formatDate } from '$lib/utils/formatting.js';
   import { Bell, BellOff, Plus, Clock, Mail, MessageSquare, Zap, Trash2, ChevronDown, ChevronRight, RotateCcw } from '@lucide/svelte';
 
-  let { lancamentoId, reminders = [], tipo = 'RECEBER' } = $props();
+  let {
+    targetType = 'financeiro.lancamento',
+    targetId,
+    moduleKey = 'financeiro',
+    reminders = [],
+    tipo = 'RECEBER',
+    dateFieldLabel = 'vencimento',
+    // Legacy support: lancamentoId maps to targetId
+    lancamentoId,
+  } = $props();
+
+  // Backward compat: if lancamentoId provided, use it as targetId
+  const resolvedTargetId = $derived(targetId || lancamentoId);
+  const resolvedModuleKey = $derived(moduleKey);
+
+  const DATE_FIELD_MAP = {
+    financeiro: 'data_vencimento',
+    leads: 'next_follow_up',
+    opportunity: 'closed_on',
+    cases: 'created_at',
+    tasks: 'due_date',
+    invoices: 'due_date',
+  };
+
+  const DATE_LABEL_MAP = {
+    financeiro: 'vencimento',
+    leads: 'follow-up',
+    opportunity: 'fechamento',
+    cases: 'criação (SLA)',
+    tasks: 'prazo',
+    invoices: 'vencimento',
+  };
+
+  const resolvedDateField = $derived(DATE_FIELD_MAP[resolvedModuleKey] || 'due_date');
+  const resolvedDateLabel = $derived(dateFieldLabel || DATE_LABEL_MAP[resolvedModuleKey] || 'data');
 
   let policies = $state(reminders);
   let showConfig = $state(false);
@@ -13,15 +47,36 @@
   let saving = $state(false);
   let expanded = $state(policies.length > 0);
 
-  // Config form state
+  // Config form state — date_field is set dynamically based on module
   let configForm = $state({
     name: '',
     trigger_type: 'due_date',
-    trigger_config: { date_field: 'data_vencimento', offsets: [-7, -3, 0, 1, 3] },
+    trigger_config: { date_field: '', offsets: [-7, -3, 0, 1, 3] },
     channel_config: { channel_type: 'internal', destination_type: 'owner_email' },
     task_config: { enabled: true, mode: 'per_run', title_template: '', priority: 'High' },
     message_template: '',
     approval_policy: 'auto',
+  });
+
+  // Keep date_field in sync with module
+  $effect(() => {
+    if (configForm.trigger_config.date_field !== resolvedDateField) {
+      configForm.trigger_config = { ...configForm.trigger_config, date_field: resolvedDateField };
+    }
+  });
+
+  // Auto-load reminders when no initial data is provided (drawer pages)
+  let autoLoaded = $state(false);
+  $effect(() => {
+    if (resolvedTargetId && reminders.length === 0 && !autoLoaded) {
+      autoLoaded = true;
+      assistant.getReminders(targetType, resolvedTargetId).then(result => {
+        if (Array.isArray(result) && result.length > 0) {
+          policies = result;
+          expanded = true;
+        }
+      }).catch(() => {});
+    }
   });
 
   const CHANNEL_OPTIONS = [
@@ -72,7 +127,7 @@
     if (presets) return;
     loadingPresets = true;
     try {
-      const result = await assistant.presets('financeiro');
+      const result = await assistant.presets(resolvedModuleKey);
       presets = result;
     } catch {
       presets = {};
@@ -93,7 +148,7 @@
         message_template: preset.message_template || '',
         approval_policy: preset.approval_policy || 'auto',
       };
-      await financeiro.createLancamentoReminder(lancamentoId, body);
+      await assistant.createReminder(targetType, resolvedTargetId, body);
       await refreshPolicies();
       showConfig = false;
     } catch (err) {
@@ -115,7 +170,7 @@
         message_template: configForm.message_template,
         approval_policy: configForm.approval_policy,
       };
-      await financeiro.createLancamentoReminder(lancamentoId, body);
+      await assistant.createReminder(targetType, resolvedTargetId, body);
       await refreshPolicies();
       showConfig = false;
     } catch (err) {
@@ -150,7 +205,7 @@
 
   async function refreshPolicies() {
     try {
-      policies = await financeiro.getLancamentoReminders(lancamentoId);
+      policies = await assistant.getReminders(targetType, resolvedTargetId);
       expanded = true;
     } catch {
       // silent
@@ -328,9 +383,9 @@
                 class="border-input bg-background h-8 w-full rounded-md border px-3 text-sm"
                 onchange={() => {
                   if (configForm.trigger_type === 'due_date') {
-                    configForm.trigger_config = { date_field: 'data_vencimento', offsets: [-3, 0, 3] };
+                    configForm.trigger_config = { date_field: resolvedDateField, offsets: [-3, 0, 3] };
                   } else {
-                    configForm.trigger_config = { interval_days: 3, max_runs: 10, start_after: 'data_vencimento' };
+                    configForm.trigger_config = { interval_days: 3, max_runs: 10, start_after: resolvedDateField };
                   }
                 }}
               >
@@ -342,7 +397,7 @@
 
             {#if configForm.trigger_type === 'due_date'}
               <div>
-                <span class="mb-2 block text-xs font-medium">Dias relativos ao vencimento</span>
+                <span class="mb-2 block text-xs font-medium">Dias relativos ao {resolvedDateLabel}</span>
                 <div class="flex flex-wrap gap-1.5">
                   {#each OFFSET_PRESETS as op}
                     <button

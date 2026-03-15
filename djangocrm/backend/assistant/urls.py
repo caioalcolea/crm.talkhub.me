@@ -2,6 +2,7 @@ from django.urls import path
 
 from assistant.views import (
     AutopilotTemplateListView,
+    EntityReminderListCreateView,
     PresetsView,
     ReminderPolicyActivateView,
     ReminderPolicyDeactivateView,
@@ -74,4 +75,10 @@ urlpatterns = [
     path("presets/", PresetsView.as_view(), name="presets"),
     # Templates
     path("templates/", AutopilotTemplateListView.as_view(), name="template_list"),
+    # Entity reminders (generic)
+    path(
+        "reminders-for/<str:target_type>/<uuid:target_id>/",
+        EntityReminderListCreateView.as_view(),
+        name="entity_reminder_list_create",
+    ),
 ]

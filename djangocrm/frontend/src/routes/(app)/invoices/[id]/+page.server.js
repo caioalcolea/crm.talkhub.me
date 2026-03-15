@@ -16,12 +16,13 @@ export async function load({ params, locals, cookies }) {
 
   try {
     // Fetch invoice, accounts, contacts, org settings, and templates in parallel
-    const [invoiceRes, accountsRes, contactsRes, orgSettingsRes, templatesRes] = await Promise.all([
+    const [invoiceRes, accountsRes, contactsRes, orgSettingsRes, templatesRes, remindersRes] = await Promise.all([
       apiRequest(`/invoices/${params.id}/`, {}, { cookies, org }),
       apiRequest('/accounts/', {}, { cookies, org }).catch(() => ({})),
       apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({})),
       apiRequest('/org/settings/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/invoices/templates/', {}, { cookies, org }).catch(() => ({}))
+      apiRequest('/invoices/templates/', {}, { cookies, org }).catch(() => ({})),
+      apiRequest(`/assistant/reminders-for/invoices.invoice/${params.id}/`, {}, { cookies, org }).catch(() => [])
     ]);
 
     // API returns { invoice: {...}, attachments: [...], comments: [...], history: [...] }
@@ -159,7 +160,8 @@ export async function load({ params, locals, cookies }) {
       accounts,
       contacts,
       company,
-      template
+      template,
+      reminders: Array.isArray(remindersRes) ? remindersRes : []
     };
   } catch (err) {
     console.error('Error loading invoice:', err);

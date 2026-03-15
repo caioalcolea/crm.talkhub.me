@@ -344,6 +344,76 @@ class PresetsView(APIView):
         return Response(presets)
 
 
+# ── Entity Reminders (generic) ──────────────────────────────────────
+
+
+MODULE_MAP = {
+    "leads": "leads",
+    "opportunity": "opportunity",
+    "cases": "cases",
+    "tasks": "tasks",
+    "invoices": "invoices",
+    "financeiro": "financeiro",
+    "orders": "orders",
+}
+
+
+class EntityReminderListCreateView(APIView):
+    """Generic list/create reminders for any entity via ContentType."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def _resolve(self, request, target_type, target_id):
+        try:
+            app_label, model = target_type.split(".")
+            ct = ContentType.objects.get(app_label=app_label, model=model)
+        except (ValueError, ContentType.DoesNotExist):
+            return None, None, None
+        model_class = ct.model_class()
+        if model_class is None:
+            return ct, None, None
+        target = model_class.objects.filter(
+            pk=target_id, org=request.profile.org
+        ).first()
+        return ct, target, MODULE_MAP.get(app_label, app_label)
+
+    def get(self, request, target_type, target_id):
+        ct, target, _ = self._resolve(request, target_type, target_id)
+        if not target:
+            return Response(
+                {"error": "Entidade não encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        policies = ReminderPolicy.objects.filter(
+            org=request.profile.org,
+            target_content_type=ct,
+            target_object_id=target_id,
+        ).order_by("-created_at")
+        return Response(ReminderPolicySerializer(policies, many=True).data)
+
+    def post(self, request, target_type, target_id):
+        ct, target, module_key = self._resolve(request, target_type, target_id)
+        if not target:
+            return Response(
+                {"error": "Entidade não encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        data = request.data.copy()
+        data["target_type"] = target_type
+        data["target_object_id"] = str(target_id)
+        data.setdefault("module_key", module_key)
+
+        serializer = ReminderPolicyWriteSerializer(
+            data=data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            ReminderPolicySerializer(serializer.instance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 # ── Autopilot Templates ─────────────────────────────────────────────
 
 

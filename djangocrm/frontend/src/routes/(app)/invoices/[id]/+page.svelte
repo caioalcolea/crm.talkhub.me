@@ -17,6 +17,7 @@
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { CURRENCY_CODES } from '$lib/constants/filters.js';
   import { orgSettings } from '$lib/stores/org.js';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import {
     ArrowLeft,
     Plus,
@@ -829,6 +830,19 @@
             <Textarea bind:value={invoice.terms} placeholder="Termos de pagamento..." rows={4} />
           </div>
         </div>
+      </div>
+    {/if}
+
+    <!-- Reminders Section -->
+    {#if invoice.status !== 'Cancelled' && invoice.status !== 'Paid'}
+      <div class="mt-6 print:hidden">
+        <ReminderSection
+          targetType="invoices.invoice"
+          targetId={invoice.id}
+          moduleKey="invoices"
+          reminders={data.reminders || []}
+          dateFieldLabel="vencimento"
+        />
       </div>
     {/if}
   </div>

@@ -545,6 +545,12 @@ export const assistant = {
     const qs = module ? `?module=${module}` : '';
     return apiRequest(`/assistant/presets/${qs}`);
   },
+  async getReminders(targetType, targetId) {
+    return apiRequest(`/assistant/reminders-for/${targetType}/${targetId}/`);
+  },
+  async createReminder(targetType, targetId, body) {
+    return apiRequest(`/assistant/reminders-for/${targetType}/${targetId}/`, { method: 'POST', body });
+  },
 };
 
 /**

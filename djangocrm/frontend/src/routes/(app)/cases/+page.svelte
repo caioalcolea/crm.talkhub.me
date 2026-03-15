@@ -31,6 +31,7 @@
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import {
@@ -1090,6 +1091,14 @@
           entityId={drawer.selected.id}
           entityType="case"
           sections={['tasks']}
+        />
+      </div>
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <ReminderSection
+          targetType="cases.case"
+          targetId={drawer.selected.id}
+          moduleKey="cases"
+          dateFieldLabel="SLA"
         />
       </div>
       <CommentSection

@@ -181,3 +181,69 @@ def build_context_for_task(task):
         "org_name": task.org.name,
         "current_date": str(date.today()),
     }
+
+
+def build_context_for_opportunity(opportunity):
+    """Build template variable context from an Opportunity instance."""
+    assigned = (
+        opportunity.assigned_to.first()
+        if hasattr(opportunity.assigned_to, "first")
+        else None
+    )
+    return {
+        "opportunity_name": str(opportunity),
+        "opportunity_stage": getattr(opportunity, "stage", "") or "",
+        "amount": str(opportunity.amount) if getattr(opportunity, "amount", None) else "",
+        "currency": getattr(opportunity, "currency", ""),
+        "assigned_to": str(assigned) if assigned else "",
+        "close_date": str(opportunity.closed_on) if getattr(opportunity, "closed_on", None) else "",
+        "org_name": opportunity.org.name,
+        "current_date": str(date.today()),
+    }
+
+
+def build_context_for_case(case):
+    """Build template variable context from a Case instance."""
+    from datetime import timedelta
+
+    assigned = case.assigned_to.first() if hasattr(case.assigned_to, "first") else None
+
+    # Calculate SLA deadline from created_at + sla_resolution_hours
+    sla_deadline = ""
+    if hasattr(case, "sla_resolution_hours") and case.created_at:
+        deadline = case.created_at + timedelta(hours=case.sla_resolution_hours)
+        sla_deadline = str(deadline)
+
+    return {
+        "case_name": case.name,
+        "case_status": getattr(case, "status", ""),
+        "case_priority": getattr(case, "priority", ""),
+        "assigned_to": str(assigned) if assigned else "",
+        "sla_deadline": sla_deadline,
+        "org_name": case.org.name,
+        "current_date": str(date.today()),
+    }
+
+
+def build_context_for_invoice(invoice):
+    """Build template variable context from an Invoice instance."""
+    contact = getattr(invoice, "contact", None)
+    account = getattr(invoice, "account", None)
+
+    contact_name = ""
+    if contact:
+        first = getattr(contact, "first_name", "") or ""
+        last = getattr(contact, "last_name", "") or ""
+        contact_name = f"{first} {last}".strip()
+
+    return {
+        "invoice_number": getattr(invoice, "invoice_number", ""),
+        "invoice_status": getattr(invoice, "status", ""),
+        "amount": str(invoice.total_amount) if hasattr(invoice, "total_amount") else "",
+        "currency": getattr(invoice, "currency", ""),
+        "due_date": str(invoice.due_date) if getattr(invoice, "due_date", None) else "",
+        "contact_name": contact_name,
+        "account_name": getattr(account, "name", "") if account else "",
+        "org_name": invoice.org.name,
+        "current_date": str(date.today()),
+    }

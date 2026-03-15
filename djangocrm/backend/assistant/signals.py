@@ -46,6 +46,61 @@ def parcela_changed_recalculate_reminders(sender, instance, **kwargs):
         logger.error("Error recalculating reminders for parcela %s: %s", instance.id, e)
 
 
+def _recalculate_for_target(instance):
+    """Recalculate reminder jobs when a target entity changes."""
+    from assistant.models import ReminderPolicy
+    from assistant.tasks import recalculate_policy_schedules
+
+    try:
+        ct = ContentType.objects.get_for_model(instance)
+        policy_ids = list(
+            ReminderPolicy.objects.filter(
+                target_content_type=ct,
+                target_object_id=instance.id,
+                is_active=True,
+            ).values_list("id", flat=True)
+        )
+
+        for policy_id in policy_ids:
+            recalculate_policy_schedules.delay(str(policy_id))
+
+        if policy_ids:
+            logger.info(
+                "Triggered recalculation for %d policies after %s %s change",
+                len(policy_ids), instance.__class__.__name__, instance.id,
+            )
+    except Exception as e:
+        logger.error(
+            "Error recalculating reminders for %s %s: %s",
+            instance.__class__.__name__, instance.id, e,
+        )
+
+
+@receiver(post_save, sender="leads.Lead")
+def lead_changed_recalculate_reminders(sender, instance, **kwargs):
+    _recalculate_for_target(instance)
+
+
+@receiver(post_save, sender="opportunity.Opportunity")
+def opportunity_changed_recalculate_reminders(sender, instance, **kwargs):
+    _recalculate_for_target(instance)
+
+
+@receiver(post_save, sender="cases.Case")
+def case_changed_recalculate_reminders(sender, instance, **kwargs):
+    _recalculate_for_target(instance)
+
+
+@receiver(post_save, sender="tasks.Task")
+def task_changed_recalculate_reminders(sender, instance, **kwargs):
+    _recalculate_for_target(instance)
+
+
+@receiver(post_save, sender="invoices.Invoice")
+def invoice_changed_recalculate_reminders(sender, instance, **kwargs):
+    _recalculate_for_target(instance)
+
+
 @receiver(post_save, sender="assistant.ReminderPolicy")
 def policy_saved_generate_jobs(sender, instance, created, **kwargs):
     """

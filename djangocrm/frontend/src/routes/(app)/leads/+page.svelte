@@ -55,6 +55,7 @@
   import CrmTable from '$lib/components/ui/crm-table/CrmTable.svelte';
   import CrmDrawer from '$lib/components/ui/crm-drawer/CrmDrawer.svelte';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser, apiRequest } from '$lib/api.js';
@@ -1864,6 +1865,14 @@
           entityId={drawerData.id}
           entityType="lead"
           sections={['opportunities', 'tasks']}
+        />
+      </div>
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <ReminderSection
+          targetType="leads.lead"
+          targetId={drawerData.id}
+          moduleKey="leads"
+          dateFieldLabel="follow-up"
         />
       </div>
       <CommentSection

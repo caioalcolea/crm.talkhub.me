@@ -488,6 +488,15 @@ def _build_context_for_job(job):
         elif model_name == "task":
             from assistant.template_engine import build_context_for_task
             context = build_context_for_task(target)
+        elif model_name == "opportunity":
+            from assistant.template_engine import build_context_for_opportunity
+            context = build_context_for_opportunity(target)
+        elif model_name == "case":
+            from assistant.template_engine import build_context_for_case
+            context = build_context_for_case(target)
+        elif model_name == "invoice":
+            from assistant.template_engine import build_context_for_invoice
+            context = build_context_for_invoice(target)
         else:
             # Generic context
             context = {
