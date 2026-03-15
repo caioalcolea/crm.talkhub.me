@@ -52,6 +52,8 @@ class ContactSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "phone",
+            "secondary_email",
+            "secondary_phone",
             # Professional Information
             "organization",
             "title",
@@ -126,6 +128,8 @@ class CreateContactSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "phone",
+            "secondary_email",
+            "secondary_phone",
             # Professional Information
             "organization",
             "title",
@@ -183,6 +187,7 @@ class DuplicateContactSerializer(serializers.ModelSerializer):
         model = Contact
         fields = (
             "id", "first_name", "last_name", "email", "phone",
+            "secondary_email", "secondary_phone",
             "organization", "source",
             "match_reasons", "conversations_count", "channels",
         )

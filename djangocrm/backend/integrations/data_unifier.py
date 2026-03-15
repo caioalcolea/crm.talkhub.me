@@ -223,7 +223,11 @@ class DataUnifier:
             contact = qs.filter(email__iexact=email).first()
             if contact:
                 return contact
-            # 2b. Check extra_emails table
+            # 2b. Check secondary_email field
+            contact = qs.filter(secondary_email__iexact=email).first()
+            if contact:
+                return contact
+            # 2c. Check extra_emails table
             extra = ContactEmail.objects.filter(
                 contact__org=self.org, email__iexact=email
             ).select_related("contact").first()
@@ -236,7 +240,11 @@ class DataUnifier:
             contact = qs.filter(phone=phone).first()
             if contact:
                 return contact
-            # 3b. Check extra_phones table
+            # 3b. Check secondary_phone field
+            contact = qs.filter(secondary_phone=phone).first()
+            if contact:
+                return contact
+            # 3c. Check extra_phones table
             extra = ContactPhone.objects.filter(
                 contact__org=self.org, phone=phone
             ).select_related("contact").first()

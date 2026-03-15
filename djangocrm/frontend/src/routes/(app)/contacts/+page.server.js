@@ -80,7 +80,9 @@ export async function load({ url, locals, cookies }) {
       firstName: contact.first_name,
       lastName: contact.last_name,
       email: contact.email,
+      secondaryEmail: contact.secondary_email,
       phone: contact.phone,
+      secondaryPhone: contact.secondary_phone,
       // Professional info
       organization: contact.organization,
       title: contact.title,
@@ -226,7 +228,9 @@ export const actions = {
       const firstName = form.get('firstName')?.toString().trim();
       const lastName = form.get('lastName')?.toString().trim();
       const email = form.get('email')?.toString().trim() || '';
+      const secondaryEmail = form.get('secondaryEmail')?.toString().trim() || '';
       const phone = form.get('phone')?.toString().trim() || '';
+      const secondaryPhone = form.get('secondaryPhone')?.toString().trim() || '';
       // Professional info
       const organization = form.get('organization')?.toString().trim() || '';
       const title = form.get('title')?.toString().trim() || '';
@@ -259,7 +263,9 @@ export const actions = {
         first_name: firstName,
         last_name: lastName,
         email: email || null,
+        secondary_email: secondaryEmail || null,
         phone: phone || null,
+        secondary_phone: secondaryPhone || null,
         organization: organization || null,
         title: title || null,
         department: department || null,
@@ -304,7 +310,9 @@ export const actions = {
       const firstName = form.get('firstName')?.toString().trim();
       const lastName = form.get('lastName')?.toString().trim();
       const email = form.get('email')?.toString().trim() || '';
+      const secondaryEmail = form.get('secondaryEmail')?.toString().trim() || '';
       const phone = form.get('phone')?.toString().trim() || '';
+      const secondaryPhone = form.get('secondaryPhone')?.toString().trim() || '';
       // Professional info
       const organization = form.get('organization')?.toString().trim() || '';
       const title = form.get('title')?.toString().trim() || '';
@@ -337,7 +345,9 @@ export const actions = {
         first_name: firstName,
         last_name: lastName,
         email: email || null,
+        secondary_email: secondaryEmail || null,
         phone: phone || null,
+        secondary_phone: secondaryPhone || null,
         organization: organization || null,
         title: title || null,
         department: department || null,

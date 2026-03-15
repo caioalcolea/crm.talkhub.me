@@ -546,7 +546,11 @@ class ChatwootConnector(BaseConnector):
         if not contact and email:
             contact = Contact.objects.filter(org=org, email=email).first()
 
-        # 2b) Try by extra_emails table
+        # 2b) Try by secondary_email
+        if not contact and email:
+            contact = Contact.objects.filter(org=org, secondary_email__iexact=email).first()
+
+        # 2c) Try by extra_emails table
         if not contact and email:
             extra = ContactEmail.objects.filter(
                 contact__org=org, email__iexact=email
@@ -558,7 +562,11 @@ class ChatwootConnector(BaseConnector):
         if not contact and phone:
             contact = Contact.objects.filter(org=org, phone=phone).first()
 
-        # 3b) Try by extra_phones table
+        # 3b) Try by secondary_phone
+        if not contact and phone:
+            contact = Contact.objects.filter(org=org, secondary_phone=phone).first()
+
+        # 3c) Try by extra_phones table
         if not contact and phone:
             extra = ContactPhone.objects.filter(
                 contact__org=org, phone=phone

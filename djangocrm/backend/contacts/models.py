@@ -26,6 +26,14 @@ class Contact(AssignableMixin, OrgScopedMixin, BaseModel):
         blank=True,
         validators=[flexible_phone_validator],
     )
+    secondary_email = models.EmailField(_("Secondary Email"), blank=True, null=True)
+    secondary_phone = models.CharField(
+        _("Secondary Phone"),
+        max_length=25,
+        null=True,
+        blank=True,
+        validators=[flexible_phone_validator],
+    )
 
     # Professional Information
     organization = models.CharField(_("Company"), max_length=255, blank=True, null=True)

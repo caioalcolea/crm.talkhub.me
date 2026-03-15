@@ -229,7 +229,9 @@
     { key: 'firstName', label: 'Nome', type: 'text', icon: User, placeholder: 'Nome' },
     { key: 'lastName', label: 'Sobrenome', type: 'text', placeholder: 'Sobrenome' },
     { key: 'email', label: 'E-mail', type: 'email', icon: Mail, placeholder: 'email@exemplo.com' },
+    { key: 'secondaryEmail', label: 'E-mail Secundário', type: 'email', icon: Mail, placeholder: 'email2@exemplo.com' },
     { key: 'phone', label: 'Telefone', type: 'text', icon: Phone, placeholder: '+55 (11) 0000-0000' },
+    { key: 'secondaryPhone', label: 'Telefone Secundário', type: 'text', icon: Phone, placeholder: '+55 (11) 0000-0000' },
     {
       key: 'account',
       label: 'Empresa',
@@ -426,7 +428,9 @@
     firstName: '',
     lastName: '',
     email: '',
+    secondaryEmail: '',
     phone: '',
+    secondaryPhone: '',
     account: null,
     organization: '',
     title: '',
@@ -650,7 +654,9 @@
     firstName: '',
     lastName: '',
     email: '',
+    secondaryEmail: '',
     phone: '',
+    secondaryPhone: '',
     account: null,
     organization: '',
     title: '',
@@ -696,7 +702,9 @@
       firstName: contact.firstName || '',
       lastName: contact.lastName || '',
       email: contact.email || '',
+      secondaryEmail: contact.secondaryEmail || '',
       phone: contact.phone || '',
+      secondaryPhone: contact.secondaryPhone || '',
       account: contact.account || null,
       organization: contact.organization || '',
       title: contact.title || '',
@@ -775,7 +783,9 @@
     formState.firstName = drawerFormData.firstName || '';
     formState.lastName = drawerFormData.lastName || '';
     formState.email = drawerFormData.email || '';
+    formState.secondaryEmail = drawerFormData.secondaryEmail || '';
     formState.phone = drawerFormData.phone || '';
+    formState.secondaryPhone = drawerFormData.secondaryPhone || '';
     formState.account = drawerFormData.account || null;
     formState.accountId = drawerFormData.account || (accountFromUrl ? accountId : '');
     formState.organization = drawerFormData.organization || '';
@@ -810,7 +820,9 @@
     formState.firstName = drawerFormData.firstName || '';
     formState.lastName = drawerFormData.lastName || '';
     formState.email = drawerFormData.email || '';
+    formState.secondaryEmail = drawerFormData.secondaryEmail || '';
     formState.phone = drawerFormData.phone || '';
+    formState.secondaryPhone = drawerFormData.secondaryPhone || '';
     formState.account = drawerFormData.account || null;
     formState.accountId = drawerFormData.account || (accountFromUrl ? accountId : '');
     formState.organization = drawerFormData.organization || '';
@@ -1171,7 +1183,9 @@
   <input type="hidden" name="firstName" value={formState.firstName} />
   <input type="hidden" name="lastName" value={formState.lastName} />
   <input type="hidden" name="email" value={formState.email} />
+  <input type="hidden" name="secondaryEmail" value={formState.secondaryEmail} />
   <input type="hidden" name="phone" value={formState.phone} />
+  <input type="hidden" name="secondaryPhone" value={formState.secondaryPhone} />
   <input type="hidden" name="organization" value={formState.organization} />
   <input type="hidden" name="title" value={formState.title} />
   <input type="hidden" name="department" value={formState.department} />
@@ -1202,7 +1216,9 @@
   <input type="hidden" name="firstName" value={formState.firstName} />
   <input type="hidden" name="lastName" value={formState.lastName} />
   <input type="hidden" name="email" value={formState.email} />
+  <input type="hidden" name="secondaryEmail" value={formState.secondaryEmail} />
   <input type="hidden" name="phone" value={formState.phone} />
+  <input type="hidden" name="secondaryPhone" value={formState.secondaryPhone} />
   <input type="hidden" name="organization" value={formState.organization} />
   <input type="hidden" name="title" value={formState.title} />
   <input type="hidden" name="department" value={formState.department} />

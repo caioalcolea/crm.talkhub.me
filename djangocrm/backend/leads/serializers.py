@@ -101,14 +101,20 @@ class LeadSerializer(serializers.ModelSerializer):
 
     def get_primary_contact_email(self, obj):
         contact = self._get_primary_contact(obj)
-        if contact and contact.email:
-            return contact.email
+        if contact:
+            if contact.email:
+                return contact.email
+            if contact.secondary_email:
+                return contact.secondary_email
         return obj.email or None
 
     def get_primary_contact_phone(self, obj):
         contact = self._get_primary_contact(obj)
-        if contact and contact.phone:
-            return contact.phone
+        if contact:
+            if contact.phone:
+                return contact.phone
+            if contact.secondary_phone:
+                return contact.secondary_phone
         return obj.phone or None
 
     def to_representation(self, instance):

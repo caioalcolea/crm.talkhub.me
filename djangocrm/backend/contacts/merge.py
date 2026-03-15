@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Scalar fields that can be inherited from secondary when primary is empty
 _SCALAR_FIELDS = [
-    "email", "phone", "organization", "title", "department",
+    "email", "phone", "secondary_email", "secondary_phone",
+    "organization", "title", "department",
     "linkedin_url", "instagram", "facebook", "tiktok", "telegram",
     "address_line", "city", "state", "postcode", "country",
     "source", "talkhub_channel_type", "talkhub_channel_id",
@@ -86,6 +87,30 @@ def merge_contacts(org, primary_id, secondary_id, user_email="system"):
             ContactPhone.objects.get_or_create(
                 contact=primary,
                 phone=secondary.phone,
+                defaults={"label": "other"},
+            )
+
+        # If both have secondary emails and they're different, save as extra
+        if (
+            primary.secondary_email
+            and secondary.secondary_email
+            and primary.secondary_email.lower() != secondary.secondary_email.lower()
+        ):
+            ContactEmail.objects.get_or_create(
+                contact=primary,
+                email=secondary.secondary_email,
+                defaults={"label": "other"},
+            )
+
+        # If both have secondary phones and they're different, save as extra
+        if (
+            primary.secondary_phone
+            and secondary.secondary_phone
+            and primary.secondary_phone != secondary.secondary_phone
+        ):
+            ContactPhone.objects.get_or_create(
+                contact=primary,
+                phone=secondary.secondary_phone,
                 defaults={"label": "other"},
             )
 

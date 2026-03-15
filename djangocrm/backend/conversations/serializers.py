@@ -15,19 +15,23 @@ def _get_contact_address(obj):
     meta = obj.metadata_json or {}
     channel = obj.channel or ""
 
+    c = obj.contact
+
     # Email channels
     if channel in ("smtp_native", "email"):
         return (
             meta.get("email_to")
             or meta.get("email_from")
-            or (obj.contact.email if obj.contact else "")
+            or (c.email if c else "")
+            or (c.secondary_email if c else "")
         )
 
     # WhatsApp / SMS
     if channel in ("whatsapp", "sms"):
         return (
             meta.get("phone_number")
-            or (obj.contact.phone if obj.contact else "")
+            or (c.phone if c else "")
+            or (c.secondary_phone if c else "")
         )
 
     # Chatwoot (varies by sub-channel)
@@ -37,12 +41,14 @@ def _get_contact_address(obj):
             return (
                 meta.get("email_to")
                 or meta.get("email_from")
-                or (obj.contact.email if obj.contact else "")
+                or (c.email if c else "")
+                or (c.secondary_email if c else "")
             )
         if any(x in cw_channel for x in ("Whatsapp", "Sms")):
             return (
                 meta.get("phone_number")
-                or (obj.contact.phone if obj.contact else "")
+                or (c.phone if c else "")
+                or (c.secondary_phone if c else "")
             )
         # Instagram, Facebook, Telegram, etc.
         return meta.get("contact_identifier") or meta.get("source_id") or ""
@@ -51,12 +57,13 @@ def _get_contact_address(obj):
     if channel == "talkhub_omni":
         return (
             meta.get("phone_number")
-            or (obj.contact.phone if obj.contact else "")
+            or (c.phone if c else "")
+            or (c.secondary_phone if c else "")
         )
 
     # Fallback
-    if obj.contact:
-        return obj.contact.email or obj.contact.phone or ""
+    if c:
+        return c.email or c.secondary_email or c.phone or c.secondary_phone or ""
     return ""
 
 

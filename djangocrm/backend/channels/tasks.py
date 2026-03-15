@@ -319,7 +319,12 @@ def _poll_org_emails(org, smtp_config, imap_config):
                     org=org, email__iexact=from_email
                 ).first()
                 if not contact:
-                    # Check extra_emails table for secondary emails
+                    # Check secondary_email field
+                    contact = Contact.objects.filter(
+                        org=org, secondary_email__iexact=from_email
+                    ).first()
+                if not contact:
+                    # Check extra_emails table for additional emails
                     extra = ContactEmail.objects.filter(
                         contact__org=org, email__iexact=from_email
                     ).select_related("contact").first()

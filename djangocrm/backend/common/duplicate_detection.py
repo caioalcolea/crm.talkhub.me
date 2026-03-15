@@ -93,6 +93,10 @@ class DuplicateDetector:
             if not exclude_id:
                 exclude_id = contact.id
 
+        # Collect secondary fields for additional matching
+        secondary_email = contact.secondary_email if contact else None
+        secondary_phone = contact.secondary_phone if contact else None
+
         seen: dict[str, list[str]] = {}  # contact.id -> reasons
         base_qs = Contact.objects.filter(org=org, is_active=True)
         if exclude_id:
@@ -105,9 +109,12 @@ class DuplicateDetector:
             if reason not in seen[cid]:
                 seen[cid].append(reason)
 
-        # 1. Email match (primary + extra_emails)
+        # 1. Email match (primary + secondary + extra_emails)
         if email:
             for c in base_qs.filter(email__iexact=email):
+                _add(c, "email")
+            # Check secondary_email field
+            for c in base_qs.filter(secondary_email__iexact=email):
                 _add(c, "email")
             # Also check extra_emails table
             from contacts.models import ContactEmail
@@ -117,18 +124,29 @@ class DuplicateDetector:
                 if not exclude_id or str(extra.contact_id) != str(exclude_id):
                     _add(extra.contact, "email")
 
-        # 1b. Check if contact has extra_emails that match other contacts' primary emails
+        # 1b. Check secondary_email against other contacts
+        if secondary_email:
+            for c in base_qs.filter(email__iexact=secondary_email):
+                _add(c, "email")
+            for c in base_qs.filter(secondary_email__iexact=secondary_email):
+                _add(c, "email")
+
+        # 1c. Check if contact has extra_emails that match other contacts' primary emails
         if contact:
             for extra in contact.extra_emails.all():
                 for c in base_qs.filter(email__iexact=extra.email):
                     _add(c, "email")
 
-        # 2. Phone match (normalized, primary + extra_phones)
+        # 2. Phone match (normalized, primary + secondary + extra_phones)
         if phone:
             normalized = cls.normalize_phone(phone)
             if len(normalized) >= 7:
                 for c in base_qs.exclude(phone__isnull=True).exclude(phone=""):
                     if cls.normalize_phone(c.phone) == normalized:
+                        _add(c, "phone")
+                # Check secondary_phone field
+                for c in base_qs.exclude(secondary_phone__isnull=True).exclude(secondary_phone=""):
+                    if cls.normalize_phone(c.secondary_phone) == normalized:
                         _add(c, "phone")
                 # Also check extra_phones table
                 from contacts.models import ContactPhone
@@ -141,7 +159,18 @@ class DuplicateDetector:
                     ):
                         _add(extra.contact, "phone")
 
-        # 2b. Check if contact has extra_phones that match other contacts' primary phones
+        # 2b. Check secondary_phone against other contacts
+        if secondary_phone:
+            norm_sec = cls.normalize_phone(secondary_phone)
+            if len(norm_sec) >= 7:
+                for c in base_qs.exclude(phone__isnull=True).exclude(phone=""):
+                    if cls.normalize_phone(c.phone) == norm_sec:
+                        _add(c, "phone")
+                for c in base_qs.exclude(secondary_phone__isnull=True).exclude(secondary_phone=""):
+                    if cls.normalize_phone(c.secondary_phone) == norm_sec:
+                        _add(c, "phone")
+
+        # 2c. Check if contact has extra_phones that match other contacts' primary phones
         if contact:
             for extra in contact.extra_phones.all():
                 norm_extra = cls.normalize_phone(extra.phone)
