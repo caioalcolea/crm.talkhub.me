@@ -47,12 +47,12 @@
         {/if}
         <th class="px-3 py-2 text-left font-medium">Parcela</th>
         <th class="px-3 py-2 text-left font-medium">Descrição</th>
-        <th class="px-3 py-2 text-left font-medium">Pessoa</th>
+        <th class="hidden px-3 py-2 text-left font-medium md:table-cell">Pessoa</th>
         <th class="px-3 py-2 text-right font-medium">Valor</th>
         <th class="px-3 py-2 text-left font-medium">Vencimento</th>
-        <th class="px-3 py-2 text-left font-medium">Pagamento</th>
+        <th class="hidden px-3 py-2 text-left font-medium lg:table-cell">Pagamento</th>
         <th class="px-3 py-2 text-left font-medium">Status</th>
-        <th class="px-3 py-2 text-left font-medium">Info</th>
+        <th class="hidden px-3 py-2 text-left font-medium md:table-cell">Info</th>
         <th class="px-3 py-2 text-right font-medium">Ações</th>
       </tr>
     </thead>
@@ -77,7 +77,7 @@
           <td class="max-w-[200px] truncate px-3 py-2">
             {parcela.lancamento_descricao || parcela.lancamentoDescricao || '-'}
           </td>
-          <td class="px-3 py-2 text-xs">
+          <td class="hidden px-3 py-2 text-xs md:table-cell">
             {parcela.account_name || parcela.accountName || parcela.contact_name || parcela.contactName || '-'}
           </td>
           <td class="px-3 py-2 text-right font-mono text-xs">
@@ -86,13 +86,13 @@
           <td class="px-3 py-2 text-xs">
             {formatDate(parcela.data_vencimento || parcela.dataVencimento)}
           </td>
-          <td class="px-3 py-2 text-xs">
+          <td class="hidden px-3 py-2 text-xs lg:table-cell">
             {formatDate(parcela.data_pagamento || parcela.dataPagamento) || '-'}
           </td>
           <td class="px-3 py-2">
             <StatusBadge status={parcela.status} />
           </td>
-          <td class="px-3 py-2 text-xs">
+          <td class="hidden px-3 py-2 text-xs md:table-cell">
             {#if parcela.dias_atraso > 0 || parcela.diasAtraso > 0}
               <span class="text-destructive font-medium">
                 {parcela.status_message || parcela.statusMessage || `${parcela.dias_atraso || parcela.diasAtraso}d atraso`}

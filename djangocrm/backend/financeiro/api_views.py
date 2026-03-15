@@ -293,8 +293,12 @@ class ParcelaViewSet(FinanceiroMixin, ModelViewSet):
             qs = qs.filter(lancamento__tipo=tipo)
 
         status_filter = self.request.query_params.get("status")
-        if status_filter:
+        if status_filter == "all":
+            pass  # Show everything including CANCELADO
+        elif status_filter:
             qs = qs.filter(status=status_filter)
+        else:
+            qs = qs.exclude(status="CANCELADO")
 
         account = self.request.query_params.get("account")
         if account:

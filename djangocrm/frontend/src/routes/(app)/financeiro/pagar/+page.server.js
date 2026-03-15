@@ -15,7 +15,7 @@ export async function load({ url, locals, cookies }) {
 
   try {
     const page = parseInt(url.searchParams.get('page') || '1');
-    const limit = parseInt(url.searchParams.get('limit') || '25');
+    const limit = parseInt(url.searchParams.get('limit') || '100');
 
     const queryParams = buildQueryParams({ page, limit, sort: 'data_vencimento', order: 'asc' });
     queryParams.append('tipo', 'PAGAR');
