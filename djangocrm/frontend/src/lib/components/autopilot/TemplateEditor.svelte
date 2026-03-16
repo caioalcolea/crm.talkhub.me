@@ -155,7 +155,7 @@
 
   <div class="space-y-2">
     <Label>Config Template (JSON)</Label>
-    <Textarea bind:value={configTemplate} rows={4} class="font-mono text-xs" placeholder="{}" />
+    <Textarea bind:value={configTemplate} rows={4} class="font-mono text-xs" placeholder={'{}'} />
   </div>
 
   <div class="flex justify-end gap-3">
