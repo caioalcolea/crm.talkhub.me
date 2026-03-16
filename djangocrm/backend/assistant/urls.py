@@ -3,6 +3,10 @@ from rest_framework.routers import DefaultRouter
 
 from assistant.views import (
     AIGenerateView,
+    AssistantChatConfirmView,
+    AssistantChatView,
+    AssistantSessionDetailView,
+    AssistantSessionListView,
     AutopilotTemplateViewSet,
     EntityReminderListCreateView,
     PresetsView,
@@ -86,6 +90,15 @@ urlpatterns = [
         EntityReminderListCreateView.as_view(),
         name="entity_reminder_list_create",
     ),
-    # AI copilot
+    # AI copilot (legacy)
     path("ai/generate/", AIGenerateView.as_view(), name="ai_generate"),
+    # ── Chat (Phase 1 — Conversational Assistant) ──
+    path("chat/", AssistantChatView.as_view(), name="chat"),
+    path("chat/confirm/", AssistantChatConfirmView.as_view(), name="chat_confirm"),
+    path("sessions/", AssistantSessionListView.as_view(), name="session_list"),
+    path(
+        "sessions/<uuid:pk>/",
+        AssistantSessionDetailView.as_view(),
+        name="session_detail",
+    ),
 ]

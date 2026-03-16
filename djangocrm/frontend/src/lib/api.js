@@ -563,6 +563,23 @@ export const assistant = {
   async aiGenerate(body) {
     return apiRequest('/assistant/ai/generate/', { method: 'POST', body });
   },
+
+  // ── Chat (Conversational Assistant) ──
+  async chat(body) {
+    return apiRequest('/assistant/chat/', { method: 'POST', body });
+  },
+  async chatConfirm(body) {
+    return apiRequest('/assistant/chat/confirm/', { method: 'POST', body });
+  },
+  async sessions() {
+    return apiRequest('/assistant/sessions/');
+  },
+  async session(id) {
+    return apiRequest(`/assistant/sessions/${id}/`);
+  },
+  async archiveSession(id) {
+    return apiRequest(`/assistant/sessions/${id}/`, { method: 'DELETE' });
+  },
 };
 
 /**

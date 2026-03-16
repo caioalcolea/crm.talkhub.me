@@ -1,3 +1,4 @@
+import json
 import logging
 
 from django.contrib.contenttypes.models import ContentType
@@ -13,6 +14,8 @@ from common.permissions import HasOrgContext
 from rest_framework.permissions import IsAuthenticated
 
 from assistant.models import (
+    AssistantMessage,
+    AssistantSession,
     AutopilotTemplate,
     ChannelDispatch,
     ReminderPolicy,
@@ -21,6 +24,9 @@ from assistant.models import (
 )
 from assistant.presets import get_presets_for_module
 from assistant.serializers import (
+    AssistantMessageSerializer,
+    AssistantSessionListSerializer,
+    AssistantSessionSerializer,
     AutopilotTemplateSerializer,
     ChannelDispatchSerializer,
     ReminderPolicySerializer,
@@ -515,3 +521,337 @@ class AIGenerateView(APIView):
             return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(result)
+
+
+# ── Assistant Chat (Phase 1 — Conversational Assistant) ──────────────
+
+
+class AssistantSessionListView(APIView):
+    """List user's chat sessions or create a new one."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def get(self, request):
+        sessions = (
+            AssistantSession.objects.filter(
+                org=request.profile.org, user=request.profile
+            )
+            .exclude(status="archived")
+            .order_by("-last_activity_at")[:50]
+        )
+        return Response(AssistantSessionListSerializer(sessions, many=True).data)
+
+
+class AssistantSessionDetailView(APIView):
+    """Get session detail with messages, or archive it."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def get(self, request, pk):
+        try:
+            session = AssistantSession.objects.get(
+                pk=pk, org=request.profile.org, user=request.profile
+            )
+        except AssistantSession.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        return Response(AssistantSessionSerializer(session).data)
+
+    def delete(self, request, pk):
+        try:
+            session = AssistantSession.objects.get(
+                pk=pk, org=request.profile.org, user=request.profile
+            )
+        except AssistantSession.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        session.status = "archived"
+        session.save(update_fields=["status", "updated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AssistantChatView(APIView):
+    """
+    Main conversational endpoint.
+
+    POST /api/assistant/chat/
+    {
+        "session_id": "uuid" | null,
+        "message": "user message",
+        "context": {"page": "/financeiro", "entity_type": "...", "entity_id": "..."}
+    }
+
+    Response:
+    {
+        "session_id": "uuid",
+        "response": "assistant text",
+        "proposed_actions": [...],
+        "status": "awaiting_confirmation" | "completed" | "error"
+    }
+    """
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def post(self, request):
+        from assistant.ai_service import build_chat_system_prompt, call_openai_chat
+        from assistant.risk import classify_risk, requires_user_approval
+
+        message_text = (request.data.get("message") or "").strip()
+        if not message_text:
+            return Response(
+                {"error": "Mensagem é obrigatória."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(message_text) > 2000:
+            return Response(
+                {"error": "Mensagem muito longa (máximo 2000 caracteres)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        session_id = request.data.get("session_id")
+        context = request.data.get("context", {})
+        org = request.profile.org
+        user = request.profile
+
+        # Get or create session
+        if session_id:
+            try:
+                session = AssistantSession.objects.get(
+                    pk=session_id, org=org, user=user
+                )
+            except AssistantSession.DoesNotExist:
+                return Response(
+                    {"error": "Sessão não encontrada."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        else:
+            session = AssistantSession.objects.create(
+                org=org,
+                user=user,
+                title=message_text[:80],
+                context_json=context,
+            )
+
+        # Save user message
+        user_msg = AssistantMessage.objects.create(
+            org=org,
+            session=session,
+            role="user",
+            content=message_text,
+        )
+
+        # Build conversation history for LLM
+        history = list(
+            session.messages.order_by("created_at").values("role", "content")
+        )
+        # Map internal roles to OpenAI roles
+        llm_messages = [{"role": "system", "content": build_chat_system_prompt(context)}]
+        for msg in history:
+            role = msg["role"]
+            if role in ("tool_call", "tool_result", "system"):
+                role = "assistant" if role == "tool_call" else "user"
+            llm_messages.append({"role": role, "content": msg["content"]})
+
+        # Call LLM
+        result = call_openai_chat(
+            messages=llm_messages,
+            user_id=user.id,
+            session=session,
+            response_format={"type": "json_object"},
+        )
+
+        if result["error"]:
+            # Save error as system message
+            AssistantMessage.objects.create(
+                org=org,
+                session=session,
+                role="system",
+                content=result["error"],
+                metadata=result.get("metadata", {}),
+            )
+
+            error_status = status.HTTP_429_TOO_MANY_REQUESTS if result.get(
+                "metadata", {}
+            ).get("rate_limited") else status.HTTP_502_BAD_GATEWAY
+
+            return Response(
+                {
+                    "session_id": str(session.id),
+                    "response": result["error"],
+                    "proposed_actions": [],
+                    "status": "error",
+                },
+                status=error_status,
+            )
+
+        # Parse LLM response
+        try:
+            parsed = json.loads(result["content"])
+        except (json.JSONDecodeError, TypeError):
+            parsed = {"message": result["content"] or ""}
+
+        response_text = parsed.get("message", "")
+        tool_calls = parsed.get("tool_calls", [])
+
+        # Process tool calls — classify risk and generate previews
+        proposed_actions = []
+        for tc in tool_calls:
+            tool_name = tc.get("tool", "")
+            params = tc.get("params", {})
+            preview = tc.get("preview", "")
+
+            risk_level, risk_reason = classify_risk(tool_name, params, org)
+            needs_approval, approval_reason = requires_user_approval(
+                tool_name, params, org
+            )
+
+            proposed_actions.append({
+                "tool": tool_name,
+                "params": params,
+                "preview": preview,
+                "risk_level": risk_level,
+                "risk_reason": risk_reason,
+                "requires_approval": needs_approval,
+                "approval_reason": approval_reason,
+            })
+
+        # Determine status
+        if proposed_actions:
+            resp_status = "awaiting_confirmation"
+        else:
+            resp_status = "completed"
+
+        # Save assistant message
+        AssistantMessage.objects.create(
+            org=org,
+            session=session,
+            role="assistant",
+            content=response_text,
+            metadata={
+                **result.get("metadata", {}),
+                "proposed_actions": proposed_actions,
+            },
+        )
+
+        return Response({
+            "session_id": str(session.id),
+            "response": response_text,
+            "proposed_actions": proposed_actions,
+            "status": resp_status,
+        })
+
+
+class AssistantChatConfirmView(APIView):
+    """
+    Confirm or cancel proposed actions from the chat.
+
+    POST /api/assistant/chat/confirm/
+    {
+        "session_id": "uuid",
+        "action_index": 0,
+        "decision": "apply" | "cancel"
+    }
+    """
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def post(self, request):
+        from assistant.tools import execute_tool
+
+        session_id = request.data.get("session_id")
+        action_index = request.data.get("action_index", 0)
+        decision = request.data.get("decision", "cancel")
+
+        if not session_id:
+            return Response(
+                {"error": "session_id é obrigatório."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        org = request.profile.org
+        user = request.profile
+
+        try:
+            session = AssistantSession.objects.get(pk=session_id, org=org, user=user)
+        except AssistantSession.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        # Find the last assistant message with proposed_actions
+        last_msg = (
+            session.messages.filter(role="assistant")
+            .exclude(metadata={})
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not last_msg:
+            return Response(
+                {"error": "Nenhuma ação pendente encontrada."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        proposed_actions = last_msg.metadata.get("proposed_actions", [])
+
+        if action_index < 0 or action_index >= len(proposed_actions):
+            return Response(
+                {"error": f"Índice de ação inválido: {action_index}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        action = proposed_actions[action_index]
+
+        if decision == "cancel":
+            # Record cancellation
+            AssistantMessage.objects.create(
+                org=org,
+                session=session,
+                role="tool_result",
+                content=f"Ação cancelada: {action['tool']}",
+                metadata={"action_cancelled": True, "tool": action["tool"]},
+            )
+            return Response({
+                "session_id": str(session.id),
+                "result": "cancelled",
+                "message": "Ação cancelada.",
+            })
+
+        if decision == "apply":
+            # Record tool call
+            AssistantMessage.objects.create(
+                org=org,
+                session=session,
+                role="tool_call",
+                content=json.dumps({"tool": action["tool"], "params": action["params"]}),
+                metadata={"tool": action["tool"]},
+            )
+
+            # Execute the tool
+            tool_result = execute_tool(action["tool"], org, user, action["params"])
+
+            # Record tool result
+            AssistantMessage.objects.create(
+                org=org,
+                session=session,
+                role="tool_result",
+                content=json.dumps(tool_result, default=str),
+                metadata={"tool": action["tool"]},
+            )
+
+            if "error" in tool_result:
+                return Response({
+                    "session_id": str(session.id),
+                    "result": "error",
+                    "message": tool_result["error"],
+                })
+
+            return Response({
+                "session_id": str(session.id),
+                "result": "applied",
+                "message": "Ação executada com sucesso.",
+                "data": tool_result.get("result", {}),
+            })
+
+        return Response(
+            {"error": "Decisão inválida. Use: apply, cancel."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )

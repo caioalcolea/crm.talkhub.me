@@ -4,6 +4,7 @@
   import { Toaster } from '$lib/components/ui/sonner/index.js';
   import { browser } from '$app/environment';
   import CoworkPiP from '$lib/components/cowork/CoworkPiP.svelte';
+  import AssistantDrawer from '$lib/components/assistant/AssistantDrawer.svelte';
   import { initOrgSettings } from '$lib/stores/org.js';
   import { initClientAuth } from '$lib/api.js';
 
@@ -33,4 +34,5 @@
 <Toaster richColors closeButton position="bottom-right" />
 {#if browser}
   <CoworkPiP />
+  <AssistantDrawer />
 {/if}

@@ -266,6 +266,64 @@ class TaskLink(BaseOrgModel):
         return f"TaskLink -> Task {self.task_id} [{self.status}]"
 
 
+class AssistantSession(BaseOrgModel):
+    """Sessão de conversa com o assistente IA."""
+
+    user = models.ForeignKey(
+        "common.Profile", on_delete=models.CASCADE, related_name="assistant_sessions"
+    )
+    title = models.CharField(max_length=200, blank=True, default="")
+    context_json = models.JSONField(default=dict, blank=True)
+    STATUS_CHOICES = [
+        ("active", "Ativa"),
+        ("archived", "Arquivada"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    last_activity_at = models.DateTimeField(auto_now=True)
+    total_tokens = models.PositiveIntegerField(default=0)
+    total_cost_usd = models.DecimalField(max_digits=10, decimal_places=6, default=0)
+
+    class Meta:
+        db_table = "assistant_session"
+        indexes = [
+            models.Index(fields=["org", "user", "-last_activity_at"]),
+        ]
+        verbose_name = "Assistant Session"
+        verbose_name_plural = "Assistant Sessions"
+
+    def __str__(self):
+        return f"Session {self.title or self.id} ({self.status})"
+
+
+class AssistantMessage(BaseOrgModel):
+    """Mensagem individual na sessão do assistente."""
+
+    session = models.ForeignKey(
+        AssistantSession, on_delete=models.CASCADE, related_name="messages"
+    )
+    ROLE_CHOICES = [
+        ("user", "Usuário"),
+        ("assistant", "Assistente"),
+        ("system", "Sistema"),
+        ("tool_call", "Chamada de ferramenta"),
+        ("tool_result", "Resultado de ferramenta"),
+    ]
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    content = models.TextField()
+    metadata = models.JSONField(default=dict, blank=True)
+    # metadata: {tool_name, tokens_input, tokens_output, cost_usd, latency_ms, model,
+    #            proposed_actions, action_results}
+
+    class Meta:
+        db_table = "assistant_message"
+        ordering = ["created_at"]
+        verbose_name = "Assistant Message"
+        verbose_name_plural = "Assistant Messages"
+
+    def __str__(self):
+        return f"Message [{self.role}] in {self.session_id}"
+
+
 class AutopilotTemplate(BaseOrgModel):
     """
     Reusable template for quickly creating reminders, rules, or campaigns.

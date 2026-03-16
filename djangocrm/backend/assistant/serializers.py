@@ -2,6 +2,8 @@ from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
 
 from assistant.models import (
+    AssistantMessage,
+    AssistantSession,
     AutopilotTemplate,
     ChannelDispatch,
     ReminderPolicy,
@@ -232,3 +234,66 @@ class AutopilotTemplateSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+# ── Assistant Chat Serializers ─────────────────────────────────────────
+
+
+class AssistantMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssistantMessage
+        fields = [
+            "id",
+            "role",
+            "content",
+            "metadata",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class AssistantSessionSerializer(serializers.ModelSerializer):
+    messages = AssistantMessageSerializer(many=True, read_only=True)
+    message_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssistantSession
+        fields = [
+            "id",
+            "title",
+            "context_json",
+            "status",
+            "last_activity_at",
+            "total_tokens",
+            "total_cost_usd",
+            "messages",
+            "message_count",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_message_count(self, obj):
+        return obj.messages.count()
+
+
+class AssistantSessionListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for session list (no messages)."""
+    message_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssistantSession
+        fields = [
+            "id",
+            "title",
+            "context_json",
+            "status",
+            "last_activity_at",
+            "total_tokens",
+            "total_cost_usd",
+            "message_count",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_message_count(self, obj):
+        return obj.messages.count()
