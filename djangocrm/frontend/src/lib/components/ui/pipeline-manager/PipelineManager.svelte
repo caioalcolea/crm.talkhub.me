@@ -71,6 +71,14 @@
     pipelines.find((p) => p.id === activePipelineId) || null
   );
 
+  // Keep settings dialog in sync when pipelines data refreshes (after invalidateAll)
+  $effect(() => {
+    if (settingsDialogOpen && settingsPipeline) {
+      const fresh = pipelines.find((p) => p.id === settingsPipeline.id);
+      if (fresh) settingsPipeline = fresh;
+    }
+  });
+
   async function handleCreate() {
     if (!newPipelineName.trim() || !onCreate) return;
     creating = true;
@@ -117,6 +125,7 @@
   }
 </script>
 
+{#if pipelines.length > 0 || canManage}
 <div class="flex items-center gap-2 overflow-x-auto pb-1">
   <!-- Default (status-based) tab -->
   <button
@@ -173,6 +182,7 @@
     </button>
   {/if}
 </div>
+{/if}
 
 <!-- Create Pipeline Dialog -->
 <Dialog.Root bind:open={createDialogOpen}>

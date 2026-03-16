@@ -57,6 +57,11 @@
 
   // Stages from pipeline
   const stages = $derived(pipeline?.stages || []);
+  const sortedStages = $derived([...stages].sort((a, b) => a.order - b.order));
+
+  // Drag-and-drop state
+  let draggedIndex = $state(-1);
+  let dragOverIndex = $state(-1);
 
   // Stage type colors
   const stageTypeOptions = [
@@ -71,6 +76,16 @@
     '#F59E0B', '#10B981', '#EF4444', '#06B6D4',
     '#F97316', '#14B8A6'
   ];
+
+  // Sync local state when pipeline prop changes (after invalidateAll)
+  $effect(() => {
+    if (pipeline) {
+      pipelineName = pipeline.name || '';
+      pipelineDescription = pipeline.description || '';
+      selectedTeams = new Set(pipeline.visible_to_teams?.map(String) || []);
+      selectedUsers = new Set(pipeline.visible_to_users?.map(String) || []);
+    }
+  });
 
   async function handleSavePipeline() {
     if (!onUpdate) return;
@@ -116,6 +131,15 @@
     }
   }
 
+  async function handleStageNameChange(stageId, newName, originalName) {
+    if (!onStageUpdate || !newName.trim() || newName.trim() === originalName) return;
+    try {
+      await onStageUpdate(stageId, { name: newName.trim() });
+    } catch (err) {
+      console.error('Failed to update stage name:', err);
+    }
+  }
+
   async function handleStageColorChange(stageId, color) {
     if (!onStageUpdate) return;
     try {
@@ -132,6 +156,44 @@
     } catch (err) {
       console.error('Failed to update stage type:', err);
     }
+  }
+
+  // Drag-and-drop handlers
+  function handleDragStart(index) {
+    draggedIndex = index;
+  }
+
+  function handleDragOver(e, index) {
+    e.preventDefault();
+    dragOverIndex = index;
+  }
+
+  function handleDragLeave() {
+    dragOverIndex = -1;
+  }
+
+  async function handleDrop(e, dropIndex) {
+    e.preventDefault();
+    dragOverIndex = -1;
+    if (draggedIndex === -1 || draggedIndex === dropIndex || !onStageReorder) return;
+
+    const reordered = [...sortedStages];
+    const [moved] = reordered.splice(draggedIndex, 1);
+    reordered.splice(dropIndex, 0, moved);
+
+    const orderedIds = reordered.map((s) => s.id);
+    draggedIndex = -1;
+
+    try {
+      await onStageReorder(pipeline.id, orderedIds);
+    } catch (err) {
+      console.error('Failed to reorder stages:', err);
+    }
+  }
+
+  function handleDragEnd() {
+    draggedIndex = -1;
+    dragOverIndex = -1;
   }
 
   function toggleTeam(teamId) {
@@ -179,9 +241,20 @@
       <!-- Stages Tab -->
       <Tabs.Content value="stages" class="mt-4 space-y-3">
         <!-- Stage list -->
-        {#each stages.sort((a, b) => a.order - b.order) as stage (stage.id)}
+        {#each sortedStages as stage, index (stage.id)}
           <div
-            class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+            class="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 transition-colors dark:bg-gray-800
+              {dragOverIndex === index && draggedIndex !== index
+                ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20'
+                : 'border-gray-200 dark:border-gray-700'}
+              {draggedIndex === index ? 'opacity-50' : ''}"
+            draggable="true"
+            ondragstart={() => handleDragStart(index)}
+            ondragover={(e) => handleDragOver(e, index)}
+            ondragleave={handleDragLeave}
+            ondrop={(e) => handleDrop(e, index)}
+            ondragend={handleDragEnd}
+            role="listitem"
           >
             <GripVertical class="h-4 w-4 shrink-0 text-gray-400 cursor-grab" />
 
@@ -199,10 +272,18 @@
               ></div>
             </div>
 
-            <!-- Stage name -->
-            <span class="flex-1 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-              {stage.name}
-            </span>
+            <!-- Stage name (editable) -->
+            <input
+              type="text"
+              value={stage.name}
+              class="flex-1 truncate border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 rounded dark:text-gray-100 dark:focus:ring-gray-600"
+              onblur={(e) => handleStageNameChange(stage.id, e.target.value, stage.name)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.target.blur();
+                }
+              }}
+            />
 
             <!-- Stage type badge -->
             <select

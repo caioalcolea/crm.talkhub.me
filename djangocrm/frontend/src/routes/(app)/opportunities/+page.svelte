@@ -308,7 +308,7 @@
   async function handleCreatePipeline(pipelineData) {
     await clientApiRequest('/opportunities/pipelines/', {
       method: 'POST',
-      body: JSON.stringify(pipelineData)
+      body: pipelineData
     });
     toast.success('Pipeline criado com sucesso');
     await invalidateAll();
@@ -337,7 +337,7 @@
   async function handleUpdatePipeline(pipelineId, pipelineData) {
     await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
       method: 'PUT',
-      body: JSON.stringify(pipelineData)
+      body: pipelineData
     });
     toast.success('Pipeline atualizado');
     await invalidateAll();
@@ -351,7 +351,7 @@
   async function handleStageCreate(pipelineId, stageData) {
     await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/`, {
       method: 'POST',
-      body: JSON.stringify(stageData)
+      body: stageData
     });
     toast.success('Estágio criado');
     await invalidateAll();
@@ -365,7 +365,7 @@
   async function handleStageUpdate(stageId, stageData) {
     await clientApiRequest(`/opportunities/stages/${stageId}/`, {
       method: 'PUT',
-      body: JSON.stringify(stageData)
+      body: stageData
     });
     await invalidateAll();
   }
@@ -390,7 +390,7 @@
   async function handleStageReorder(pipelineId, stageOrder) {
     await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/reorder/`, {
       method: 'POST',
-      body: JSON.stringify({ stage_ids: stageOrder })
+      body: { stage_ids: stageOrder }
     });
     await invalidateAll();
   }

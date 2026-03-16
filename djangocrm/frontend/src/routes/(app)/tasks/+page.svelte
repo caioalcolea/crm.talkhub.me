@@ -502,7 +502,7 @@
   async function handleTaskPipelineCreate(pipelineData) {
     const result = await clientApiRequest('/tasks/pipelines/', {
       method: 'POST',
-      body: JSON.stringify(pipelineData)
+      body: pipelineData
     });
     await invalidateAll();
     return result;
@@ -518,8 +518,8 @@
 
   async function handleTaskPipelineUpdate(id, pipelineData) {
     const result = await clientApiRequest(`/tasks/pipelines/${id}/`, {
-      method: 'PATCH',
-      body: JSON.stringify(pipelineData)
+      method: 'PUT',
+      body: pipelineData
     });
     await invalidateAll();
     return result;
@@ -528,32 +528,30 @@
   async function handleTaskStageCreate(pipelineId, stageData) {
     const result = await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/`, {
       method: 'POST',
-      body: JSON.stringify(stageData)
+      body: stageData
     });
     await invalidateAll();
     return result;
   }
 
-  async function handleTaskStageUpdate(pipelineId, stageId, stageData) {
-    const result = await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/${stageId}/`, {
-      method: 'PATCH',
-      body: JSON.stringify(stageData)
+  async function handleTaskStageUpdate(stageId, stageData) {
+    const result = await clientApiRequest(`/tasks/stages/${stageId}/`, {
+      method: 'PUT',
+      body: stageData
     });
     await invalidateAll();
     return result;
   }
 
-  async function handleTaskStageDelete(pipelineId, stageId) {
-    await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/${stageId}/`, {
-      method: 'DELETE'
-    });
+  async function handleTaskStageDelete(stageId) {
+    await clientApiRequest(`/tasks/stages/${stageId}/`, { method: 'DELETE' });
     await invalidateAll();
   }
 
   async function handleTaskStageReorder(pipelineId, stageOrder) {
     await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/reorder/`, {
       method: 'POST',
-      body: JSON.stringify({ stage_order: stageOrder })
+      body: { stage_ids: stageOrder }
     });
     await invalidateAll();
   }

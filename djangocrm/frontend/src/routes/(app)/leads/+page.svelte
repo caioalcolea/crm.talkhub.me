@@ -622,7 +622,7 @@
   async function handleLeadPipelineCreate(pipelineData) {
     await clientApiRequest('/leads/pipelines/', {
       method: 'POST',
-      body: JSON.stringify(pipelineData)
+      body: pipelineData
     });
     toast.success('Pipeline criado');
     await invalidateAll();
@@ -638,7 +638,7 @@
   async function handleLeadPipelineUpdate(pipelineId, pipelineData) {
     await clientApiRequest(`/leads/pipelines/${pipelineId}/`, {
       method: 'PUT',
-      body: JSON.stringify(pipelineData)
+      body: pipelineData
     });
     toast.success('Pipeline atualizado');
     await invalidateAll();
@@ -647,7 +647,7 @@
   async function handleLeadStageCreate(pipelineId, stageData) {
     await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/`, {
       method: 'POST',
-      body: JSON.stringify(stageData)
+      body: stageData
     });
     toast.success('Estágio criado');
     await invalidateAll();
@@ -656,7 +656,7 @@
   async function handleLeadStageUpdate(stageId, stageData) {
     await clientApiRequest(`/leads/stages/${stageId}/`, {
       method: 'PUT',
-      body: JSON.stringify(stageData)
+      body: stageData
     });
     await invalidateAll();
   }
@@ -670,7 +670,7 @@
   async function handleLeadStageReorder(pipelineId, stageOrder) {
     await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/reorder/`, {
       method: 'POST',
-      body: JSON.stringify({ stage_ids: stageOrder })
+      body: { stage_ids: stageOrder }
     });
     await invalidateAll();
   }
