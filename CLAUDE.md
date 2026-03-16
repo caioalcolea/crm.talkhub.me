@@ -479,6 +479,153 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - **Chatwoot protection**: Webhook handlers skip soft-deleted conversations (won't resurrect them)
 - **Frontend**: "Deletados" filter in inbox, trash banner, restore/permanent-delete buttons (admin only)
 
+## TalkHub Autopilot — Automações, Lembretes e Campanhas
+
+### Architecture Overview
+Three apps form the unified autopilot system:
+- **`assistant`** — Core scheduler + reminder engine (ReminderPolicy, ScheduledJob, ChannelDispatch, TaskLink, AutopilotTemplate)
+- **`automations`** — Rule engine (Automation: routine, logic_rule, social + AutomationLog)
+- **`campaigns`** — Campaign engine (Campaign, CampaignAudience, CampaignRecipient, CampaignStep)
+
+All three share: scheduler, jobs, tasks, channel dispatch, logs, audit, permissions, RLS.
+
+### Assistant App Models (5 models, RLS-enabled)
+| Model | Purpose | Key Pattern |
+|-------|---------|-------------|
+| `ReminderPolicy` | When/how to trigger reminders for any entity | GenericForeignKey target, 5 trigger types, channel_config, task_config |
+| `ScheduledJob` | Executable work unit | GenericForeignKey source+target, idempotency_key, SELECT FOR UPDATE SKIP LOCKED |
+| `ChannelDispatch` | Audit trail of sends | FK to ScheduledJob, channel_type, status, sent_at, error |
+| `TaskLink` | Links automation source → Task | GenericForeignKey source, sync_mode (persistent/per_run) |
+| `AutopilotTemplate` | Reusable preset configs | template_type, category, module_key, config_template |
+
+### Trigger Types (engine.py)
+| Type | Use Case | Config Example |
+|------|----------|----------------|
+| `due_date` | Parcela reminder | `{date_field: "data_vencimento", offsets: [-7, -3, 0, 1, 3]}` |
+| `recurring` | Follow-up every N days | `{interval_days: 3, max_runs: 10, start_after_field: "data_vencimento"}` |
+| `cron` | Daily at 9 AM | `{cron_expression: "0 9 * * 1-5"}` |
+| `relative_date` | N days after creation | `{date_field: "created_at", offset_days: 7}` |
+| `event_plus_offset` | After event + delay | Stub — needs event listener system |
+
+### Presets (19 templates in presets.py)
+- **Financeiro** (4): contas_receber_padrao, contas_receber_email, contas_pagar_padrao, cobranca_recorrente
+- **Leads** (2): follow_up_padrao, lead_esfriando
+- **Opportunities** (2): close_date_approaching, deal_stale
+- **Cases** (2): sla_resolution, case_escalation
+- **Tasks** (2): task_due_date, task_overdue
+- **Invoices** (2): invoice_due_date, invoice_overdue_email
+
+### Template Engine (template_engine.py)
+- Pattern: `{{variable_name}}` interpolation with per-module whitelist
+- Modules: financeiro, leads, cases, tasks, invoices, opportunity, system
+- Context builders: `build_context_for_parcela()`, `_for_lead()`, `_for_task()`, `_for_opportunity()`, `_for_case()`, `_for_invoice()`
+
+### Signal Handlers (signals.py)
+Auto-recalculate reminder schedules on entity changes:
+- Parcela → finds parent Lancamento → recalc all policies
+- Lead, Opportunity, Case, Task, Invoice → recalc targeting policies
+- ReminderPolicy saved → cancel stale jobs / generate initial jobs
+
+### Celery Tasks (tasks.py)
+| Task | Schedule | Purpose |
+|------|----------|---------|
+| `process_scheduled_jobs` | Every minute (Beat) | Find due jobs, lock, dispatch to execute_job |
+| `execute_job` | On-demand | Lock → render template → dispatch channel → create task → audit |
+| `recalculate_policy_schedules` | On signal | Cancel old jobs → regenerate from current state |
+
+### Dispatch Service (dispatch.py)
+```
+dispatch_message(org_id, channel_type, destination, message_data, metadata)
+  → ChannelRegistry.get(channel_type) [preferred]
+  → fallback: automations.router.dispatch() [legacy]
+  → Returns: {success, message_id, error}
+```
+
+### API Endpoints (`/api/assistant/`)
+| Endpoint | Methods | Purpose |
+|----------|---------|---------|
+| `reminder-policies/` | GET, POST | List/create policies |
+| `reminder-policies/<id>/` | GET, PUT, PATCH, DELETE | CRUD |
+| `reminder-policies/<id>/activate/` | PATCH | Activate + recalculate |
+| `reminder-policies/<id>/deactivate/` | PATCH | Deactivate + cancel pending |
+| `scheduled-jobs/` | GET | List with status/type/date filters |
+| `scheduled-jobs/<id>/` | GET | Detail + dispatches |
+| `scheduled-jobs/<id>/retry/` | POST | Retry failed/cancelled |
+| `scheduled-jobs/<id>/cancel/` | POST | Cancel pending |
+| `scheduled-jobs/<id>/approve/` | POST | Approve manual-approval jobs |
+| `reminders-for/<target_type>/<target_id>/` | GET, POST | Entity-scoped reminders |
+| `task-links/` | GET | List by source/task |
+| `runs/` | GET | Consolidated execution history |
+| `presets/` | GET | Available preset templates |
+| `templates/` | GET | User/system templates |
+
+### Automations App (3 automation types)
+| Type | Trigger | Config |
+|------|---------|--------|
+| `routine` | Celery Beat (cron/interval) | `{schedule_cron, action_type, action_params}` |
+| `logic_rule` | Django signals (post_save) | `{trigger_event, conditions[], actions[]}` |
+| `social` | TalkHub Omni webhooks | `{channel_type, social_event, actions[]}` |
+
+Events: `lead.created`, `lead.status_changed`, `opportunity.created`, `opportunity.stage_changed`, `case.created`, `task.completed`, `contact.created`
+
+### Campaigns App
+| Type | Behavior |
+|------|----------|
+| `email_blast` | Batch send (50/batch, 1s throttle) with tracking pixel + unsubscribe |
+| `whatsapp_broadcast` | Batch send (20/batch, 2s throttle) via TalkHub Omni |
+| `nurture_sequence` | Multi-step with delay_hours between steps, per-recipient tracking |
+
+Campaigns integrate with assistant's ScheduledJob via `job_generator.py` (idempotency keys, staggered due_at).
+
+### Frontend Routes
+| Route | Purpose |
+|-------|---------|
+| `/autopilot` | Unified dashboard (5 tabs: Rules, Reminders, Campaigns, Runs, Templates) |
+| `/automations` | Legacy list + create |
+| `/automations/new` | Create automation (JSON config) |
+| `/campaigns` | List + pause/resume |
+| `/campaigns/new` | Create campaign |
+| `/campaigns/[id]` | Campaign detail |
+| `/campaigns/[id]/analytics` | Campaign analytics |
+
+### Implementation Status
+```
+Backend (assistant+automations+campaigns): ~90% complete
+Frontend (autopilot UI):                   ~40% complete
+IA assistida:                              ~0% complete
+```
+
+### Key Gaps (Roadmap)
+1. **Financeiro inline UI** — Reminder config block inside TransactionForm (backend API ready)
+2. **Unified /autopilot UX** — Replace /automations and /campaigns with single central
+3. **Visual builders** — Rule builder, step editor, template editor (replace JSON forms)
+4. **Approval queue UI** — API exists, needs frontend
+5. **Cross-module navigation** — Task↔origin bidirectional links
+6. **AI-assisted creation** — LLM compile natural language → policy config (future)
+
+### Autopilot File Map
+| Component | Files |
+|-----------|-------|
+| Assistant models | `backend/assistant/models.py` (ReminderPolicy, ScheduledJob, ChannelDispatch, TaskLink, AutopilotTemplate) |
+| Scheduling engine | `backend/assistant/engine.py` (calculate_next_run, generate_jobs, cancel_stale) |
+| Celery tasks | `backend/assistant/tasks.py` (process_scheduled_jobs, execute_job, recalculate) |
+| Dispatch service | `backend/assistant/dispatch.py` (unified channel dispatch) |
+| Template engine | `backend/assistant/template_engine.py` (variable interpolation, context builders) |
+| Presets | `backend/assistant/presets.py` (19 preset templates) |
+| Signal handlers | `backend/assistant/signals.py` (7 entity change handlers) |
+| Views/API | `backend/assistant/views.py` (13 REST endpoints) |
+| Serializers | `backend/assistant/serializers.py` (6 serializers) |
+| Automations models | `backend/automations/models.py` (Automation, AutomationLog) |
+| Automations engine | `backend/automations/engine.py` (condition evaluator) |
+| Automations router | `backend/automations/router.py` (email/whatsapp/internal dispatch) |
+| Campaign models | `backend/campaigns/models.py` (Campaign, Audience, Recipient, Step) |
+| Campaign audience | `backend/campaigns/audience.py` (audience builder) |
+| Campaign jobs | `backend/campaigns/job_generator.py` (ScheduledJob integration) |
+| Campaign tracking | `backend/campaigns/tracking.py` (pixel + unsubscribe) |
+| Autopilot page | `frontend/src/routes/(app)/autopilot/` (+page.svelte, +page.server.js) |
+| Automations page | `frontend/src/routes/(app)/automations/` (+page.svelte, new/) |
+| Campaigns page | `frontend/src/routes/(app)/campaigns/` (+page.svelte, new/, [id]/, analytics/) |
+
 ## Security Audit Fixes Applied
 
 - RLS bypass in data views: replaced `user.is_superuser` with `profile.is_admin`
