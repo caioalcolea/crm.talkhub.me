@@ -3,6 +3,7 @@
   import { assistant } from '$lib/api.js';
   import { formatDate } from '$lib/utils/formatting.js';
   import { Bell, BellOff, Plus, Clock, Mail, MessageSquare, Zap, Trash2, ChevronDown, ChevronRight, RotateCcw } from '@lucide/svelte';
+  import AICopilot from '$lib/components/autopilot/AICopilot.svelte';
 
   let {
     targetType = 'financeiro.lancamento',
@@ -212,6 +213,19 @@
     }
   }
 
+  let showManualConfig = $state(false);
+
+  function handleAIGenerated(result) {
+    if (result.name) configForm.name = result.name;
+    if (result.trigger_type) configForm.trigger_type = result.trigger_type;
+    if (result.trigger_config) configForm.trigger_config = result.trigger_config;
+    if (result.channel_config) configForm.channel_config = result.channel_config;
+    if (result.task_config) configForm.task_config = result.task_config;
+    if (result.message_template) configForm.message_template = result.message_template;
+    if (result.approval_policy) configForm.approval_policy = result.approval_policy;
+    showManualConfig = true;
+  }
+
   function toggleOffset(val) {
     const offsets = configForm.trigger_config.offsets || [];
     const idx = offsets.indexOf(val);
@@ -335,6 +349,13 @@
       {:else}
         <div class="space-y-4 rounded-md border bg-muted/30 p-4">
           <h3 class="text-sm font-semibold">Configurar Lembrete</h3>
+
+          <!-- AI Copilot -->
+          <AICopilot
+            type="reminder"
+            context={{ module_key: resolvedModuleKey, tipo }}
+            onGenerated={handleAIGenerated}
+          />
 
           <!-- Quick presets -->
           {#if presets && Object.keys(presets).length > 0}

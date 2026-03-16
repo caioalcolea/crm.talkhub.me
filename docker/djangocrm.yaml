@@ -83,6 +83,8 @@ services:
       ## Google OAuth (opcional)
       - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
+      ## OpenAI (AI copilot — opcional)
+      - OPENAI_API_KEY=${CRM_OPENAI_API_KEY:-}
       ## Fernet encryption (do NOT use ${VAR:-default} — trailing '=' breaks interpolation)
       - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
     volumes:
@@ -197,6 +199,7 @@ services:
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
       - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
+      - OPENAI_API_KEY=${CRM_OPENAI_API_KEY:-}
       - FERNET_KEY=jZHflCiO0wzbnp1cHaec1DACG_WAj4IFpBlCFaBVX7g=
     volumes:
       - crm_media:/app/media

@@ -8,6 +8,7 @@
   import { Megaphone, X } from '@lucide/svelte';
   import StepEditor from './StepEditor.svelte';
   import VariablePicker from './VariablePicker.svelte';
+  import AICopilot from './AICopilot.svelte';
 
   let { onCreated = () => {}, onCancel = () => {} } = $props();
 
@@ -25,6 +26,13 @@
 
   function insertBodyVar(v) {
     bodyTemplate += v;
+  }
+
+  function handleAIGenerated(result) {
+    if (result.name) name = result.name;
+    if (result.subject) subject = result.subject;
+    if (result.body_template) bodyTemplate = result.body_template;
+    if (result.steps && Array.isArray(result.steps)) steps = result.steps;
   }
 </script>
 
@@ -79,6 +87,14 @@
         </select>
       </div>
     </div>
+
+    {#if campaignType}
+      <AICopilot
+        type="campaign"
+        context={{ campaign_type: campaignType }}
+        onGenerated={handleAIGenerated}
+      />
+    {/if}
 
     {#if campaignType === 'email_blast'}
       <div class="space-y-2">

@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from assistant.views import (
+    AIGenerateView,
     AutopilotTemplateViewSet,
     EntityReminderListCreateView,
     PresetsView,
@@ -85,4 +86,6 @@ urlpatterns = [
         EntityReminderListCreateView.as_view(),
         name="entity_reminder_list_create",
     ),
+    # AI copilot
+    path("ai/generate/", AIGenerateView.as_view(), name="ai_generate"),
 ]

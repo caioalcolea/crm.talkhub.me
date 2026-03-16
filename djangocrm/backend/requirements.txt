@@ -43,3 +43,6 @@ hypothesis[django]==6.131.0
 
 # Rate limiting
 django-ratelimit>=4.1.0
+
+# AI / LLM
+openai>=1.40.0

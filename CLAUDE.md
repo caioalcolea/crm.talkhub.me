@@ -592,7 +592,7 @@ Campaigns integrate with assistant's ScheduledJob via `job_generator.py` (idempo
 ```
 Backend (assistant+automations+campaigns): ~90% complete
 Frontend (autopilot UI):                   ~40% complete
-IA assistida:                              ~0% complete
+IA assistida:                              ~80% complete (backend + inline UI done, needs testing with real API key)
 ```
 
 ### Key Gaps (Roadmap)
@@ -601,7 +601,7 @@ IA assistida:                              ~0% complete
 3. **Visual builders** — Rule builder, step editor, template editor (replace JSON forms)
 4. **Approval queue UI** — API exists, needs frontend
 5. **Cross-module navigation** — Task↔origin bidirectional links
-6. **AI-assisted creation** — LLM compile natural language → policy config (future)
+6. **AI-assisted creation** — LLM compile natural language → policy config (implemented: backend + inline UI, needs real API key testing)
 
 ### Autopilot File Map
 | Component | Files |
@@ -625,6 +625,43 @@ IA assistida:                              ~0% complete
 | Autopilot page | `frontend/src/routes/(app)/autopilot/` (+page.svelte, +page.server.js) |
 | Automations page | `frontend/src/routes/(app)/automations/` (+page.svelte, new/) |
 | Campaigns page | `frontend/src/routes/(app)/campaigns/` (+page.svelte, new/, [id]/, analytics/) |
+| AI copilot service | `backend/assistant/ai_service.py` (OpenAI GPT-4o, 3 generation functions) |
+| AI copilot endpoint | `backend/assistant/views.py` (AIGenerateView at `/api/assistant/ai/generate/`) |
+| AI copilot component | `frontend/src/lib/components/autopilot/AICopilot.svelte` (inline AI form widget) |
+
+## AI Copilot (IA Assistida)
+
+### Architecture
+```
+User types natural language prompt → AICopilot.svelte
+  → POST /api/assistant/ai/generate/ { type, prompt, ...context }
+  → ai_service.py builds system prompt with schema + presets + variables
+  → Calls OpenAI GPT-4o (response_format: json_object, temperature: 0.3)
+  → Returns validated JSON config
+  → Frontend fills form fields → user reviews and submits normally
+```
+
+### Generation Types
+| Type | Input Context | Output |
+|------|---------------|--------|
+| `automation` | `automation_type`, `module` | `{ name, config_json }` |
+| `reminder` | `module_key`, `tipo` | `{ name, trigger_type, trigger_config, channel_config, task_config, message_template, approval_policy }` |
+| `campaign` | `campaign_type` | `{ name, subject, body_template }` or `{ name, steps }` |
+
+### Key Files
+- `backend/assistant/ai_service.py` — Core service: 3 generation functions, schema definitions, OpenAI client
+- `backend/assistant/views.py` — `AIGenerateView` at `POST /api/assistant/ai/generate/`
+- `frontend/src/lib/components/autopilot/AICopilot.svelte` — Reusable inline UI component
+- Integrated in: `AutomationCreateForm.svelte`, `CampaignCreateForm.svelte`, `ReminderSection.svelte`
+
+### Environment Variable
+- `OPENAI_API_KEY` — Required for AI copilot. Set via `CRM_OPENAI_API_KEY` in Docker env.
+- If not set, the copilot shows "IA não configurada" gracefully (no errors).
+
+### Known Patterns
+33. **AI copilot graceful degradation**: If `OPENAI_API_KEY` not set, `AIGenerateView` returns `{"error": "IA não configurada..."}` with HTTP 422. The `AICopilot.svelte` component detects this and shows an info banner instead of an error.
+34. **AI copilot prompt limits**: Max 1000 characters per prompt. Backend validates and rejects longer prompts with HTTP 400.
+35. **AI copilot system prompts**: Each generation type has a specialized system prompt with the exact JSON schema, available variables (from `template_engine.py` whitelist), preset examples (from `presets.py`), and strict rules for Portuguese output.
 
 ## Security Audit Fixes Applied
 

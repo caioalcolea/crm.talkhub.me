@@ -457,3 +457,61 @@ class AutopilotTemplateViewSet(viewsets.ModelViewSet):
         if instance.is_system:
             raise serializers.ValidationError("Modelos do sistema não podem ser removidos.")
         instance.delete()
+
+
+# ── AI Generate (copilot) ──────────────────────────────────────────
+
+
+class AIGenerateView(APIView):
+    """Generate autopilot configs from natural language using OpenAI."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def post(self, request):
+        from assistant.ai_service import (
+            generate_automation_config,
+            generate_campaign_content,
+            generate_reminder_config,
+        )
+
+        generation_type = request.data.get("type")
+        prompt = (request.data.get("prompt") or "").strip()
+
+        if not prompt:
+            return Response(
+                {"error": "Prompt é obrigatório."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(prompt) > 1000:
+            return Response(
+                {"error": "Prompt muito longo (máximo 1000 caracteres)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if generation_type == "automation":
+            result = generate_automation_config(
+                prompt=prompt,
+                automation_type=request.data.get("automation_type", "logic_rule"),
+                module=request.data.get("module"),
+            )
+        elif generation_type == "reminder":
+            result = generate_reminder_config(
+                prompt=prompt,
+                module_key=request.data.get("module_key", "financeiro"),
+                tipo=request.data.get("tipo"),
+            )
+        elif generation_type == "campaign":
+            result = generate_campaign_content(
+                prompt=prompt,
+                campaign_type=request.data.get("campaign_type", "email_blast"),
+            )
+        else:
+            return Response(
+                {"error": "Tipo inválido. Use: automation, reminder, campaign."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "error" in result:
+            return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        return Response(result)

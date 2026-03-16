@@ -560,6 +560,9 @@ export const assistant = {
     const qs = new URLSearchParams({ target_type: targetType, target_id: targetId, ...params }).toString();
     return apiRequest(`/assistant/scheduled-jobs/?${qs}`);
   },
+  async aiGenerate(body) {
+    return apiRequest('/assistant/ai/generate/', { method: 'POST', body });
+  },
 };
 
 /**

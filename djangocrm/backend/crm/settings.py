@@ -410,6 +410,8 @@ if _fernet_key_raw:
         _fernet_key_raw += "=" * (4 - missing_padding)
 FERNET_KEY = _fernet_key_raw
 
+# OpenAI API Key (for AI copilot in autopilot)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 # ============================
 # Sentry — Inicialização incondicional quando SENTRY_DSN presente

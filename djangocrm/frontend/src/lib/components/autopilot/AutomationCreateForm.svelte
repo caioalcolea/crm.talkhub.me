@@ -6,12 +6,18 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Zap, X } from '@lucide/svelte';
   import RuleBuilder from './RuleBuilder.svelte';
+  import AICopilot from './AICopilot.svelte';
 
   let { onCreated = () => {}, onCancel = () => {} } = $props();
 
   let name = $state('');
   let automationType = $state('');
   let configObject = $state({});
+
+  function handleAIGenerated(result) {
+    if (result.name) name = result.name;
+    if (result.config_json) configObject = result.config_json;
+  }
 </script>
 
 <div class="rounded-lg border border-l-4 border-l-primary p-5 space-y-4">
@@ -65,6 +71,12 @@
     </div>
 
     {#if automationType}
+      <AICopilot
+        type="automation"
+        context={{ automation_type: automationType }}
+        onGenerated={handleAIGenerated}
+      />
+
       <RuleBuilder {automationType} bind:config={configObject} />
     {/if}
 
