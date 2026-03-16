@@ -29,12 +29,12 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 ## Módulos CRM
 
 ### Core
-- **Leads** — Pipeline kanban customizável por org (stages, cores, mapeamento), drag-and-drop, conversão para oportunidade/conta
+- **Leads** — Pipeline kanban customizável por org (stages, cores, mapeamento), drag-and-drop, edição inline de stages, reordenação por arrastar, conversão para oportunidade/conta
 - **Contas (Accounts)** — Cadastro de empresas, receita anual, moeda, endereço completo
 - **Contatos (Contacts)** — Pessoas vinculadas a contas, redes sociais, campos TalkHub Omni. Múltiplos emails/telefones por contato (primary + secondary + extras). Merge de contatos com preservação de dados e preview. Detecção automática de duplicatas
 - **Oportunidades (Opportunities)** — Pipeline de vendas com stages, produtos/line items, valor, probabilidade. Integração financeira: ao fechar como GANHO, lançamento RECEBER é criado automaticamente
-- **Casos (Cases)** — Suporte ao cliente, kanban com pipeline customizável por org, SLA e escalação automática
-- **Tarefas (Tasks)** — Kanban com pipeline customizável, calendário, boards customizados, prioridades, status, conta vinculada
+- **Casos (Cases)** — Suporte ao cliente, kanban com pipeline customizável por org, edição inline de stages, reordenação por arrastar, SLA e escalação automática
+- **Tarefas (Tasks)** — Kanban com pipeline customizável, edição inline de stages, reordenação por arrastar, calendário, boards customizados, prioridades, status, conta vinculada
 
 ### Faturamento
 - **Faturas (Invoices)** — Criação, envio, PDF, status (Rascunho→Enviada→Paga), impostos, descontos

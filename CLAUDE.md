@@ -367,7 +367,7 @@ startCoworkSession() → mode='full' → page renders [data-cowork-target]
 | Invoice → Lancamento signal | `backend/invoices/signals.py` (auto-create RECEBER + COGS on Invoice save) |
 | Opportunity → Lancamento signal | `backend/opportunity/signals.py` (auto-create RECEBER on CLOSED_WON) |
 | Financial summary card | `frontend/src/lib/components/financeiro/FinancialSummaryCard.svelte` (entity drawer widget) |
-| Pipeline management | `frontend/src/lib/components/pipeline/PipelineManager.svelte` (shared CRUD for all modules) |
+| Pipeline management | `frontend/src/lib/components/ui/pipeline-manager/PipelineManager.svelte`, `PipelineSettingsDialog.svelte` (shared CRUD, inline stage edit, DnD reorder) |
 | Pipeline visibility | `frontend/src/lib/utils/pipeline-visibility.js` (`filter_visible_pipelines()`) |
 | Autopilot AI tools | `backend/assistant/tools.py` (15 tools: CRUD, search, financial, pipelines) |
 | Autopilot chat | `backend/assistant/views.py` (ChatView, ChatConfirmView) |
@@ -622,6 +622,8 @@ CRM-Financeiro integration:               ~90% complete (signals, dashboard KPIs
 | Notification JWT guard | ✅ Corrigido — polling espera JWT antes de chamar API |
 | Autopilot AI tools expansion | ✅ Implementado — 15 tools (search, pipelines, financeiro) |
 | Recurring Lancamentos fix | ✅ Corrigido — gera 12 meses (era 3), Celery roda 2x/mês |
+| Pipeline CRUD fix (production) | ✅ Corrigido — double JSON.stringify, pipeline data extraction, admin check, tasks handler signatures |
+| Pipeline UX: inline edit + DnD | ✅ Implementado — stage names editable inline, drag-and-drop reorder, stale dialog sync |
 | Visual builders | ⏳ Pendente — Rule builder, step editor, template editor (replace JSON forms) |
 | Cross-module navigation | ⏳ Pendente — Task↔origin bidirectional links |
 
@@ -702,6 +704,12 @@ User types natural language prompt → AICopilot.svelte
 47. **Notification polling JWT guard**: `notifications.svelte.js` checks `getAccessToken()` before `pollUnreadCount()`. Prevents 401 on initial page load when `$effect` in `+layout.svelte` hasn't yet called `initClientAuth()`. Next 10s interval tick succeeds after JWT is set.
 48. **Autopilot AI tools**: `assistant/tools.py` has 15 tools: `create_reminder_policy`, `preview_policy_schedule`, `activate_policy`, `deactivate_policy`, `cancel_job`, `retry_job`, `create_automation`, `create_campaign_draft`, `render_template_preview`, `list_entity_reminders`, `search_contacts`, `search_lancamentos`, `search_leads`, `search_opportunities`, `list_pipelines`, `get_financial_summary`. All read-only tools have `risk: "none"`.
 49. **Template engine single-brace warning**: `render_template()` in `template_engine.py` logs a warning when single-brace `{var}` patterns are detected (should be `{{var}}`). Helps diagnose user-created templates with wrong syntax.
+50. **Pipeline API body serialization**: `apiRequest()` in `api.js` (line 203) already calls `JSON.stringify(body)`. All pipeline handler functions in page components must pass raw objects as `body:`, NOT `JSON.stringify(data)`. Double-stringifying causes Django 400 errors.
+51. **Pipeline data extraction**: Backend pipeline endpoints return `{ pipelines: [...] }`, NOT `{ results: [...] }`. Frontend must check `response.pipelines` (not `response?.results`).
+52. **Admin check pattern (frontend)**: `/api/auth/me/` returns role inside `user.organizations[]` array, not as top-level `user.is_admin`. Use `getCurrentUser()` from `$lib/stores/auth.js` + `user.organizations.some(o => o.role === 'ADMIN')`.
+53. **Tasks pipeline URL pattern**: Tasks stages use flat URLs `/tasks/stages/<id>/` (not nested `/tasks/pipelines/<pid>/stages/<sid>/`). Stage reorder uses `{ stage_ids: [...] }` (not `stage_order`). Handler signatures must match PipelineManager callbacks: `onStageUpdate(stageId, data)` (2 params), `onStageDelete(stageId)` (1 param).
+54. **PipelineSettingsDialog stale state**: `settingsPipeline` in PipelineManager is a `$state` snapshot set on dialog open. After `invalidateAll()` refreshes `pipelines` prop, a `$effect` syncs `settingsPipeline` with the fresh pipeline data so the dialog shows updated stages.
+55. **Stage inline editing + DnD**: PipelineSettingsDialog supports inline stage name editing (Input component + onblur/Enter triggers PATCH) and native HTML5 drag-and-drop reorder via GripVertical handle. Both depend on correct body serialization (gotcha 50).
 
 ## Security Audit Fixes Applied
 
