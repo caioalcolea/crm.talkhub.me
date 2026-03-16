@@ -374,6 +374,7 @@ class LeadPipelineListCreateView(APIView):
         org = request.profile.org
         pipelines = (
             LeadPipeline.objects.filter(org=org, is_active=True)
+            .prefetch_related("stages")
             .annotate(
                 _stage_count=Count("stages"),
                 _lead_count=Count("stages__leads"),
@@ -486,6 +487,13 @@ class LeadPipelineDetailView(APIView):
     )
     def put(self, request, pk):
         """Update pipeline."""
+        return self._update_pipeline(request, pk)
+
+    def patch(self, request, pk):
+        """Partial update pipeline."""
+        return self._update_pipeline(request, pk)
+
+    def _update_pipeline(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -548,7 +556,7 @@ class LeadStageCreateView(APIView):
         org = request.profile.org
         pipeline = get_object_or_404(LeadPipeline, pk=pipeline_pk, org=org)
 
-        serializer = LeadStageSerializer(data=request.data)
+        serializer = LeadStageSerializer(data=request.data, context={"pipeline": pipeline})
         if not serializer.is_valid():
             return Response(
                 {"error": True, "errors": serializer.errors},
@@ -571,6 +579,13 @@ class LeadStageDetailView(APIView):
     )
     def put(self, request, pk):
         """Update stage."""
+        return self._update_stage(request, pk)
+
+    def patch(self, request, pk):
+        """Partial update stage."""
+        return self._update_stage(request, pk)
+
+    def _update_stage(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -637,11 +652,15 @@ class LeadStageReorderView(APIView):
 
         stage_ids = request.data.get("stage_ids", [])
 
-        # Validate all stages belong to this pipeline
-        stages = LeadStage.objects.filter(pipeline=pipeline, id__in=stage_ids)
-        if stages.count() != len(stage_ids):
+        # Validate all stages belong to this pipeline AND cover all stages
+        existing_ids = set(
+            str(sid) for sid in
+            LeadStage.objects.filter(pipeline=pipeline).values_list("id", flat=True)
+        )
+        provided_ids = set(str(sid) for sid in stage_ids)
+        if provided_ids != existing_ids:
             return Response(
-                {"error": "Invalid stage IDs provided"},
+                {"error": "Stage IDs must match all stages in this pipeline"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

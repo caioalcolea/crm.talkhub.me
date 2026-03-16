@@ -221,7 +221,7 @@ class Lancamento(BaseOrgModel):
         ]
 
     def __str__(self):
-        return f"{self.get_tipo_display()} - {self.descricao} ({self.currency} {self.valor_total})"
+        return f"{self.get_tipo_display()} - {self.descricao or ''} ({self.currency} {self.valor_total})"
 
     def save(self, *args, **kwargs):
         # Auto-calculate valor_convertido

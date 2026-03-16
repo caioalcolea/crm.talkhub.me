@@ -266,7 +266,7 @@
 
   async function handleCaseStageUpdate(stageId, stageData) {
     await clientApiRequest(`/cases/stages/${stageId}/`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: stageData
     });
     await invalidateAll();

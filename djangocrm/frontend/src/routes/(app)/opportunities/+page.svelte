@@ -364,7 +364,7 @@
    */
   async function handleStageUpdate(stageId, stageData) {
     await clientApiRequest(`/opportunities/stages/${stageId}/`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: stageData
     });
     await invalidateAll();

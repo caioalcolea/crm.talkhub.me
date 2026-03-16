@@ -64,7 +64,7 @@ def create_lancamento_from_invoice(sender, instance, created, **kwargs):
         lancamento_receber = Lancamento(
             org=instance.org,
             tipo="RECEBER",
-            descricao=f"Fatura {instance.invoice_number} — {instance.invoice_title}",
+            descricao=f"Fatura {instance.invoice_number or 'S/N'} — {instance.invoice_title or ''}",
             currency=instance.currency or "BRL",
             valor_total=instance.total_amount,
             data_primeiro_vencimento=due_date,

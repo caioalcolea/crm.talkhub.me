@@ -536,7 +536,7 @@
 
   async function handleTaskStageUpdate(stageId, stageData) {
     const result = await clientApiRequest(`/tasks/stages/${stageId}/`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: stageData
     });
     await invalidateAll();
