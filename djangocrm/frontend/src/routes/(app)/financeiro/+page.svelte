@@ -54,8 +54,8 @@
         value={formatCurrency(d.total_receber, cur)}
         accentColor="emerald"
       >
-        {#snippet icon({ class: cls })}
-          <ArrowDownCircle class={cls} />
+        {#snippet icon()}
+          <ArrowDownCircle class="size-5" />
         {/snippet}
       </KPICard>
     </button>
@@ -66,8 +66,8 @@
         value={formatCurrency(d.total_pagar, cur)}
         accentColor="rose"
       >
-        {#snippet icon({ class: cls })}
-          <ArrowUpCircle class={cls} />
+        {#snippet icon()}
+          <ArrowUpCircle class="size-5" />
         {/snippet}
       </KPICard>
     </button>
@@ -77,8 +77,8 @@
       value={formatCurrency(d.recebido_no_mes, cur)}
       accentColor="blue"
     >
-      {#snippet icon({ class: cls })}
-        <TrendingUp class={cls} />
+      {#snippet icon()}
+        <TrendingUp class="size-5" />
       {/snippet}
     </KPICard>
 
@@ -87,8 +87,8 @@
       value={formatCurrency(d.pago_no_mes, cur)}
       accentColor="orange"
     >
-      {#snippet icon({ class: cls })}
-        <TrendingDown class={cls} />
+      {#snippet icon()}
+        <TrendingDown class="size-5" />
       {/snippet}
     </KPICard>
 
@@ -97,8 +97,8 @@
       value={formatCurrency(d.total_vencido, cur)}
       accentColor="amber"
     >
-      {#snippet icon({ class: cls })}
-        <AlertTriangle class={cls} />
+      {#snippet icon()}
+        <AlertTriangle class="size-5" />
       {/snippet}
     </KPICard>
 
@@ -107,8 +107,8 @@
       value={formatCurrency(d.saldo, cur)}
       accentColor={d.saldo >= 0 ? 'emerald' : 'rose'}
     >
-      {#snippet icon({ class: cls })}
-        <Wallet class={cls} />
+      {#snippet icon()}
+        <Wallet class="size-5" />
       {/snippet}
     </KPICard>
 
@@ -117,8 +117,8 @@
       value={formatCurrency(d.saldo_projetado_mes || 0, cur)}
       accentColor={(d.saldo_projetado_mes || 0) >= 0 ? 'emerald' : 'rose'}
     >
-      {#snippet icon({ class: cls })}
-        <Calendar class={cls} />
+      {#snippet icon()}
+        <Calendar class="size-5" />
       {/snippet}
     </KPICard>
 
@@ -127,8 +127,8 @@
       value={formatCurrency(d.saldo_projetado_ano || 0, cur)}
       accentColor={(d.saldo_projetado_ano || 0) >= 0 ? 'emerald' : 'rose'}
     >
-      {#snippet icon({ class: cls })}
-        <TrendingUp class={cls} />
+      {#snippet icon()}
+        <TrendingUp class="size-5" />
       {/snippet}
     </KPICard>
 
@@ -140,8 +140,8 @@
           subtitle="{d.proximo_vencimento.descricao} — {formatCurrency(d.proximo_vencimento.valor, cur)}"
           accentColor="violet"
         >
-          {#snippet icon({ class: cls })}
-            <CalendarClock class={cls} />
+          {#snippet icon()}
+            <CalendarClock class="size-5" />
           {/snippet}
         </KPICard>
       </button>
