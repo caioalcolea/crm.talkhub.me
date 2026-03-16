@@ -151,6 +151,9 @@ def build_context_for_parcela(parcela):
         delta = (parcela.data_vencimento - date.today()).days
         context["days_until_due"] = str(delta)
 
+    # payment_link: placeholder until PIX/boleto link generation is implemented
+    context["payment_link"] = ""
+
     return context
 
 

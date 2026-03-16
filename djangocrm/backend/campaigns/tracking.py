@@ -3,11 +3,16 @@ Public tracking endpoints for campaigns (no JWT required).
 
 - TrackingPixelView: GET /track/open/<recipient_id>/ — 1x1 transparent PNG
 - UnsubscribeView: GET /track/unsubscribe/<recipient_id>/ — opt-out
+
+These endpoints are public (no JWT) so they must bypass RLS using raw SQL
+to set org context from the recipient's org_id. Same pattern as webhook_receiver.
+UUID recipient IDs serve as the authentication token (cryptographically hard to guess).
 """
 
 import base64
 import logging
 
+from django.db import connection
 from django.http import HttpResponse
 from django.utils import timezone
 from django.views import View
@@ -23,6 +28,23 @@ TRANSPARENT_PIXEL = base64.b64decode(
 )
 
 
+def _set_rls_for_recipient(recipient_id):
+    """
+    Set RLS context from recipient's org — public endpoints use UUID as auth.
+
+    Uses raw SQL to bypass RLS (since no org context is available yet),
+    then sets app.current_org so subsequent ORM queries work normally.
+    Uses transaction-scoped config (true) so it resets after the request.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT set_config('app.current_org', cr.org_id::text, true) "
+            "FROM campaign_recipient cr WHERE cr.id = %s",
+            [str(recipient_id)]
+        )
+        return cursor.fetchone() is not None
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class TrackingPixelView(View):
     """
@@ -34,6 +56,9 @@ class TrackingPixelView(View):
         from campaigns.models import CampaignRecipient
 
         try:
+            if not _set_rls_for_recipient(recipient_id):
+                return HttpResponse(TRANSPARENT_PIXEL, content_type="image/png")
+
             recipient = CampaignRecipient.objects.select_related(
                 "campaign"
             ).get(id=recipient_id)
@@ -68,6 +93,13 @@ class UnsubscribeView(View):
         from campaigns.models import CampaignRecipient
 
         try:
+            if not _set_rls_for_recipient(recipient_id):
+                return HttpResponse(
+                    "<html><body><h2>Link inválido.</h2></body></html>",
+                    content_type="text/html; charset=utf-8",
+                    status=404,
+                )
+
             recipient = CampaignRecipient.objects.select_related(
                 "contact"
             ).get(id=recipient_id)

@@ -667,6 +667,9 @@ User types natural language prompt → AICopilot.svelte
 35. **AI copilot system prompts**: Each generation type has a specialized system prompt with the exact JSON schema, available variables (from `template_engine.py` whitelist), preset examples (from `presets.py`), and strict rules for Portuguese output.
 36. **Financeiro inline reminder**: TransactionForm has an optional inline reminder config (create mode only). The reminder is created via a second API call AFTER the lancamento is created. If the reminder creation fails, the lancamento is still saved (graceful degradation). The `reminderConfig` prop is `$bindable(null)` — parent reads it after form submit.
 37. **Approval queue tab**: The "Aprovações" tab in `/autopilot` loads pending jobs via `?approval_required=true&status=pending`. The count is loaded on ALL tabs for the badge. Approving sets `approval_required=False` → next Celery Beat picks it up. Rejecting cancels the job.
+38. **Internal dispatch is no-op**: `_dispatch_internal()` in `dispatch.py` only logs — no notifications sent. Presets with `channel_type: "internal"` work because `task_config.enabled=True` creates tasks via `execute_job()`. Internal notifications will be implemented when the notification system is built.
+39. **Campaign tracking RLS bypass**: `TrackingPixelView` and `UnsubscribeView` are public endpoints (no JWT). They use `_set_rls_for_recipient()` with raw SQL to set `app.current_org` from the recipient's org_id before ORM queries. UUID recipient_id serves as the auth token (same pattern as webhook_token). Transaction-scoped config (`true` param) ensures RLS resets after request.
+40. **Template payment_link placeholder**: `payment_link` variable in financeiro context is currently an empty string placeholder. Will be populated when PIX/boleto link generation is implemented.
 
 ## Security Audit Fixes Applied
 
@@ -676,6 +679,7 @@ User types natural language prompt → AICopilot.svelte
 - XSS: hardened `linkify()` regex + `noreferrer` on generated links
 - Webhook HMAC: updated to new Chatwoot signature format
 - Multi-tenant webhook URLs: per-connection `webhook_token` prevents cross-tenant leakage
+- Campaign tracking RLS: public tracking endpoints (`/track/open/`, `/track/unsubscribe/`) use raw SQL to set RLS context from recipient UUID — prevents silent ORM failures from missing org context
 
 ## Credentials (Development)
 
