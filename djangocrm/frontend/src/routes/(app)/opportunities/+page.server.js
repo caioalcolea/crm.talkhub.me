@@ -26,6 +26,10 @@ export async function load({ locals, cookies, url }) {
     throw error(401, 'Contexto de organização é obrigatório');
   }
 
+  // Parse view mode from URL
+  const viewMode = url.searchParams.get('viewMode') || 'table';
+  const pipelineId = url.searchParams.get('pipeline_id') || '';
+
   // Parse pagination params from URL
   const page = parseInt(url.searchParams.get('page') || '1');
   const limit = parseInt(url.searchParams.get('limit') || '10');
@@ -62,8 +66,17 @@ export async function load({ locals, cookies, url }) {
 
     const queryString = queryParams.toString();
 
-    // Fetch opportunities, teams/users, and products from Django API in parallel
-    const [response, teamsUsersResponse, productsResponse] = await Promise.all([
+    // Build kanban query params
+    const kanbanQueryParams = new URLSearchParams();
+    if (filters.search) kanbanQueryParams.append('search', filters.search);
+    if (filters.stage) kanbanQueryParams.append('stage', filters.stage);
+    if (filters.account) kanbanQueryParams.append('account', filters.account);
+    filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
+    if (pipelineId) kanbanQueryParams.append('pipeline_id', pipelineId);
+    const kanbanQueryString = kanbanQueryParams.toString();
+
+    // Fetch opportunities, teams/users, products, kanban data, and pipelines in parallel
+    const [response, teamsUsersResponse, productsResponse, kanbanResponse, pipelinesResponse] = await Promise.all([
       apiRequest(`/opportunities/${queryString ? `?${queryString}` : ''}`, {}, { cookies, org }),
       apiRequest('/users/get-teams-and-users/', {}, { cookies, org }).catch((err) => {
         console.error('Failed to fetch teams/users:', err);
@@ -74,7 +87,21 @@ export async function load({ locals, cookies, url }) {
           console.error('Failed to fetch products:', err);
           return { results: [] };
         }
-      )
+      ),
+      viewMode === 'kanban'
+        ? apiRequest(
+            `/opportunities/kanban/${kanbanQueryString ? `?${kanbanQueryString}` : ''}`,
+            {},
+            { cookies, org }
+          ).catch((err) => {
+            console.error('Failed to fetch kanban data:', err);
+            return null;
+          })
+        : Promise.resolve(null),
+      apiRequest('/opportunities/pipelines/', {}, { cookies, org }).catch((err) => {
+        console.error('Failed to fetch pipelines:', err);
+        return [];
+      })
     ]);
 
     // Handle Django response structure
@@ -237,6 +264,11 @@ export async function load({ locals, cookies, url }) {
     // Get total count from response
     const total = response.opportunities_count || response.count || transformedOpportunities.length;
 
+    // Extract pipelines list
+    const pipelines = Array.isArray(pipelinesResponse)
+      ? pipelinesResponse
+      : pipelinesResponse?.results || [];
+
     return {
       opportunities: transformedOpportunities,
       pagination: {
@@ -254,7 +286,11 @@ export async function load({ locals, cookies, url }) {
         teams,
         products
       },
-      filters
+      filters,
+      viewMode,
+      pipelineId,
+      kanbanData: kanbanResponse,
+      pipelines
     };
   } catch (err) {
     console.error('Error loading opportunities from API:', err);
@@ -444,6 +480,54 @@ export const actions = {
     } catch (err) {
       console.error('Error deleting opportunity:', err);
       return fail(400, { message: err.message || 'Falha na operação' });
+    }
+  },
+
+  // ==========================================================================
+  // KANBAN MOVE ACTION
+  // ==========================================================================
+
+  move: async ({ request, locals, cookies }) => {
+    try {
+      const formData = await request.formData();
+      const opportunityId = formData.get('opportunityId')?.toString();
+      const org = locals.org;
+
+      if (!opportunityId || !org) {
+        return fail(400, { message: 'Dados obrigatórios ausentes' });
+      }
+
+      /** @type {Record<string, any>} */
+      const moveData = {};
+
+      // Pipeline mode: stage UUID
+      const pipelineStageId = formData.get('pipelineStageId')?.toString();
+      if (pipelineStageId) {
+        moveData.pipeline_stage_id = pipelineStageId;
+      }
+
+      // Legacy mode: stage string
+      const stage = formData.get('stage')?.toString();
+      if (stage) {
+        moveData.stage = stage;
+      }
+
+      // Kanban ordering hints
+      const aboveId = formData.get('aboveId')?.toString();
+      const belowId = formData.get('belowId')?.toString();
+      if (aboveId) moveData.above_id = aboveId;
+      if (belowId) moveData.below_id = belowId;
+
+      await apiRequest(
+        `/opportunities/${opportunityId}/move/`,
+        { method: 'PATCH', body: moveData },
+        { cookies, org }
+      );
+
+      return { success: true };
+    } catch (err) {
+      console.error('Error moving opportunity:', err);
+      return fail(400, { message: err.message || 'Falha ao mover' });
     }
   },
 

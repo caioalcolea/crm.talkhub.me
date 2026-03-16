@@ -31,6 +31,8 @@
     Columns
   } from '@lucide/svelte';
   import { TaskKanban } from '$lib/components/ui/task-kanban';
+  import { PipelineManager } from '$lib/components/ui/pipeline-manager';
+  import { apiRequest as clientApiRequest, getCurrentUser } from '$lib/api.js';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
@@ -41,7 +43,6 @@
   import AutomationOriginBadge from '$lib/components/assistant/AutomationOriginBadge.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser } from '$lib/api.js';
   import {
     FilterBar,
     SearchInput,
@@ -258,6 +259,9 @@
       }
     }
     currentUser = getCurrentUser();
+    if (currentUser) {
+      isTaskAdmin = currentUser.role === 'ADMIN' || currentUser.is_admin;
+    }
   });
 
   // Save column visibility when changed
@@ -477,6 +481,82 @@
 
   // Kanban data from server
   const kanbanData = $derived(data.kanbanData);
+
+  // Pipeline state
+  const taskPipelines = $derived(data.pipelines || []);
+  let activeTaskPipelineId = $state(data.pipelineId || '');
+  let isTaskAdmin = $state(false);
+
+  async function handleTaskPipelineSelect(id) {
+    activeTaskPipelineId = id;
+    const url = new URL(window.location.href);
+    if (id) {
+      url.searchParams.set('pipeline_id', id);
+    } else {
+      url.searchParams.delete('pipeline_id');
+    }
+    url.searchParams.set('view', 'kanban');
+    await goto(url.toString(), { invalidateAll: true });
+  }
+
+  async function handleTaskPipelineCreate(pipelineData) {
+    const result = await clientApiRequest('/tasks/pipelines/', {
+      method: 'POST',
+      body: JSON.stringify(pipelineData)
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskPipelineDelete(id) {
+    await clientApiRequest(`/tasks/pipelines/${id}/`, { method: 'DELETE' });
+    if (activeTaskPipelineId === id) {
+      activeTaskPipelineId = '';
+    }
+    await invalidateAll();
+  }
+
+  async function handleTaskPipelineUpdate(id, pipelineData) {
+    const result = await clientApiRequest(`/tasks/pipelines/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(pipelineData)
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskStageCreate(pipelineId, stageData) {
+    const result = await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/`, {
+      method: 'POST',
+      body: JSON.stringify(stageData)
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskStageUpdate(pipelineId, stageId, stageData) {
+    const result = await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/${stageId}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(stageData)
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskStageDelete(pipelineId, stageId) {
+    await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/${stageId}/`, {
+      method: 'DELETE'
+    });
+    await invalidateAll();
+  }
+
+  async function handleTaskStageReorder(pipelineId, stageOrder) {
+    await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/reorder/`, {
+      method: 'POST',
+      body: JSON.stringify({ stage_order: stageOrder })
+    });
+    await invalidateAll();
+  }
 
   // Form references for server actions
   /** @type {HTMLFormElement} */
@@ -1320,6 +1400,24 @@
       {/snippet}
     </CrmTable>
   {:else if viewMode === 'kanban'}
+    <div class="mb-4">
+      <PipelineManager
+        pipelines={taskPipelines}
+        activePipelineId={activeTaskPipelineId}
+        onSelect={handleTaskPipelineSelect}
+        onCreate={handleTaskPipelineCreate}
+        onDelete={handleTaskPipelineDelete}
+        onUpdate={handleTaskPipelineUpdate}
+        onStageCreate={handleTaskStageCreate}
+        onStageUpdate={handleTaskStageUpdate}
+        onStageDelete={handleTaskStageDelete}
+        onStageReorder={handleTaskStageReorder}
+        canManage={isTaskAdmin}
+        teams={data.formOptions?.teams || []}
+        users={data.formOptions?.users || []}
+        module="tasks"
+      />
+    </div>
     <TaskKanban
       data={kanbanData}
       loading={false}

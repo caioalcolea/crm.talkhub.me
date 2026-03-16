@@ -25,6 +25,7 @@ export async function load({ url, cookies, locals }) {
 
   // Parse view mode from URL
   const viewMode = url.searchParams.get('viewMode') || 'kanban';
+  const pipelineId = url.searchParams.get('pipeline_id') || '';
 
   // Parse pagination params from URL
   const page = parseInt(url.searchParams.get('page') || '1');
@@ -64,13 +65,14 @@ export async function load({ url, cookies, locals }) {
     filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
     if (filters.created_at_gte) kanbanQueryParams.append('created_at__gte', filters.created_at_gte);
     if (filters.created_at_lte) kanbanQueryParams.append('created_at__lte', filters.created_at_lte);
+    if (pipelineId) kanbanQueryParams.append('pipeline_id', pipelineId);
 
     // Django leads endpoint with filter params
     const queryString = queryParams.toString();
     const kanbanQueryString = kanbanQueryParams.toString();
 
     // Fetch data based on view mode + form options for drawer
-    const [response, tagsResponse, kanbanResponse, usersResponse, teamsResponse, contactsResponse, accountsResponse] =
+    const [response, tagsResponse, kanbanResponse, usersResponse, teamsResponse, contactsResponse, accountsResponse, pipelinesResponse] =
       await Promise.all([
         apiRequest(`/leads/${queryString ? `?${queryString}` : ''}`, {}, { cookies, org }),
         apiRequest('/tags/', {}, { cookies, org }).catch(() => ({ tags: [] })),
@@ -87,7 +89,8 @@ export async function load({ url, cookies, locals }) {
         })),
         apiRequest('/teams/', {}, { cookies, org }).catch(() => ({ teams: [] })),
         apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({ contact_obj_list: [] })),
-        apiRequest('/accounts/', {}, { cookies, org }).catch(() => ({}))
+        apiRequest('/accounts/', {}, { cookies, org }).catch(() => ({})),
+        apiRequest('/leads/pipelines/', {}, { cookies, org }).catch(() => [])
       ]);
 
     // Handle Django response format
@@ -212,7 +215,9 @@ export async function load({ url, cookies, locals }) {
       },
       filters,
       viewMode,
+      pipelineId,
       kanbanData: kanbanResponse,
+      pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.results || [],
       filterOptions: {
         statuses: [
           { value: 'ASSIGNED', label: 'Atribuído' },

@@ -261,6 +261,14 @@ class CasePipeline(OrgScopedMixin, BaseModel):
         default=False,
         help_text="Auto-escalate cases when SLA is breached",
     )
+    visible_to_teams = models.ManyToManyField(
+        Teams, blank=True, related_name="visible_case_pipelines",
+        help_text="Se vazio = visível para todos. Se preenchido = apenas estes times.",
+    )
+    visible_to_users = models.ManyToManyField(
+        Profile, blank=True, related_name="visible_case_pipelines",
+        help_text="Se vazio = visível para todos. Se preenchido = apenas estes usuários.",
+    )
 
     class Meta:
         verbose_name = "Case Pipeline"

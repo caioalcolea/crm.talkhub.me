@@ -368,7 +368,9 @@ class LeadPipelineListCreateView(APIView):
         tags=["Lead Pipelines"], responses={200: LeadPipelineListSerializer(many=True)}
     )
     def get(self, request):
-        """List all pipelines for the organization."""
+        """List all pipelines for the organization (filtered by visibility)."""
+        from common.pipeline_visibility import filter_visible_pipelines
+
         org = request.profile.org
         pipelines = (
             LeadPipeline.objects.filter(org=org, is_active=True)
@@ -377,6 +379,7 @@ class LeadPipelineListCreateView(APIView):
                 _lead_count=Count("stages__leads"),
             )
         )
+        pipelines = filter_visible_pipelines(pipelines, request.profile)
         serializer = LeadPipelineListSerializer(pipelines, many=True)
         return Response({"pipelines": serializer.data})
 

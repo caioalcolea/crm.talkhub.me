@@ -24,6 +24,8 @@
     Columns
   } from '@lucide/svelte';
   import { CaseKanban } from '$lib/components/ui/case-kanban';
+  import { PipelineManager } from '$lib/components/ui/pipeline-manager';
+  import { apiRequest as clientApiRequest, getCurrentUser } from '$lib/api.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { PageHeader } from '$lib/components/layout';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -34,7 +36,6 @@
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser } from '$lib/api.js';
   import {
     FilterBar,
     SearchInput,
@@ -210,6 +211,88 @@
 
   // Kanban data from server
   const kanbanData = $derived(data.kanbanData);
+  const casePipelines = $derived(data.pipelines || []);
+  let activeCasePipelineId = $state('');
+
+  $effect(() => {
+    if (data.pipelineId) activeCasePipelineId = data.pipelineId;
+  });
+
+  async function handleCasePipelineSelect(pipelineId) {
+    activeCasePipelineId = pipelineId;
+    const url = new URL($page.url);
+    if (pipelineId) {
+      url.searchParams.set('pipeline_id', pipelineId);
+    } else {
+      url.searchParams.delete('pipeline_id');
+    }
+    url.searchParams.set('view', 'kanban');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+  }
+
+  async function handleCasePipelineCreate(pipelineData) {
+    await clientApiRequest('/cases/pipelines/', {
+      method: 'POST',
+      body: JSON.stringify(pipelineData)
+    });
+    toast.success('Pipeline criado');
+    await invalidateAll();
+  }
+
+  async function handleCasePipelineDelete(pipelineId) {
+    await clientApiRequest(`/cases/pipelines/${pipelineId}/`, { method: 'DELETE' });
+    toast.success('Pipeline excluído');
+    if (activeCasePipelineId === pipelineId) activeCasePipelineId = '';
+    await invalidateAll();
+  }
+
+  async function handleCasePipelineUpdate(pipelineId, pipelineData) {
+    await clientApiRequest(`/cases/pipelines/${pipelineId}/`, {
+      method: 'PUT',
+      body: JSON.stringify(pipelineData)
+    });
+    toast.success('Pipeline atualizado');
+    await invalidateAll();
+  }
+
+  async function handleCaseStageCreate(pipelineId, stageData) {
+    await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/`, {
+      method: 'POST',
+      body: JSON.stringify(stageData)
+    });
+    toast.success('Estágio criado');
+    await invalidateAll();
+  }
+
+  async function handleCaseStageUpdate(stageId, stageData) {
+    await clientApiRequest(`/cases/stages/${stageId}/`, {
+      method: 'PUT',
+      body: JSON.stringify(stageData)
+    });
+    await invalidateAll();
+  }
+
+  async function handleCaseStageDelete(stageId) {
+    await clientApiRequest(`/cases/stages/${stageId}/`, { method: 'DELETE' });
+    toast.success('Estágio removido');
+    await invalidateAll();
+  }
+
+  async function handleCaseStageReorder(pipelineId, stageOrder) {
+    await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/reorder/`, {
+      method: 'POST',
+      body: JSON.stringify({ stage_ids: stageOrder })
+    });
+    await invalidateAll();
+  }
+
+  let isCaseAdmin = $state(false);
+  onMount(async () => {
+    try {
+      const user = await getCurrentUser();
+      isCaseAdmin = user?.is_admin || user?.role === 'ADMIN' || false;
+    } catch { /* ignore */ }
+  });
 
   // Dropdown options from server (loaded with page data)
   const formOptions = $derived(data.formOptions || {});
@@ -1027,6 +1110,24 @@
       onLimitChange={handleLimitChange}
     />
   {:else}
+    <div class="mb-4">
+      <PipelineManager
+        pipelines={casePipelines}
+        activePipelineId={activeCasePipelineId}
+        onSelect={handleCasePipelineSelect}
+        onCreate={handleCasePipelineCreate}
+        onDelete={handleCasePipelineDelete}
+        onUpdate={handleCasePipelineUpdate}
+        onStageCreate={handleCaseStageCreate}
+        onStageUpdate={handleCaseStageUpdate}
+        onStageDelete={handleCaseStageDelete}
+        onStageReorder={handleCaseStageReorder}
+        canManage={isCaseAdmin}
+        teams={data.formOptions?.teams || []}
+        users={data.formOptions?.users || []}
+        module="cases"
+      />
+    </div>
     <CaseKanban
       data={kanbanData}
       loading={false}
