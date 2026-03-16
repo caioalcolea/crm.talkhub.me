@@ -1,7 +1,7 @@
 # 📊 DIAGRAMA COMPLETO DO CRM — TalkHub
 
-> Validado código a código em todas as 17 apps Django.
-> Última atualização: 2026-03-11 (Chatwoot connector completo + contact dedup + sync all statuses).
+> Validado código a código em todas as 20 apps Django.
+> Última atualização: 2026-03-16 (Autopilot completo: assistant + automations + campaigns + approval queue UI + AI copilot).
 
 ---
 
@@ -1214,5 +1214,8 @@ Security:       security_audit_log
 | channels | ✅ Ativo | channel_config |
 | conversations | ✅ Ativo | conversation, message |
 | salesforce | ✅ Ativo | (sem models próprios — usa integrations) |
-| automations | ⚠️ Não em INSTALLED_APPS | automation, automation_log |
-| campaigns | ⚠️ Não em INSTALLED_APPS | campaign, campaign_* |
+| automations | ✅ Ativo | automation, automation_log |
+| campaigns | ✅ Ativo | campaign, campaign_audience, campaign_recipient, campaign_step |
+| assistant | ✅ Ativo | reminder_policy, scheduled_job, channel_dispatch, task_link, autopilot_template |
+| cowork | ✅ Ativo | cowork_room, cowork_room_member |
+| chatwoot | ✅ Ativo | (usa conversations + integrations, sem models próprios) |

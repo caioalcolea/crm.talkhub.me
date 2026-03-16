@@ -76,6 +76,7 @@
   // ---- Runs helpers ----
   const jobStatusIcons = { completed: CheckCircle, failed: XCircle, pending: Timer, locked: RefreshCw, cancelled: XCircle, skipped: AlertTriangle };
   const jobStatusColors = { completed: 'text-emerald-600', failed: 'text-rose-600', pending: 'text-amber-600', locked: 'text-blue-600', cancelled: 'text-muted-foreground', skipped: 'text-muted-foreground' };
+  const runTabMap = { reminder: 'reminders', automation: 'rules', campaign_step: 'campaigns' };
 
   function formatDate(d) {
     if (!d) return '-';
@@ -585,9 +586,8 @@
                   {/if}
                 </td>
                 <td class="max-w-[200px] truncate px-3 py-2.5 text-xs">
-                  {@const tabMap = { reminder: 'reminders', automation: 'rules', campaign_step: 'campaigns' }}
-                  {#if tabMap[run.type]}
-                    <a href="/autopilot?tab={tabMap[run.type]}" class="text-primary hover:underline">{run.name || '-'}</a>
+                  {#if runTabMap[run.type]}
+                    <a href="/autopilot?tab={runTabMap[run.type]}" class="text-primary hover:underline">{run.name || '-'}</a>
                   {:else}
                     {run.name || '-'}
                   {/if}

@@ -20,7 +20,7 @@ Production: https://crm.talkhub.me
 ```
 crm.talkhub.me/
 ├── djangocrm/
-│   ├── backend/              # Django REST API (18 apps)
+│   ├── backend/              # Django REST API (20 apps)
 │   │   ├── crm/              # Settings, URLs, Celery, WSGI
 │   │   ├── common/           # Auth, RLS, middleware, permissions, admin panel, invitations
 │   │   ├── accounts/         # Companies
@@ -38,8 +38,9 @@ crm.talkhub.me/
 │   │   ├── chatwoot/         # Chatwoot connector + channel provider
 │   │   ├── talkhub_omni/     # TalkHub Omni connector
 │   │   ├── cowork/           # Sala Cowork Django models + API
-│   │   ├── automations/      # Workflow automations
-│   │   ├── campaigns/        # Marketing campaigns
+│   │   ├── automations/      # Workflow automations (rules engine)
+│   │   ├── campaigns/        # Marketing campaigns (email blast, WhatsApp, nurture)
+│   │   ├── assistant/        # Autopilot scheduler, reminders, templates, AI copilot
 │   │   └── requirements.txt
 │   └── frontend/             # SvelteKit app
 │       ├── src/
@@ -595,13 +596,15 @@ Frontend (autopilot UI):                   ~85% complete
 IA assistida:                              ~80% complete (backend + inline UI done, needs testing with real API key)
 ```
 
-### Key Gaps (Roadmap)
-1. **Financeiro inline UI** — Reminder config block inside TransactionForm (implemented: inline create with presets, AI copilot, manual config)
-2. **Unified /autopilot UX** — Replace /automations and /campaigns with single central
-3. **Visual builders** — Rule builder, step editor, template editor (replace JSON forms)
-4. **Approval queue UI** — Implemented: "Aprovações" tab in autopilot with approve/reject actions + badge count
-5. **Cross-module navigation** — Task↔origin bidirectional links
-6. **AI-assisted creation** — LLM compile natural language → policy config (implemented: backend + inline UI, needs real API key testing)
+### Roadmap Status
+| Feature | Status |
+|---------|--------|
+| Financeiro inline UI | ✅ Implementado — inline create com presets, AI copilot, manual config no TransactionForm |
+| Unified /autopilot UX | ✅ Implementado — 6 tabs (Regras, Lembretes, Campanhas, Aprovações, Execuções, Modelos) |
+| Approval queue UI | ✅ Implementado — tab "Aprovações" com approve/reject + badge count |
+| AI-assisted creation | ✅ Implementado — backend + inline UI (needs real API key testing) |
+| Visual builders | ⏳ Pendente — Rule builder, step editor, template editor (replace JSON forms) |
+| Cross-module navigation | ⏳ Pendente — Task↔origin bidirectional links |
 
 ### Autopilot File Map
 | Component | Files |

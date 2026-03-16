@@ -68,6 +68,28 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 - **Whiteboard colaborativo** — Quadro branco compartilhado com desenho em tempo real via Socket.io
 - **Acesso de convidados** — Endpoint público gera JWT temporário (30min) sem necessidade de conta
 
+### TalkHub Autopilot — Automações, Lembretes e Campanhas
+Três apps formam o sistema de automação unificado, acessíveis via `/autopilot` (6 tabs):
+
+- **assistant** — Core scheduler + reminder engine
+  - ReminderPolicy: quando/como disparar lembretes para qualquer entidade (5 trigger types: due_date, recurring, cron, relative_date, event_plus_offset)
+  - ScheduledJob: fila de execução com idempotência, lock otimista (SELECT FOR UPDATE SKIP LOCKED)
+  - 19 preset templates (financeiro, leads, oportunidades, casos, tarefas, faturas)
+  - Template engine com interpolação de variáveis por módulo (`{{variable_name}}`)
+  - Approval queue: jobs com `approval_policy="manual"` ficam pendentes até aprovação manual
+- **automations** — Rule engine com 3 tipos de automação
+  - `routine`: Celery Beat (cron/intervalo)
+  - `logic_rule`: Django signals (post_save) com condições e ações
+  - `social`: Webhooks TalkHub Omni
+- **campaigns** — Motor de campanhas de marketing
+  - `email_blast`: envio em lote (50/batch, 1s throttle) com tracking pixel + unsubscribe
+  - `whatsapp_broadcast`: envio em lote (20/batch, 2s throttle) via TalkHub Omni
+  - `nurture_sequence`: multi-step com delay entre steps, tracking por destinatário
+- **AI Copilot (IA Assistida)** — Geração de configurações via LLM
+  - Prompt em linguagem natural → JSON config validado (automações, lembretes, campanhas)
+  - Backend: OpenAI GPT-4o (via `CRM_OPENAI_API_KEY`), graceful degradation se não configurado
+  - Frontend: componente `AICopilot.svelte` integrado nos formulários de criação
+
 ### Metas (Goals)
 - **Metas de Vendas** — Definição por usuário, período, tipo (receita/leads/negócios), acompanhamento de progresso
 
@@ -153,7 +175,7 @@ crm.talkhub.me/
 │   └── backup-db.sh                 # pg_dump + upload S3 opcional
 │
 ├── djangocrm/
-│   ├── backend/                      # Django REST API (18 apps)
+│   ├── backend/                      # Django REST API (20 apps)
 │   │   ├── crm/                      # Projeto Django (settings, urls, wsgi, celery)
 │   │   ├── common/                   # Auth, RLS, middleware, models base, convites, admin panel
 │   │   ├── accounts/                 # Empresas
@@ -171,6 +193,9 @@ crm.talkhub.me/
 │   │   ├── chatwoot/                 # Conector Chatwoot (webhook + sync + channel provider)
 │   │   ├── talkhub_omni/             # Conector TalkHub Omni
 │   │   ├── cowork/                   # Sala Cowork (models, views, serializers, urls)
+│   │   ├── automations/              # Regras de automação (routine, logic_rule, social)
+│   │   ├── campaigns/                # Campanhas (email blast, WhatsApp broadcast, nurture)
+│   │   ├── assistant/                # Autopilot: scheduler, lembretes, templates, AI copilot
 │   │   ├── templates/                # Templates de email (pt-BR)
 │   │   └── requirements.txt
 │   │
@@ -191,6 +216,9 @@ crm.talkhub.me/
 │       │   │   │   ├── cowork/        # Sala Cowork (iframe wrapper)
 │       │   │   │   ├── users/         # Gestão de membros + convites
 │       │   │   │   ├── admin-panel/   # Painel superadmin
+│       │   │   │   ├── autopilot/     # Central de automações (6 tabs)
+│       │   │   │   ├── automations/  # Regras de automação (legacy)
+│       │   │   │   ├── campaigns/    # Campanhas de marketing
 │       │   │   │   ├── settings/      # Configurações + integrações
 │       │   │   │   └── profile/
 │       │   │   └── (no-layout)/      # Login, org, verify
@@ -200,6 +228,9 @@ crm.talkhub.me/
 │       │   │   │   ├── layout/       # AppSidebar, Header
 │       │   │   │   ├── integrations/ # IntegrationCard, TalkHubChannelConfig
 │       │   │   │   ├── conversations/# ConversationTimeline
+│       │   │   │   ├── autopilot/   # AICopilot, AutomationCreateForm, CampaignCreateForm
+│       │   │   │   ├── cowork/      # CoworkPiP (persistent iframe overlay)
+│       │   │   │   ├── financeiro/  # TransactionForm, CashFlowChart, DailyCashFlowChart
 │       │   │   │   └── dashboard/    # MetricsWidget, AgentProductivity, SyncHealthPanel
 │       │   │   ├── constants/
 │       │   │   ├── stores/
@@ -446,6 +477,7 @@ export const actions = {
 | `CELERY_BROKER_URL` | `redis://crm_redis:6379/0` |
 | `AWS_BUCKET_NAME` / `AWS_S3_ENDPOINT_URL` | MinIO S3 |
 | `EMAIL_HOST` / `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | SMTP |
+| `CRM_OPENAI_API_KEY` | AI Copilot — OpenAI GPT-4o (opcional, graceful degradation) |
 | `TIME_ZONE` | `America/Sao_Paulo` |
 
 ### Frontend
