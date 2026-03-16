@@ -231,59 +231,94 @@
   }
 
   async function handleCasePipelineCreate(pipelineData) {
-    await clientApiRequest('/cases/pipelines/', {
-      method: 'POST',
-      body: pipelineData
-    });
-    toast.success('Pipeline criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest('/cases/pipelines/', {
+        method: 'POST',
+        body: pipelineData
+      });
+      toast.success('Pipeline criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar pipeline');
+      throw err;
+    }
   }
 
   async function handleCasePipelineDelete(pipelineId) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/`, { method: 'DELETE' });
-    toast.success('Pipeline excluído');
-    if (activeCasePipelineId === pipelineId) activeCasePipelineId = '';
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/`, { method: 'DELETE' });
+      toast.success('Pipeline excluído');
+      if (activeCasePipelineId === pipelineId) activeCasePipelineId = '';
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao excluir pipeline');
+      throw err;
+    }
   }
 
   async function handleCasePipelineUpdate(pipelineId, pipelineData) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/`, {
-      method: 'PUT',
-      body: pipelineData
-    });
-    toast.success('Pipeline atualizado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/`, {
+        method: 'PUT',
+        body: pipelineData
+      });
+      toast.success('Pipeline atualizado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar pipeline');
+      throw err;
+    }
   }
 
   async function handleCaseStageCreate(pipelineId, stageData) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/`, {
-      method: 'POST',
-      body: stageData
-    });
-    toast.success('Estágio criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/`, {
+        method: 'POST',
+        body: stageData
+      });
+      toast.success('Estágio criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar estágio');
+      throw err;
+    }
   }
 
   async function handleCaseStageUpdate(stageId, stageData) {
-    await clientApiRequest(`/cases/stages/${stageId}/`, {
-      method: 'PATCH',
-      body: stageData
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/stages/${stageId}/`, {
+        method: 'PATCH',
+        body: stageData
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar estágio');
+      throw err;
+    }
   }
 
   async function handleCaseStageDelete(stageId) {
-    await clientApiRequest(`/cases/stages/${stageId}/`, { method: 'DELETE' });
-    toast.success('Estágio removido');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/stages/${stageId}/`, { method: 'DELETE' });
+      toast.success('Estágio removido');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao remover estágio');
+      throw err;
+    }
   }
 
   async function handleCaseStageReorder(pipelineId, stageOrder) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/reorder/`, {
-      method: 'POST',
-      body: { stage_ids: stageOrder }
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/reorder/`, {
+        method: 'POST',
+        body: { stage_ids: stageOrder }
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao reordenar estágios');
+      throw err;
+    }
   }
 
   let isCaseAdmin = $state(false);

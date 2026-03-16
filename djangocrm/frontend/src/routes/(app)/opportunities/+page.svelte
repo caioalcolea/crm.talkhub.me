@@ -306,12 +306,17 @@
    * @param {{ name: string, create_default_stages: boolean }} pipelineData
    */
   async function handleCreatePipeline(pipelineData) {
-    await clientApiRequest('/opportunities/pipelines/', {
-      method: 'POST',
-      body: pipelineData
-    });
-    toast.success('Pipeline criado com sucesso');
-    await invalidateAll();
+    try {
+      await clientApiRequest('/opportunities/pipelines/', {
+        method: 'POST',
+        body: pipelineData
+      });
+      toast.success('Pipeline criado com sucesso');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar pipeline');
+      throw err;
+    }
   }
 
   /**
@@ -319,14 +324,19 @@
    * @param {string} pipelineId
    */
   async function handleDeletePipeline(pipelineId) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
-      method: 'DELETE'
-    });
-    toast.success('Pipeline excluído');
-    if (activePipelineId === pipelineId) {
-      activePipelineId = '';
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
+        method: 'DELETE'
+      });
+      toast.success('Pipeline excluído');
+      if (activePipelineId === pipelineId) {
+        activePipelineId = '';
+      }
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao excluir pipeline');
+      throw err;
     }
-    await invalidateAll();
   }
 
   /**
@@ -335,12 +345,17 @@
    * @param {any} pipelineData
    */
   async function handleUpdatePipeline(pipelineId, pipelineData) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
-      method: 'PUT',
-      body: pipelineData
-    });
-    toast.success('Pipeline atualizado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
+        method: 'PUT',
+        body: pipelineData
+      });
+      toast.success('Pipeline atualizado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar pipeline');
+      throw err;
+    }
   }
 
   /**
@@ -349,12 +364,17 @@
    * @param {any} stageData
    */
   async function handleStageCreate(pipelineId, stageData) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/`, {
-      method: 'POST',
-      body: stageData
-    });
-    toast.success('Estágio criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/`, {
+        method: 'POST',
+        body: stageData
+      });
+      toast.success('Estágio criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar estágio');
+      throw err;
+    }
   }
 
   /**
@@ -363,11 +383,16 @@
    * @param {any} stageData
    */
   async function handleStageUpdate(stageId, stageData) {
-    await clientApiRequest(`/opportunities/stages/${stageId}/`, {
-      method: 'PATCH',
-      body: stageData
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/stages/${stageId}/`, {
+        method: 'PATCH',
+        body: stageData
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar estágio');
+      throw err;
+    }
   }
 
   /**
@@ -375,11 +400,16 @@
    * @param {string} stageId
    */
   async function handleStageDelete(stageId) {
-    await clientApiRequest(`/opportunities/stages/${stageId}/`, {
-      method: 'DELETE'
-    });
-    toast.success('Estágio removido');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/stages/${stageId}/`, {
+        method: 'DELETE'
+      });
+      toast.success('Estágio removido');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao remover estágio');
+      throw err;
+    }
   }
 
   /**
@@ -388,11 +418,16 @@
    * @param {string[]} stageOrder
    */
   async function handleStageReorder(pipelineId, stageOrder) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/reorder/`, {
-      method: 'POST',
-      body: { stage_ids: stageOrder }
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/reorder/`, {
+        method: 'POST',
+        body: { stage_ids: stageOrder }
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao reordenar estágios');
+      throw err;
+    }
   }
 
   // Check if user is admin (can manage pipelines)
