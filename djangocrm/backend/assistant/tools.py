@@ -341,6 +341,148 @@ def search_contacts(org, user, params):
     }
 
 
+def search_leads(org, user, params):
+    """Search leads by name, status, or source (read-only)."""
+    from leads.models import Lead
+
+    query = params.get("query", "").strip()
+    status = params.get("status")
+    limit = min(params.get("limit", 20), 50)
+
+    from django.db.models import Q
+
+    qs = Lead.objects.filter(org=org)
+    if query and len(query) >= 2:
+        qs = qs.filter(
+            Q(first_name__icontains=query)
+            | Q(last_name__icontains=query)
+            | Q(company__name__icontains=query)
+            | Q(email__icontains=query)
+        )
+    if status:
+        qs = qs.filter(status=status)
+
+    leads = qs.values(
+        "id", "first_name", "last_name", "status", "email"
+    )[:limit]
+
+    return {
+        "result": {"leads": list(leads), "count": len(leads)},
+        "warnings": [],
+    }
+
+
+def search_opportunities(org, user, params):
+    """Search opportunities by name, stage, or account (read-only)."""
+    from opportunity.models import Opportunity
+
+    query = params.get("query", "").strip()
+    stage = params.get("stage")
+    limit = min(params.get("limit", 20), 50)
+
+    from django.db.models import Q
+
+    qs = Opportunity.objects.filter(org=org)
+    if query and len(query) >= 2:
+        qs = qs.filter(
+            Q(name__icontains=query) | Q(account__name__icontains=query)
+        )
+    if stage:
+        qs = qs.filter(stage=stage)
+
+    opps = qs.values(
+        "id", "name", "stage", "amount", "currency", "closed_on"
+    )[:limit]
+
+    return {
+        "result": {"opportunities": list(opps), "count": len(opps)},
+        "warnings": [],
+    }
+
+
+def list_pipelines(org, user, params):
+    """List kanban pipelines for a module (read-only)."""
+    module = params.get("module", "leads")
+
+    pipeline_models = {
+        "leads": "leads.LeadPipeline",
+        "cases": "cases.CasePipeline",
+        "tasks": "tasks.TaskPipeline",
+        "opportunities": "opportunity.OpportunityPipeline",
+    }
+
+    model_path = pipeline_models.get(module)
+    if not model_path:
+        return {"error": f"Módulo sem pipeline: {module}"}
+
+    from django.apps import apps
+    app_label, model_name = model_path.split(".")
+    PipelineModel = apps.get_model(app_label, model_name)
+
+    pipelines = PipelineModel.objects.filter(org=org).values(
+        "id", "name", "is_default"
+    )
+
+    return {
+        "result": {"pipelines": list(pipelines), "module": module},
+        "warnings": [],
+    }
+
+
+def get_financial_summary(org, user, params):
+    """Get financial dashboard KPIs (read-only)."""
+    from financeiro.models import Parcela
+    from django.db.models import Sum, Q
+    from datetime import date
+
+    today = date.today()
+    year = params.get("year", today.year)
+
+    base_qs = Parcela.objects.filter(
+        lancamento__org=org,
+    ).exclude(status="CANCELADO")
+
+    year_qs = base_qs.filter(lancamento__competencia_ano=year)
+
+    a_receber = year_qs.filter(
+        lancamento__tipo="RECEBER", status="ABERTO"
+    ).aggregate(total=Sum("valor_parcela"))["total"] or 0
+
+    a_pagar = year_qs.filter(
+        lancamento__tipo="PAGAR", status="ABERTO"
+    ).aggregate(total=Sum("valor_parcela"))["total"] or 0
+
+    vencido = base_qs.filter(
+        status="ABERTO", data_vencimento__lt=today
+    ).aggregate(total=Sum("valor_parcela"))["total"] or 0
+
+    recebido_mes = base_qs.filter(
+        lancamento__tipo="RECEBER",
+        status="PAGO",
+        data_pagamento__year=today.year,
+        data_pagamento__month=today.month,
+    ).aggregate(total=Sum("valor_parcela"))["total"] or 0
+
+    pago_mes = base_qs.filter(
+        lancamento__tipo="PAGAR",
+        status="PAGO",
+        data_pagamento__year=today.year,
+        data_pagamento__month=today.month,
+    ).aggregate(total=Sum("valor_parcela"))["total"] or 0
+
+    return {
+        "result": {
+            "a_receber": float(a_receber),
+            "a_pagar": float(a_pagar),
+            "vencido": float(vencido),
+            "recebido_mes": float(recebido_mes),
+            "pago_mes": float(pago_mes),
+            "saldo_mes": float(recebido_mes - pago_mes),
+        },
+        "warnings": [],
+    }
+
+
 def search_lancamentos(org, user, params):
     """Search financial transactions (read-only)."""
     from financeiro.models import Lancamento
@@ -487,6 +629,42 @@ TOOL_REGISTRY = {
             "status": "ABERTO|PAGO|CANCELADO (optional)",
             "vencendo_em_dias": "int (optional)",
         },
+    },
+    "search_leads": {
+        "fn": search_leads,
+        "risk": "none",
+        "description": "Busca leads por nome, email ou status",
+        "requires_approval": False,
+        "params_schema": {
+            "query": "string (min 2 chars, optional)",
+            "status": "string (optional)",
+            "limit": "int (default 20)",
+        },
+    },
+    "search_opportunities": {
+        "fn": search_opportunities,
+        "risk": "none",
+        "description": "Busca oportunidades por nome, estágio ou conta",
+        "requires_approval": False,
+        "params_schema": {
+            "query": "string (min 2 chars, optional)",
+            "stage": "string (optional)",
+            "limit": "int (default 20)",
+        },
+    },
+    "list_pipelines": {
+        "fn": list_pipelines,
+        "risk": "none",
+        "description": "Lista pipelines/quadros kanban de um módulo (leads, cases, tasks, opportunities)",
+        "requires_approval": False,
+        "params_schema": {"module": "leads|cases|tasks|opportunities"},
+    },
+    "get_financial_summary": {
+        "fn": get_financial_summary,
+        "risk": "none",
+        "description": "Resumo financeiro: a receber, a pagar, vencido, saldo do mês",
+        "requires_approval": False,
+        "params_schema": {"year": "int (optional, default current year)"},
     },
 }
 

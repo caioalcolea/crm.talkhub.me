@@ -6,7 +6,7 @@
  */
 
 import { browser } from '$app/environment';
-import { assistant } from '$lib/api.js';
+import { assistant, getAccessToken } from '$lib/api.js';
 
 let notifications = $state([]);
 let unreadCount = $state(0);
@@ -30,6 +30,8 @@ async function loadNotifications(params = {}) {
 
 async function pollUnreadCount() {
   if (!browser) return;
+  // Skip if JWT not yet initialized (avoids 401 on first mount)
+  if (!getAccessToken()) return;
   try {
     const res = await assistant.unreadCount();
     if (res && typeof res.count === 'number') {

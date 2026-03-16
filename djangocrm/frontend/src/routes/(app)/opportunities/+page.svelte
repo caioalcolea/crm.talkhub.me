@@ -35,6 +35,7 @@
   import { CommentSection } from '$lib/components/ui/comment-section';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import FinancialSummaryCard from '$lib/components/financeiro/FinancialSummaryCard.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
@@ -1911,6 +1912,11 @@
       <!-- Execution History Section -->
       <div class="mt-4 border-t border-[var(--border-default)] pt-4">
         <EntityRunsHistory targetType="opportunity.opportunity" targetId={selectedRow.id} />
+      </div>
+
+      <!-- Financial Summary -->
+      <div class="mt-6 border-t border-[var(--border-default)] pt-4">
+        <FinancialSummaryCard entityId={selectedRow.id} entityType="opportunity" />
       </div>
 
       <!-- Comments Section -->

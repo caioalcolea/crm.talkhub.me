@@ -5,8 +5,11 @@ Uses a whitelist per module to prevent injection of sensitive data.
 Variables are referenced as {{variable_name}} in templates.
 """
 
+import logging
 import re
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 # Allowed variables per module (whitelist)
 ALLOWED_VARIABLES = {
@@ -108,7 +111,19 @@ def render_template(template_str, context, module_key):
             return str(context[key])
         return match.group(0)
 
-    return _VAR_PATTERN.sub(replacer, template_str)
+    result = _VAR_PATTERN.sub(replacer, template_str)
+
+    # Warn about single-brace patterns that look like template variables
+    single_brace = re.findall(r"(?<!\{)\{(\w+)\}(?!\})", result)
+    if single_brace:
+        logger.warning(
+            "Template has single-brace vars that won't be replaced: %s "
+            "(use {{var}} double braces). Template: %s",
+            single_brace,
+            template_str[:200],
+        )
+
+    return result
 
 
 def build_context_for_parcela(parcela):
