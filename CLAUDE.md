@@ -580,7 +580,7 @@ Campaigns integrate with assistant's ScheduledJob via `job_generator.py` (idempo
 ### Frontend Routes
 | Route | Purpose |
 |-------|---------|
-| `/autopilot` | Unified dashboard (5 tabs: Rules, Reminders, Campaigns, Runs, Templates) |
+| `/autopilot` | Unified dashboard (6 tabs: Rules, Reminders, Campaigns, Approvals, Runs, Templates) |
 | `/automations` | Legacy list + create |
 | `/automations/new` | Create automation (JSON config) |
 | `/campaigns` | List + pause/resume |
@@ -590,8 +590,8 @@ Campaigns integrate with assistant's ScheduledJob via `job_generator.py` (idempo
 
 ### Implementation Status
 ```
-Backend (assistant+automations+campaigns): ~90% complete
-Frontend (autopilot UI):                   ~40% complete
+Backend (assistant+automations+campaigns): ~95% complete
+Frontend (autopilot UI):                   ~85% complete
 IA assistida:                              ~80% complete (backend + inline UI done, needs testing with real API key)
 ```
 
@@ -599,7 +599,7 @@ IA assistida:                              ~80% complete (backend + inline UI do
 1. **Financeiro inline UI** — Reminder config block inside TransactionForm (implemented: inline create with presets, AI copilot, manual config)
 2. **Unified /autopilot UX** — Replace /automations and /campaigns with single central
 3. **Visual builders** — Rule builder, step editor, template editor (replace JSON forms)
-4. **Approval queue UI** — API exists, needs frontend
+4. **Approval queue UI** — Implemented: "Aprovações" tab in autopilot with approve/reject actions + badge count
 5. **Cross-module navigation** — Task↔origin bidirectional links
 6. **AI-assisted creation** — LLM compile natural language → policy config (implemented: backend + inline UI, needs real API key testing)
 
@@ -663,6 +663,7 @@ User types natural language prompt → AICopilot.svelte
 34. **AI copilot prompt limits**: Max 1000 characters per prompt. Backend validates and rejects longer prompts with HTTP 400.
 35. **AI copilot system prompts**: Each generation type has a specialized system prompt with the exact JSON schema, available variables (from `template_engine.py` whitelist), preset examples (from `presets.py`), and strict rules for Portuguese output.
 36. **Financeiro inline reminder**: TransactionForm has an optional inline reminder config (create mode only). The reminder is created via a second API call AFTER the lancamento is created. If the reminder creation fails, the lancamento is still saved (graceful degradation). The `reminderConfig` prop is `$bindable(null)` — parent reads it after form submit.
+37. **Approval queue tab**: The "Aprovações" tab in `/autopilot` loads pending jobs via `?approval_required=true&status=pending`. The count is loaded on ALL tabs for the badge. Approving sets `approval_required=False` → next Celery Beat picks it up. Rejecting cancels the job.
 
 ## Security Audit Fixes Applied
 

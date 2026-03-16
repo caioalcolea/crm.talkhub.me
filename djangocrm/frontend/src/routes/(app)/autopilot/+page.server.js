@@ -56,6 +56,9 @@ export async function load({ locals, cookies, url }) {
       promises.runs = apiRequest(`/assistant/runs/?${params.toString()}`, {}, cookies).catch(() => []);
     }
 
+    // Always load pending approval count for badge
+    promises.pendingApprovals = apiRequest('/assistant/scheduled-jobs/?approval_required=true&status=pending', {}, cookies).catch(() => []);
+
     if (tab === 'templates') {
       promises.templates = apiRequest('/assistant/templates/', {}, cookies).catch(() => []);
     }
@@ -294,6 +297,17 @@ export const actions = {
       return { success: true, toast: 'Lembrete excluído.' };
     } catch (err) {
       return fail(400, { error: 'Erro ao excluir.' });
+    }
+  },
+
+  approveJob: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const id = formData.get('id');
+    try {
+      await apiRequest(`/assistant/scheduled-jobs/${id}/approve/`, { method: 'POST' }, cookies);
+      return { success: true, toast: 'Job aprovado. Será executado em breve.' };
+    } catch (err) {
+      return fail(400, { error: 'Erro ao aprovar job.' });
     }
   },
 

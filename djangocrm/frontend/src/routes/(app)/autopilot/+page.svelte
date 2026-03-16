@@ -10,7 +10,8 @@
   import {
     Plus, Zap, Clock, GitBranch, Share2, Power, History, Trash2, Pencil,
     Bell, Megaphone, Mail, MessageCircle, BarChart3, Pause, Play,
-    FileCode, RefreshCw, CheckCircle, XCircle, AlertTriangle, Timer
+    FileCode, RefreshCw, CheckCircle, XCircle, AlertTriangle, Timer,
+    ShieldCheck, Check
   } from '@lucide/svelte';
 
   let { data, form } = $props();
@@ -44,10 +45,16 @@
     goto(`/autopilot?tab=${tab}`);
   }
 
+  // Count pending approvals for badge
+  let pendingApprovalCount = $derived(
+    Array.isArray(data.pendingApprovals) ? data.pendingApprovals.length : 0
+  );
+
   const tabs = [
     { key: 'rules', label: 'Regras', icon: Zap },
     { key: 'reminders', label: 'Lembretes', icon: Bell },
     { key: 'campaigns', label: 'Campanhas', icon: Megaphone },
+    { key: 'approvals', label: 'Aprovações', icon: ShieldCheck },
     { key: 'runs', label: 'Execuções', icon: History },
     { key: 'templates', label: 'Modelos', icon: FileCode },
   ];
@@ -125,6 +132,11 @@
       >
         <tab.icon class="size-4" />
         {tab.label}
+        {#if tab.key === 'approvals' && pendingApprovalCount > 0}
+          <span class="ml-1 inline-flex items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+            {pendingApprovalCount}
+          </span>
+        {/if}
       </button>
     {/each}
   </div>
@@ -399,6 +411,118 @@
           {/each}
         </div>
       {/if}
+    {/if}
+
+  <!-- Tab content: Approvals -->
+  {:else if activeTab === 'approvals'}
+    {@const approvals = Array.isArray(data.pendingApprovals) ? data.pendingApprovals : []}
+    {#if approvals.length === 0}
+      <div class="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
+        <ShieldCheck class="text-muted-foreground mb-4 size-12" strokeWidth={1} />
+        <p class="text-muted-foreground text-lg font-medium">Nenhum job pendente de aprovação</p>
+        <p class="text-muted-foreground mt-1 text-sm">Jobs com política de aprovação manual aparecerão aqui.</p>
+      </div>
+    {:else}
+      <div class="mb-3 flex items-center justify-between">
+        <p class="text-sm text-muted-foreground">
+          <ShieldCheck class="mr-1 inline size-4 text-amber-500" />
+          {approvals.length} job{approvals.length === 1 ? '' : 's'} aguardando aprovação
+        </p>
+      </div>
+      <div class="space-y-3">
+        {#each approvals as job (job.id)}
+          <div class="rounded-lg border p-4 bg-amber-50/50 dark:bg-amber-950/10 border-amber-200 dark:border-amber-800">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0 flex-1 space-y-1.5">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" class="text-[10px] border-amber-300 text-amber-700 dark:text-amber-400">
+                    <Timer class="mr-1 size-3" />
+                    Pendente
+                  </Badge>
+                  {#if job.job_type === 'reminder'}
+                    <Badge variant="secondary" class="text-[10px]">
+                      <Bell class="mr-1 size-3" /> Lembrete
+                    </Badge>
+                  {:else if job.job_type === 'automation'}
+                    <Badge variant="secondary" class="text-[10px]">
+                      <Zap class="mr-1 size-3" /> Automação
+                    </Badge>
+                  {:else if job.job_type === 'campaign_step'}
+                    <Badge variant="secondary" class="text-[10px]">
+                      <Megaphone class="mr-1 size-3" /> Campanha
+                    </Badge>
+                  {/if}
+                  {#if job.source_type}
+                    <span class="text-[10px] text-muted-foreground">{job.source_type}</span>
+                  {/if}
+                </div>
+
+                <div class="text-sm">
+                  <span class="font-medium">Agendado para:</span>
+                  <span class="text-muted-foreground ml-1">{formatDate(job.due_at)}</span>
+                </div>
+
+                {#if job.target_type}
+                  <div class="text-xs text-muted-foreground">
+                    <span class="font-medium">Alvo:</span> {job.target_type}
+                    {#if job.target_object_id}
+                      <span class="ml-1 font-mono text-[10px]">{job.target_object_id.slice(0, 8)}...</span>
+                    {/if}
+                  </div>
+                {/if}
+
+                {#if job.payload?.message_template}
+                  <div class="mt-1 rounded border bg-background p-2 text-xs text-muted-foreground">
+                    {job.payload.message_template}
+                  </div>
+                {/if}
+
+                <div class="text-[10px] text-muted-foreground">
+                  Criado em {formatDate(job.created_at)}
+                  {#if job.attempt_count > 0}
+                    &middot; {job.attempt_count}/{job.max_attempts || 3} tentativas
+                  {/if}
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-1.5 shrink-0">
+                <form method="POST" action="?/approveJob" use:enhance={() => {
+                  return async ({ result, update }) => {
+                    if (result.type === 'success') {
+                      toast.success(result.data?.toast || 'Job aprovado.');
+                      await update();
+                    } else if (result.type === 'failure') {
+                      toast.error(result.data?.error || 'Erro ao aprovar.');
+                    }
+                  };
+                }}>
+                  <input type="hidden" name="id" value={job.id} />
+                  <Button type="submit" size="sm" class="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
+                    <Check class="size-3.5" />
+                    Aprovar
+                  </Button>
+                </form>
+                <form method="POST" action="?/cancelJob" use:enhance={() => {
+                  return async ({ result, update }) => {
+                    if (result.type === 'success') {
+                      toast.success(result.data?.toast || 'Job cancelado.');
+                      await update();
+                    } else if (result.type === 'failure') {
+                      toast.error(result.data?.error || 'Erro ao cancelar.');
+                    }
+                  };
+                }}>
+                  <input type="hidden" name="id" value={job.id} />
+                  <Button type="submit" variant="outline" size="sm" class="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
+                    <XCircle class="size-3.5" />
+                    Rejeitar
+                  </Button>
+                </form>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
     {/if}
 
   <!-- Tab content: Runs -->
