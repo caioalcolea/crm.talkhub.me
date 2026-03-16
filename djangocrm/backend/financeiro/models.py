@@ -296,11 +296,12 @@ class Lancamento(BaseOrgModel):
 
         Parcela.objects.bulk_create(parcelas)
 
-    def generate_recurring_parcelas(self, months_ahead=3):
+    def generate_recurring_parcelas(self, months_ahead=12):
         """
         Generate parcelas for recurring lancamentos.
         Each parcela = full valor_total (not divided).
-        Generates up to months_ahead months into the future.
+        Generates up to months_ahead months into the future (default 12).
+        Called on creation and periodically by Celery to extend the window.
         """
         import calendar
 

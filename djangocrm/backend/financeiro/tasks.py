@@ -140,8 +140,9 @@ def _update_lancamento_parcela(transaction):
 @shared_task(name="financeiro.tasks.generate_recurring_parcelas")
 def generate_recurring_parcelas():
     """
-    Monthly: generate next parcelas for active recurring lancamentos.
-    Generates up to 3 months ahead so users always see upcoming installments.
+    Periodic: generate next parcelas for active recurring lancamentos.
+    Generates up to 12 months ahead so users always see upcoming installments.
+    Runs on the 1st and 15th of each month.
     """
     from common.models import Org
     from financeiro.models import Lancamento
@@ -165,7 +166,7 @@ def generate_recurring_parcelas():
                 continue
 
             before = lanc.parcelas.count()
-            lanc.generate_recurring_parcelas(months_ahead=3)
+            lanc.generate_recurring_parcelas(months_ahead=12)
             after = lanc.parcelas.count()
             generated = after - before
             if generated > 0:
