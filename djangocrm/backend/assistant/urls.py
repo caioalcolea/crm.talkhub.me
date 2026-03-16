@@ -1,7 +1,8 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
 from assistant.views import (
-    AutopilotTemplateListView,
+    AutopilotTemplateViewSet,
     EntityReminderListCreateView,
     PresetsView,
     ReminderPolicyActivateView,
@@ -18,6 +19,9 @@ from assistant.views import (
 )
 
 app_name = "api_assistant"
+
+router = DefaultRouter()
+router.register("templates", AutopilotTemplateViewSet, basename="template")
 
 urlpatterns = [
     # Reminder Policies
@@ -73,8 +77,8 @@ urlpatterns = [
     path("runs/", RunsListView.as_view(), name="runs_list"),
     # Presets
     path("presets/", PresetsView.as_view(), name="presets"),
-    # Templates
-    path("templates/", AutopilotTemplateListView.as_view(), name="template_list"),
+    # Router (templates CRUD)
+    path("", include(router.urls)),
     # Entity reminders (generic)
     path(
         "reminders-for/<str:target_type>/<uuid:target_id>/",

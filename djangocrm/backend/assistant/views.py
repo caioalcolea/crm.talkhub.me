@@ -1,7 +1,7 @@
 import logging
 
 from django.contrib.contenttypes.models import ContentType
-from rest_framework import status
+from rest_framework import serializers, status, viewsets
 from rest_framework.generics import (
     ListCreateAPIView,
     RetrieveUpdateDestroyAPIView,
@@ -418,20 +418,32 @@ class EntityReminderListCreateView(APIView):
 # ── Autopilot Templates ─────────────────────────────────────────────
 
 
-class AutopilotTemplateListView(APIView):
+class AutopilotTemplateViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasOrgContext]
+    serializer_class = AutopilotTemplateSerializer
 
-    def get(self, request):
-        org = request.profile.org
-        qs = AutopilotTemplate.objects.filter(org=org)
+    def get_queryset(self):
+        qs = AutopilotTemplate.objects.filter(org=self.request.profile.org)
 
-        module_key = request.query_params.get("module_key")
+        module_key = self.request.query_params.get("module_key")
         if module_key:
             qs = qs.filter(module_key=module_key)
 
-        template_type = request.query_params.get("template_type")
+        template_type = self.request.query_params.get("template_type")
         if template_type:
             qs = qs.filter(template_type=template_type)
 
-        serializer = AutopilotTemplateSerializer(qs.order_by("-created_at"), many=True)
-        return Response(serializer.data)
+        return qs.order_by("-created_at")
+
+    def perform_create(self, serializer):
+        serializer.save(org=self.request.profile.org)
+
+    def perform_update(self, serializer):
+        if serializer.instance.is_system:
+            raise serializers.ValidationError("Modelos do sistema não podem ser editados.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.is_system:
+            raise serializers.ValidationError("Modelos do sistema não podem ser removidos.")
+        instance.delete()

@@ -318,4 +318,15 @@ export const actions = {
       return fail(400, { error: 'Erro ao cancelar.' });
     }
   },
+
+  deleteTemplate: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const id = formData.get('id');
+    try {
+      await apiRequest(`/assistant/templates/${id}/`, { method: 'DELETE' }, cookies);
+      return { success: true, toast: 'Modelo excluído.' };
+    } catch (err) {
+      return fail(400, { error: 'Erro ao excluir modelo.' });
+    }
+  },
 };

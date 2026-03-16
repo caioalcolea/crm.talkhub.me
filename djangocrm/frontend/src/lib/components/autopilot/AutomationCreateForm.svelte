@@ -4,38 +4,14 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Zap, X } from '@lucide/svelte';
+  import RuleBuilder from './RuleBuilder.svelte';
 
   let { onCreated = () => {}, onCancel = () => {} } = $props();
 
   let name = $state('');
   let automationType = $state('');
-  let configJson = $state('{}');
-
-  const configTemplates = {
-    routine: JSON.stringify({
-      schedule_cron: 60,
-      action_type: 'send_notification',
-      action_params: { message: 'Rotina executada' }
-    }, null, 2),
-    logic_rule: JSON.stringify({
-      trigger_event: 'lead.created',
-      conditions: [],
-      actions: [{ action_type: 'send_notification', action_params: { message: 'Novo lead criado' } }]
-    }, null, 2),
-    social: JSON.stringify({
-      channel_type: 'whatsapp',
-      social_event: 'message_received',
-      actions: [{ action_type: 'auto_reply', action_params: { message: 'Obrigado pelo contato!' } }]
-    }, null, 2)
-  };
-
-  $effect(() => {
-    if (automationType && configTemplates[automationType]) {
-      configJson = configTemplates[automationType];
-    }
-  });
+  let configObject = $state({});
 </script>
 
 <div class="rounded-lg border border-l-4 border-l-primary p-5 space-y-4">
@@ -55,7 +31,7 @@
           toast.success('Automação criada com sucesso.');
           name = '';
           automationType = '';
-          configJson = '{}';
+          configObject = {};
           onCreated();
           await update();
         } else if (result.type === 'failure') {
@@ -89,26 +65,7 @@
     </div>
 
     {#if automationType}
-      <div class="space-y-2">
-        <Label for="create-auto-config">Configuração (JSON)</Label>
-        <Textarea
-          id="create-auto-config"
-          name="config_json"
-          bind:value={configJson}
-          rows={10}
-          class="font-mono text-xs"
-          placeholder={'{}'}
-        />
-        <p class="text-muted-foreground text-xs">
-          {#if automationType === 'routine'}
-            Campos: schedule_cron (minutos ou crontab), action_type, action_params
-          {:else if automationType === 'logic_rule'}
-            Campos: trigger_event, conditions (field, operator, value), actions
-          {:else if automationType === 'social'}
-            Campos: channel_type, social_event, actions
-          {/if}
-        </p>
-      </div>
+      <RuleBuilder {automationType} bind:config={configObject} />
     {/if}
 
     <div class="flex justify-end gap-3">

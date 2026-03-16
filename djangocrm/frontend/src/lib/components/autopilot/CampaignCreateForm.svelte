@@ -5,7 +5,9 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Textarea } from '$lib/components/ui/textarea/index.js';
-  import { Megaphone, Plus, Trash2, X } from '@lucide/svelte';
+  import { Megaphone, X } from '@lucide/svelte';
+  import StepEditor from './StepEditor.svelte';
+  import VariablePicker from './VariablePicker.svelte';
 
   let { onCreated = () => {}, onCancel = () => {} } = $props();
 
@@ -18,21 +20,12 @@
     { step_order: 1, channel: 'email', subject: '', body_template: '', delay_hours: 0 }
   ]);
 
-  function addStep() {
-    steps = [
-      ...steps,
-      { step_order: steps.length + 1, channel: 'email', subject: '', body_template: '', delay_hours: 24 }
-    ];
-  }
-
-  function removeStep(index) {
-    steps = steps.filter((_, i) => i !== index).map((s, i) => ({ ...s, step_order: i + 1 }));
-  }
-
   let stepsJson = $derived(JSON.stringify(steps));
   let canSubmit = $derived(name.trim() !== '' && campaignType !== '');
 
-  const variableHints = '{{contact.first_name}}, {{contact.last_name}}, {{contact.email}}, {{contact.organization}}';
+  function insertBodyVar(v) {
+    bodyTemplate += v;
+  }
 </script>
 
 <div class="rounded-lg border border-l-4 border-l-primary p-5 space-y-4">
@@ -93,7 +86,10 @@
         <Input id="create-camp-subject" name="subject" bind:value={subject} placeholder="Ex: Oferta especial para você" />
       </div>
       <div class="space-y-2">
-        <Label for="create-camp-body">Corpo do Email (HTML)</Label>
+        <div class="flex items-center justify-between">
+          <Label for="create-camp-body">Corpo do Email (HTML)</Label>
+          <VariablePicker moduleKey="campaigns" onInsert={insertBodyVar} />
+        </div>
         <Textarea
           id="create-camp-body"
           name="body_template"
@@ -101,13 +97,15 @@
           rows={8}
           placeholder={'<h1>Olá {{contact.first_name}}</h1>...'}
         />
-        <p class="text-muted-foreground text-xs">Variáveis disponíveis: {variableHints}</p>
       </div>
     {/if}
 
     {#if campaignType === 'whatsapp_broadcast'}
       <div class="space-y-2">
-        <Label for="create-camp-wa-body">Mensagem</Label>
+        <div class="flex items-center justify-between">
+          <Label for="create-camp-wa-body">Mensagem</Label>
+          <VariablePicker moduleKey="campaigns" onInsert={insertBodyVar} />
+        </div>
         <Textarea
           id="create-camp-wa-body"
           name="body_template"
@@ -115,7 +113,6 @@
           rows={5}
           placeholder={'Olá {{contact.first_name}}, temos uma novidade...'}
         />
-        <p class="text-muted-foreground text-xs">Variáveis disponíveis: {variableHints}</p>
       </div>
     {/if}
 
@@ -124,49 +121,8 @@
       <input type="hidden" name="steps" value={stepsJson} />
 
       <div class="space-y-3">
-        <div class="flex items-center justify-between">
-          <Label>Etapas da Sequência</Label>
-          <Button type="button" variant="outline" size="sm" class="gap-1.5" onclick={addStep}>
-            <Plus class="size-3.5" /> Adicionar Etapa
-          </Button>
-        </div>
-
-        {#each steps as step, i (step.step_order)}
-          <div class="space-y-3 rounded-md border p-3">
-            <div class="flex items-center justify-between">
-              <span class="text-sm font-medium">Etapa {step.step_order}</span>
-              {#if steps.length > 1}
-                <Button type="button" variant="ghost" size="sm" class="text-destructive h-7 px-2" onclick={() => removeStep(i)}>
-                  <Trash2 class="size-3.5" />
-                </Button>
-              {/if}
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <Label>Canal</Label>
-                <select bind:value={step.channel} class="border-input bg-background flex h-9 w-full rounded-md border px-3 py-1 text-sm">
-                  <option value="email">Email</option>
-                  <option value="whatsapp">WhatsApp</option>
-                </select>
-              </div>
-              <div class="space-y-1">
-                <Label>Atraso (horas)</Label>
-                <Input type="number" min="0" bind:value={step.delay_hours} placeholder="0" />
-              </div>
-            </div>
-            {#if step.channel === 'email'}
-              <div class="space-y-1">
-                <Label>Assunto</Label>
-                <Input bind:value={step.subject} placeholder="Assunto do email" />
-              </div>
-            {/if}
-            <div class="space-y-1">
-              <Label>Mensagem</Label>
-              <Textarea bind:value={step.body_template} rows={3} placeholder={'Olá {{contact.first_name}}...'} />
-            </div>
-          </div>
-        {/each}
-        <p class="text-muted-foreground text-xs">Variáveis disponíveis: {variableHints}</p>
+        <Label>Etapas da Sequência</Label>
+        <StepEditor bind:steps />
       </div>
     {/if}
 

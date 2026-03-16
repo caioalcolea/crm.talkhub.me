@@ -6,7 +6,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { PageHeader } from '$lib/components/layout';
-  import { AutomationCreateForm, AutomationEditForm, CampaignCreateForm, CampaignDetail } from '$lib/components/autopilot';
+  import { AutomationCreateForm, AutomationEditForm, CampaignCreateForm, CampaignDetail, TemplateEditor } from '$lib/components/autopilot';
   import {
     Plus, Zap, Clock, GitBranch, Share2, Power, History, Trash2, Pencil,
     Bell, Megaphone, Mail, MessageCircle, BarChart3, Pause, Play,
@@ -21,6 +21,8 @@
   let showCreateAutomation = $state(false);
   let showCreateCampaign = $state(false);
   let editingAutomationId = $state(null);
+  let showTemplateEditor = $state(false);
+  let editingTemplate = $state(null);
 
   // Auto-open create panels from URL param (redirects)
   $effect(() => {
@@ -91,6 +93,10 @@
           <Plus class="size-4" /> Nova Regra
         </Button>
       {/if}
+    {:else if activeTab === 'templates'}
+      <Button class="gap-2" size="sm" onclick={() => { showTemplateEditor = !showTemplateEditor; editingTemplate = null; }}>
+        <Plus class="size-4" /> Novo Modelo
+      </Button>
     {:else if activeTab === 'campaigns'}
       {#if data.campaignDetail}
         <Button variant="outline" size="sm" onclick={() => goto('/autopilot?tab=campaigns')}>
@@ -487,16 +493,30 @@
   <!-- Tab content: Templates -->
   {:else if activeTab === 'templates'}
     {@const templates = Array.isArray(data.templates) ? data.templates : (data.templates?.results || [])}
-    {#if templates.length === 0}
+
+    <!-- Inline create/edit panel -->
+    {#if showTemplateEditor}
+      <div transition:slide={{ duration: 200 }}>
+        <TemplateEditor
+          template={editingTemplate}
+          onSaved={() => { showTemplateEditor = false; editingTemplate = null; }}
+          onCancel={() => { showTemplateEditor = false; editingTemplate = null; }}
+        />
+      </div>
+    {/if}
+
+    {#if templates.length === 0 && !showTemplateEditor}
       <div class="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
         <FileCode class="text-muted-foreground mb-4 size-12" strokeWidth={1} />
         <p class="text-muted-foreground text-lg font-medium">Nenhum modelo encontrado</p>
-        <p class="text-muted-foreground mt-1 text-sm">Modelos de automação e lembretes aparecerão aqui.</p>
+        <Button class="mt-4 gap-2" variant="outline" onclick={() => { showTemplateEditor = true; editingTemplate = null; }}>
+          <Plus class="size-4" /> Novo Modelo
+        </Button>
       </div>
     {:else}
       <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {#each templates as template (template.id)}
-          <div class="rounded-lg border p-4">
+          <div class="rounded-lg border p-4 transition-shadow hover:shadow-md">
             <div class="flex items-start justify-between">
               <div>
                 <h3 class="text-sm font-semibold">{template.name}</h3>
@@ -514,6 +534,19 @@
             </div>
             {#if template.message_template}
               <p class="text-muted-foreground mt-3 line-clamp-2 text-xs">{template.message_template}</p>
+            {/if}
+            {#if !template.is_system}
+              <div class="mt-3 flex items-center gap-1.5 border-t pt-3">
+                <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" onclick={() => { editingTemplate = template; showTemplateEditor = true; }}>
+                  <Pencil class="size-3" /> Editar
+                </Button>
+                <form method="POST" action="?/deleteTemplate" use:enhance class="ml-auto">
+                  <input type="hidden" name="id" value={template.id} />
+                  <Button type="submit" variant="ghost" size="sm" class="text-destructive h-7 gap-1 px-2 text-xs">
+                    <Trash2 class="size-3" />
+                  </Button>
+                </form>
+              </div>
             {/if}
           </div>
         {/each}

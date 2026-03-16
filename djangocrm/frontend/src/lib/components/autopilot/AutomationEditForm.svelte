@@ -5,16 +5,16 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Save, X } from '@lucide/svelte';
+  import RuleBuilder from './RuleBuilder.svelte';
 
   let { automation, onSaved = () => {}, onCancel = () => {} } = $props();
 
   let name = $state(automation.name || '');
-  let configJson = $state(
+  let configObject = $state(
     typeof automation.config_json === 'string'
-      ? automation.config_json
-      : JSON.stringify(automation.config_json || {}, null, 2)
+      ? JSON.parse(automation.config_json || '{}')
+      : (automation.config_json || {})
   );
   let saving = $state(false);
 
@@ -24,19 +24,11 @@
       return;
     }
 
-    let parsedConfig = {};
-    try {
-      parsedConfig = JSON.parse(configJson);
-    } catch {
-      toast.error('Configuração JSON inválida.');
-      return;
-    }
-
     saving = true;
     try {
       await apiRequest(`/automations/${automation.id}/`, {
         method: 'PATCH',
-        body: { name: name.trim(), config_json: parsedConfig }
+        body: { name: name.trim(), config_json: configObject }
       });
       toast.success('Automação atualizada.');
       onSaved();
@@ -62,15 +54,7 @@
     <Input id="edit-auto-name-{automation.id}" bind:value={name} placeholder="Nome da automação" />
   </div>
 
-  <div class="space-y-2">
-    <Label for="edit-auto-config-{automation.id}">Configuração (JSON)</Label>
-    <Textarea
-      id="edit-auto-config-{automation.id}"
-      bind:value={configJson}
-      rows={8}
-      class="font-mono text-xs"
-    />
-  </div>
+  <RuleBuilder automationType={automation.automation_type} bind:config={configObject} />
 
   <div class="flex justify-end gap-2">
     <Button variant="outline" size="sm" onclick={onCancel}>Cancelar</Button>

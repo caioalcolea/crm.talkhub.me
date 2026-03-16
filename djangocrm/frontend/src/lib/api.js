@@ -551,6 +551,7 @@ export const assistant = {
   async createReminder(targetType, targetId, body) {
     return apiRequest(`/assistant/reminders-for/${targetType}/${targetId}/`, { method: 'POST', body });
   },
+  templates: createCrudApi('assistant/templates'),
 };
 
 /**
