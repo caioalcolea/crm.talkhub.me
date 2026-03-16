@@ -596,7 +596,7 @@ IA assistida:                              ~80% complete (backend + inline UI do
 ```
 
 ### Key Gaps (Roadmap)
-1. **Financeiro inline UI** — Reminder config block inside TransactionForm (backend API ready)
+1. **Financeiro inline UI** — Reminder config block inside TransactionForm (implemented: inline create with presets, AI copilot, manual config)
 2. **Unified /autopilot UX** — Replace /automations and /campaigns with single central
 3. **Visual builders** — Rule builder, step editor, template editor (replace JSON forms)
 4. **Approval queue UI** — API exists, needs frontend
@@ -662,6 +662,7 @@ User types natural language prompt → AICopilot.svelte
 33. **AI copilot graceful degradation**: If `OPENAI_API_KEY` not set, `AIGenerateView` returns `{"error": "IA não configurada..."}` with HTTP 422. The `AICopilot.svelte` component detects this and shows an info banner instead of an error.
 34. **AI copilot prompt limits**: Max 1000 characters per prompt. Backend validates and rejects longer prompts with HTTP 400.
 35. **AI copilot system prompts**: Each generation type has a specialized system prompt with the exact JSON schema, available variables (from `template_engine.py` whitelist), preset examples (from `presets.py`), and strict rules for Portuguese output.
+36. **Financeiro inline reminder**: TransactionForm has an optional inline reminder config (create mode only). The reminder is created via a second API call AFTER the lancamento is created. If the reminder creation fails, the lancamento is still saved (graceful degradation). The `reminderConfig` prop is `$bindable(null)` — parent reads it after form submit.
 
 ## Security Audit Fixes Applied
 

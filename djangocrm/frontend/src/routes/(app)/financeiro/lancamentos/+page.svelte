@@ -9,7 +9,7 @@
   import { orgSettings } from '$lib/stores/org.js';
   import { Plus, Search, X, Repeat } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { financeiro } from '$lib/api.js';
+  import { financeiro, assistant } from '$lib/api.js';
 
   let { data } = $props();
   let cur = $derived($orgSettings.default_currency || 'BRL');
@@ -17,6 +17,7 @@
   let showCreateModal = $state(false);
   let loading = $state(false);
   let searchInput = $state('');
+  let reminderConfig = $state(null);
 
   $effect(() => {
     if (data?.filters?.search) searchInput = data.filters.search;
@@ -83,12 +84,13 @@
       numero_parcelas: 1,
       data_primeiro_vencimento: ''
     };
+    reminderConfig = null;
   }
 
   async function handleCreate(fd) {
     loading = true;
     try {
-      await financeiro.lancamentos.create({
+      const created = await financeiro.lancamentos.create({
         ...fd,
         plano_de_contas: fd.plano_de_contas || null,
         account: fd.account || null,
@@ -97,8 +99,23 @@
         invoice: fd.invoice || null,
         forma_pagamento: fd.forma_pagamento || null
       });
+
+      // Create reminder if configured inline
+      if (reminderConfig && created?.id) {
+        try {
+          await assistant.createReminder('financeiro.lancamento', created.id, {
+            ...reminderConfig,
+            name: reminderConfig.name || `Lembrete ${fd.tipo === 'RECEBER' ? 'Receber' : 'Pagar'}`,
+          });
+        } catch {
+          // Reminder creation failed — lancamento was still created successfully
+          console.warn('Lembrete não pôde ser criado automaticamente.');
+        }
+      }
+
       showCreateModal = false;
       resetForm();
+      reminderConfig = null;
       invalidateAll();
     } catch (err) {
       alert('Erro ao criar: ' + err.message);
@@ -282,6 +299,7 @@
     </Dialog.Header>
     <TransactionForm
       bind:formData
+      bind:reminderConfig
       formOptions={data.formOptions}
       mode="create"
       {loading}
