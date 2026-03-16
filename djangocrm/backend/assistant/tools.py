@@ -235,8 +235,54 @@ def render_template_preview(org, user, params):
     module_key = params.get("module_key", "system")
     entity_id = params.get("entity_id")
 
+    # Build context from entity if provided
+    context = {}
+    if entity_id:
+        try:
+            from assistant.tasks import _build_context_for_job
+
+            # Try to resolve entity and build context using module-specific builders
+            module_builders = {
+                "financeiro": ("financeiro", "parcela"),
+                "leads": ("leads", "lead"),
+                "tasks": ("tasks", "task"),
+                "opportunity": ("opportunity", "opportunity"),
+                "cases": ("cases", "case"),
+                "invoices": ("invoices", "invoice"),
+            }
+            if module_key in module_builders:
+                app_label, model_name = module_builders[module_key]
+                from django.contrib.contenttypes.models import ContentType
+
+                ct = ContentType.objects.get(app_label=app_label, model=model_name)
+                model_class = ct.model_class()
+                if model_class:
+                    entity = model_class.objects.filter(pk=entity_id, org=org).first()
+                    if entity:
+                        model_name_lower = model_class.__name__.lower()
+                        if model_name_lower == "parcela":
+                            from assistant.template_engine import build_context_for_parcela
+                            context = build_context_for_parcela(entity)
+                        elif model_name_lower == "lead":
+                            from assistant.template_engine import build_context_for_lead
+                            context = build_context_for_lead(entity)
+                        elif model_name_lower == "task":
+                            from assistant.template_engine import build_context_for_task
+                            context = build_context_for_task(entity)
+                        elif model_name_lower == "opportunity":
+                            from assistant.template_engine import build_context_for_opportunity
+                            context = build_context_for_opportunity(entity)
+                        elif model_name_lower == "case":
+                            from assistant.template_engine import build_context_for_case
+                            context = build_context_for_case(entity)
+                        elif model_name_lower == "invoice":
+                            from assistant.template_engine import build_context_for_invoice
+                            context = build_context_for_invoice(entity)
+        except Exception:
+            pass  # Render with empty context if entity resolution fails
+
     try:
-        rendered = render_template(template, module_key, entity_id, org)
+        rendered = render_template(template, context, module_key)
         return {
             "result": {"rendered": rendered, "original": template},
             "warnings": [],

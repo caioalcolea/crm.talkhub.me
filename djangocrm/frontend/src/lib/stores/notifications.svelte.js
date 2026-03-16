@@ -35,8 +35,12 @@ async function pollUnreadCount() {
     if (res && typeof res.count === 'number') {
       unreadCount = res.count;
     }
-  } catch {
-    // Silently ignore polling errors
+  } catch (e) {
+    // Stop polling on auth errors to avoid infinite 401s
+    const status = e?.status || e?.response?.status;
+    if (status === 401 || status === 403) {
+      stopPolling();
+    }
   }
 }
 

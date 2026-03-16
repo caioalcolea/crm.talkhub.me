@@ -117,12 +117,12 @@ def _dispatch_internal(org_id, destination, message_data, metadata=None):
         from assistant.models import Notification
         from common.models import Profile
 
-        # destination is a user/profile ID
+        # destination is a user/profile ID (UUID)
         profile = Profile.objects.filter(id=destination, org_id=org_id).first()
         if not profile:
-            # Try interpreting destination as email
+            # Try interpreting destination as email (Profile.user.email)
             profile = Profile.objects.filter(
-                email=destination, org_id=org_id
+                user__email=destination, org_id=org_id
             ).first()
 
         if profile:
@@ -150,13 +150,21 @@ def _check_channel_rate_limit(org_id, channel_type):
     """
     Check if org has exceeded channel rate limit (Redis counter, 1hr window).
 
+    Caches org rate limit config in Redis for 5min to avoid DB query per dispatch.
+
     Returns:
         Tuple of (allowed: bool, limit: int|None)
     """
     try:
-        from common.models import Org
-        org = Org.objects.get(id=org_id)
-        limits = getattr(org, "channel_rate_limits", None) or {}
+        # Cache org rate limits config (avoid DB query per dispatch)
+        config_key = f"org_rate_limits:{org_id}"
+        limits = cache.get(config_key)
+        if limits is None:
+            from common.models import Org
+            org = Org.objects.get(id=org_id)
+            limits = getattr(org, "channel_rate_limits", None) or {}
+            cache.set(config_key, limits, 300)  # 5min TTL
+
         limit = limits.get(channel_type)
         if not limit:
             return True, None  # No limit configured

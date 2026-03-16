@@ -30,6 +30,7 @@ from assistant.serializers import (
     AssistantSessionSerializer,
     AutopilotTemplateSerializer,
     ChannelDispatchSerializer,
+    JobAttemptSerializer,
     NotificationSerializer,
     ReminderPolicySerializer,
     ReminderPolicyWriteSerializer,
@@ -182,6 +183,9 @@ class ScheduledJobDetailView(APIView):
         data = serializer.data
         data["dispatches"] = ChannelDispatchSerializer(
             job.dispatches.all(), many=True
+        ).data
+        data["attempts"] = JobAttemptSerializer(
+            job.attempts.order_by("-attempt_number"), many=True
         ).data
         return Response(data)
 

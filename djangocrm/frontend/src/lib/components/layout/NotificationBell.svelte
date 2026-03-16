@@ -46,27 +46,30 @@
 </script>
 
 <Popover.Root bind:open>
-  <Popover.Trigger>
-    <button
-      class="text-muted-foreground hover:text-foreground hover:bg-accent relative flex size-9 items-center justify-center rounded-lg transition-colors"
-      aria-label="Notificações"
-    >
-      <Bell class="size-5" />
-      {#if notificationStore.unreadCount > 0}
-        <span class="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-          {notificationStore.unreadCount > 9 ? '9+' : notificationStore.unreadCount}
-        </span>
-      {/if}
-    </button>
+  <Popover.Trigger asChild>
+    {#snippet child({ props })}
+      <button
+        {...props}
+        class="text-muted-foreground hover:text-foreground hover:bg-accent relative flex size-9 items-center justify-center rounded-lg transition-colors"
+        aria-label="Notificações"
+      >
+        <Bell class="size-5" />
+        {#if notificationStore.unreadCount > 0}
+          <span class="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+            {notificationStore.unreadCount > 9 ? '9+' : notificationStore.unreadCount}
+          </span>
+        {/if}
+      </button>
+    {/snippet}
   </Popover.Trigger>
   <Popover.Content align="end" class="w-80 p-0">
     <!-- Header -->
-    <div class="flex items-center justify-between border-b px-4 py-2.5">
-      <h3 class="text-sm font-semibold">Notificações</h3>
+    <div class="border-border flex items-center justify-between border-b px-4 py-2.5">
+      <h3 class="text-foreground text-sm font-semibold">Notificações</h3>
       {#if notificationStore.unreadCount > 0}
         <button
           onclick={() => notificationStore.markAllRead()}
-          class="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+          class="text-primary hover:text-primary/80 flex items-center gap-1 text-xs"
         >
           <CheckCheck class="size-3" />
           Marcar todas
@@ -78,10 +81,10 @@
     <div class="max-h-80 overflow-y-auto">
       {#if notificationStore.isLoading && notificationStore.notifications.length === 0}
         <div class="flex items-center justify-center py-8">
-          <Loader class="size-5 animate-spin text-gray-400" />
+          <Loader class="text-muted-foreground size-5 animate-spin" />
         </div>
       {:else if notificationStore.notifications.length === 0}
-        <div class="flex flex-col items-center gap-2 py-8 text-gray-400">
+        <div class="text-muted-foreground flex flex-col items-center gap-2 py-8">
           <Bell class="size-6" />
           <p class="text-xs">Nenhuma notificação</p>
         </div>
@@ -90,22 +93,22 @@
           {@const IconComp = getIcon(notif.type)}
           {@const iconColor = getIconColor(notif.type)}
           <div
-            class="flex items-start gap-3 border-b px-4 py-3 last:border-b-0 {notif.read_at ? 'bg-white' : 'bg-indigo-50/50'}"
+            class="border-border flex items-start gap-3 border-b px-4 py-3 last:border-b-0 {notif.read_at ? 'bg-background' : 'bg-accent/50'}"
           >
             <div class="mt-0.5 shrink-0 {iconColor}">
               <IconComp class="size-4" />
             </div>
             <div class="min-w-0 flex-1">
-              <p class="truncate text-xs font-medium text-gray-900">{notif.title}</p>
+              <p class="text-foreground truncate text-xs font-medium">{notif.title}</p>
               {#if notif.body}
-                <p class="mt-0.5 line-clamp-2 text-[11px] text-gray-500">{notif.body}</p>
+                <p class="text-muted-foreground mt-0.5 line-clamp-2 text-[11px]">{notif.body}</p>
               {/if}
-              <p class="mt-1 text-[10px] text-gray-400">{timeAgo(notif.created_at)}</p>
+              <p class="text-muted-foreground/60 mt-1 text-[10px]">{timeAgo(notif.created_at)}</p>
             </div>
             {#if !notif.read_at}
               <button
                 onclick={() => notificationStore.markAsRead(notif.id)}
-                class="mt-0.5 shrink-0 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                class="text-muted-foreground hover:bg-accent hover:text-foreground mt-0.5 shrink-0 rounded p-1"
                 title="Marcar como lida"
               >
                 <Check class="size-3" />
@@ -118,10 +121,10 @@
 
     <!-- Footer -->
     {#if notificationStore.notifications.length > 0}
-      <div class="border-t px-4 py-2 text-center">
+      <div class="border-border border-t px-4 py-2 text-center">
         <a
           href="/autopilot?tab=runs"
-          class="text-xs text-indigo-600 hover:text-indigo-800"
+          class="text-primary hover:text-primary/80 text-xs"
           onclick={() => { open = false; }}
         >
           Ver todas

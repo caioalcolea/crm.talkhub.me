@@ -639,10 +639,9 @@ def _create_task_for_job(job, task_config, context, module_key):
         task.assigned_to.add(job.assigned_user)
 
     # Create TaskLink
-    source_ct = job.source_content_type
-    TaskLink = job.org.tasklink_set.model  # noqa: N806
     from assistant.models import TaskLink
 
+    source_ct = job.source_content_type
     TaskLink.objects.create(
         org=job.org,
         source_content_type=source_ct,
@@ -662,8 +661,13 @@ def _notify_job_result(job, success):
         from assistant.models import Notification
 
         owner = job.assigned_user
-        if not owner and hasattr(job, "source") and job.source:
-            owner = getattr(job.source, "owner_user", None)
+        if not owner and job.source_object_id:
+            try:
+                source = job.source
+                if source:
+                    owner = getattr(source, "owner_user", None)
+            except Exception:
+                pass
         if not owner:
             return
 
@@ -719,6 +723,8 @@ def cleanup_old_data():
     """
     Daily cleanup: jobs >6mo, dispatches >90d, attempts >90d,
     read notifications >90d, archived session messages >90d.
+
+    Iterates per-org to satisfy RLS requirements.
     """
     from assistant.models import (
         AssistantMessage,
@@ -727,28 +733,45 @@ def cleanup_old_data():
         Notification,
         ScheduledJob,
     )
+    from common.models import Org
 
     cutoff_jobs = timezone.now() - timedelta(days=180)
     cutoff_90d = timezone.now() - timedelta(days=90)
 
-    d1 = ScheduledJob.objects.filter(
-        status__in=["completed", "cancelled", "skipped"],
-        updated_at__lt=cutoff_jobs,
-    ).delete()
+    totals = {"jobs": 0, "dispatches": 0, "attempts": 0, "notif": 0, "msgs": 0}
 
-    d2 = ChannelDispatch.objects.filter(created_at__lt=cutoff_90d).delete()
+    for org in Org.objects.all():
+        set_rls_context(str(org.id))
 
-    d3 = JobAttempt.objects.filter(created_at__lt=cutoff_90d).delete()
+        r1 = ScheduledJob.objects.filter(
+            org=org,
+            status__in=["completed", "cancelled", "skipped"],
+            updated_at__lt=cutoff_jobs,
+        ).delete()
+        totals["jobs"] += r1[0]
 
-    d4 = Notification.objects.filter(
-        read_at__isnull=False, created_at__lt=cutoff_90d
-    ).delete()
+        r2 = ChannelDispatch.objects.filter(
+            org=org, created_at__lt=cutoff_90d
+        ).delete()
+        totals["dispatches"] += r2[0]
 
-    d5 = AssistantMessage.objects.filter(
-        session__status="archived", created_at__lt=cutoff_90d
-    ).delete()
+        r3 = JobAttempt.objects.filter(
+            org=org, created_at__lt=cutoff_90d
+        ).delete()
+        totals["attempts"] += r3[0]
+
+        r4 = Notification.objects.filter(
+            org=org, read_at__isnull=False, created_at__lt=cutoff_90d
+        ).delete()
+        totals["notif"] += r4[0]
+
+        r5 = AssistantMessage.objects.filter(
+            org=org, session__status="archived", created_at__lt=cutoff_90d
+        ).delete()
+        totals["msgs"] += r5[0]
 
     logger.info(
         "Cleanup: jobs=%s dispatches=%s attempts=%s notif=%s msgs=%s",
-        d1, d2, d3, d4, d5,
+        totals["jobs"], totals["dispatches"], totals["attempts"],
+        totals["notif"], totals["msgs"],
     )

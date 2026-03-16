@@ -191,7 +191,7 @@ AUTOMATION_EXAMPLES = {
 
 def _check_rate_limit(user_id):
     """Check if user has exceeded rate limit. Returns (allowed, remaining)."""
-    key = f"ai_rate:{user_id}"
+    key = f"assistant:ai_rate:{user_id}"
     current = cache.get(key, 0)
     if current >= RATE_LIMIT_MAX:
         return False, 0
@@ -200,7 +200,7 @@ def _check_rate_limit(user_id):
 
 def _increment_rate_limit(user_id):
     """Increment the rate limit counter for a user."""
-    key = f"ai_rate:{user_id}"
+    key = f"assistant:ai_rate:{user_id}"
     try:
         current = cache.get(key, 0)
         cache.set(key, current + 1, RATE_LIMIT_WINDOW)
@@ -213,31 +213,31 @@ def _increment_rate_limit(user_id):
 
 def _check_circuit_breaker():
     """Check if circuit breaker is open. Returns (is_open, retry_after)."""
-    cooldown_until = cache.get("ai_circuit_cooldown")
+    cooldown_until = cache.get("assistant:circuit_cooldown")
     if cooldown_until:
         remaining = cooldown_until - time.time()
         if remaining > 0:
             return True, int(remaining)
         # Cooldown expired, reset
-        cache.delete("ai_circuit_cooldown")
-        cache.delete("ai_circuit_errors")
+        cache.delete("assistant:circuit_cooldown")
+        cache.delete("assistant:circuit_errors")
     return False, 0
 
 
 def _record_circuit_error():
     """Record an API error for circuit breaker."""
-    key = "ai_circuit_errors"
+    key = "assistant:circuit_errors"
     errors = cache.get(key, 0) + 1
     cache.set(key, errors, CIRCUIT_BREAKER_COOLDOWN * 2)
 
     if errors >= CIRCUIT_BREAKER_THRESHOLD:
-        cache.set("ai_circuit_cooldown", time.time() + CIRCUIT_BREAKER_COOLDOWN, CIRCUIT_BREAKER_COOLDOWN)
+        cache.set("assistant:circuit_cooldown", time.time() + CIRCUIT_BREAKER_COOLDOWN, CIRCUIT_BREAKER_COOLDOWN)
         logger.warning("Circuit breaker OPEN: %d consecutive AI errors", errors)
 
 
 def _record_circuit_success():
     """Reset error counter on success."""
-    cache.delete("ai_circuit_errors")
+    cache.delete("assistant:circuit_errors")
 
 
 # ── Cost Tracking ──────────────────────────────────────────────────────
