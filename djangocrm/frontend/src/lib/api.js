@@ -564,6 +564,21 @@ export const assistant = {
     return apiRequest('/assistant/ai/generate/', { method: 'POST', body });
   },
 
+  // ── Notifications ──
+  async notifications(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/notifications/${qs ? `?${qs}` : ''}`);
+  },
+  async unreadCount() {
+    return apiRequest('/assistant/notifications/unread-count/');
+  },
+  async markRead(id) {
+    return apiRequest(`/assistant/notifications/${id}/read/`, { method: 'PATCH' });
+  },
+  async markAllRead() {
+    return apiRequest('/assistant/notifications/mark-all-read/', { method: 'POST' });
+  },
+
   // ── Chat (Conversational Assistant) ──
   async chat(body) {
     return apiRequest('/assistant/chat/', { method: 'POST', body });

@@ -18,6 +18,7 @@ from assistant.models import (
     AssistantSession,
     AutopilotTemplate,
     ChannelDispatch,
+    Notification,
     ReminderPolicy,
     ScheduledJob,
     TaskLink,
@@ -29,6 +30,7 @@ from assistant.serializers import (
     AssistantSessionSerializer,
     AutopilotTemplateSerializer,
     ChannelDispatchSerializer,
+    NotificationSerializer,
     ReminderPolicySerializer,
     ReminderPolicyWriteSerializer,
     ScheduledJobSerializer,
@@ -521,6 +523,80 @@ class AIGenerateView(APIView):
             return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(result)
+
+
+# ── Notifications ─────────────────────────────────────────────────────
+
+
+class NotificationListView(APIView):
+    """List notifications with optional filters."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def get(self, request):
+        qs = Notification.objects.filter(
+            org=request.profile.org, user=request.profile
+        )
+
+        notif_type = request.query_params.get("type")
+        if notif_type:
+            qs = qs.filter(type=notif_type)
+
+        unread = request.query_params.get("unread")
+        if unread and unread.lower() == "true":
+            qs = qs.filter(read_at__isnull=True)
+
+        limit = min(int(request.query_params.get("limit", 20)), 50)
+        qs = qs.order_by("-created_at")[:limit]
+        return Response(NotificationSerializer(qs, many=True).data)
+
+
+class NotificationUnreadCountView(APIView):
+    """Return unread notification count for polling."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def get(self, request):
+        count = Notification.objects.filter(
+            org=request.profile.org,
+            user=request.profile,
+            read_at__isnull=True,
+        ).count()
+        return Response({"count": count})
+
+
+class NotificationMarkReadView(APIView):
+    """Mark a single notification as read."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def patch(self, request, pk):
+        try:
+            notif = Notification.objects.get(
+                pk=pk, org=request.profile.org, user=request.profile
+            )
+        except Notification.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        from django.utils import timezone as tz
+        notif.read_at = tz.now()
+        notif.save(update_fields=["read_at", "updated_at"])
+        return Response(NotificationSerializer(notif).data)
+
+
+class NotificationMarkAllReadView(APIView):
+    """Mark all unread notifications as read."""
+
+    permission_classes = [IsAuthenticated, HasOrgContext]
+
+    def post(self, request):
+        from django.utils import timezone as tz
+        updated = Notification.objects.filter(
+            org=request.profile.org,
+            user=request.profile,
+            read_at__isnull=True,
+        ).update(read_at=tz.now())
+        return Response({"updated": updated})
 
 
 # ── Assistant Chat (Phase 1 — Conversational Assistant) ──────────────

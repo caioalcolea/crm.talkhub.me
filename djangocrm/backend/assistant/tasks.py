@@ -4,9 +4,11 @@ Celery tasks for the assistant scheduler.
 process_scheduled_jobs: Runs every minute, picks up due jobs and executes them.
 execute_job: Executes a single ScheduledJob (dispatch + task creation).
 recalculate_policy_schedules: Recalculates next_run_at after policy/target changes.
+cleanup_old_data: Daily cleanup of old jobs, dispatches, attempts, notifications.
 """
 
 import logging
+from datetime import timedelta
 
 from celery import shared_task
 from django.contrib.contenttypes.models import ContentType
@@ -64,7 +66,7 @@ def execute_job(self, job_id, org_id):
     4. Update policy run counters and schedule next run
     5. Mark job as completed or failed
     """
-    from assistant.models import ChannelDispatch, ScheduledJob, TaskLink
+    from assistant.models import ChannelDispatch, JobAttempt, ScheduledJob, TaskLink
     from assistant.dispatch import dispatch_message
     from assistant.engine import generate_jobs_for_policy
     from assistant.template_engine import render_template
@@ -97,8 +99,35 @@ def execute_job(self, job_id, org_id):
     task_config = payload.get("task_config", {})
     message_template = payload.get("message_template", "")
     module_key = payload.get("module_key", "")
+    channel_type = channel_config.get("channel_type", "internal")
+
+    # Create JobAttempt record
+    attempt = JobAttempt.objects.create(
+        org=job.org,
+        job=job,
+        attempt_number=job.attempt_count,
+        status="running",
+        started_at=timezone.now(),
+        channel_type=channel_type,
+        destination="",
+    )
 
     try:
+        # Check business hours enforcement
+        send_only_bh = channel_config.get("send_only_business_hours", False)
+        if send_only_bh:
+            from assistant.business_hours import is_within_business_hours, next_business_hour
+            if not is_within_business_hours(job.org):
+                next_bh = next_business_hour(job.org)
+                job.status = "pending"
+                job.due_at = next_bh
+                job.save(update_fields=["status", "due_at", "updated_at"])
+                attempt.status = "deferred"
+                attempt.finished_at = timezone.now()
+                attempt.save(update_fields=["status", "finished_at", "updated_at"])
+                logger.info("Job %s deferred to %s (outside business hours)", job_id, next_bh)
+                return
+
         # Build context for template rendering
         context = _build_context_for_job(job)
 
@@ -106,8 +135,9 @@ def execute_job(self, job_id, org_id):
         rendered_message = render_template(message_template, context, module_key)
 
         # Dispatch via channel
-        channel_type = channel_config.get("channel_type", "internal")
         destination = _resolve_destination(job, channel_config)
+        attempt.destination = destination or ""
+        attempt.save(update_fields=["destination", "updated_at"])
 
         if destination:
             message_data = {
@@ -118,6 +148,19 @@ def execute_job(self, job_id, org_id):
             result = dispatch_message(
                 str(org_id), channel_type, destination, message_data
             )
+
+            # Check for rate limit error — defer job
+            error_str = result.get("error", "")
+            if error_str.startswith("rate_limit_exceeded:"):
+                job.status = "pending"
+                job.due_at = timezone.now() + timedelta(minutes=30)
+                job.save(update_fields=["status", "due_at", "updated_at"])
+                attempt.status = "rate_limited"
+                attempt.error_message = error_str
+                attempt.finished_at = timezone.now()
+                attempt.save(update_fields=["status", "error_message", "finished_at", "updated_at"])
+                logger.warning("Job %s rate limited, deferred 30min", job_id)
+                return
 
             # Record dispatch
             ChannelDispatch.objects.create(
@@ -140,8 +183,16 @@ def execute_job(self, job_id, org_id):
         job.status = "completed"
         job.save(update_fields=["status", "updated_at"])
 
+        # Update attempt
+        attempt.status = "success"
+        attempt.finished_at = timezone.now()
+        attempt.save(update_fields=["status", "finished_at", "updated_at"])
+
         # Update source policy
         _update_policy_after_run(job, success=True)
+
+        # Notify job owner
+        _notify_job_result(job, success=True)
 
     except Exception as exc:
         logger.exception("Job %s execution failed: %s", job_id, exc)
@@ -149,7 +200,16 @@ def execute_job(self, job_id, org_id):
         job.last_error = str(exc)[:1000]
         job.save(update_fields=["status", "last_error", "updated_at"])
 
+        # Update attempt
+        attempt.status = "failed"
+        attempt.error_message = str(exc)[:2000]
+        attempt.finished_at = timezone.now()
+        attempt.save(update_fields=["status", "error_message", "finished_at", "updated_at"])
+
         _update_policy_after_run(job, success=False)
+
+        # Notify job owner
+        _notify_job_result(job, success=False)
 
         # Retry if under max attempts
         job.refresh_from_db()
@@ -596,6 +656,29 @@ def _create_task_for_job(job, task_config, context, module_key):
     return task
 
 
+def _notify_job_result(job, success):
+    """Create in-app notification for job completion/failure."""
+    try:
+        from assistant.models import Notification
+
+        owner = job.assigned_user
+        if not owner and hasattr(job, "source") and job.source:
+            owner = getattr(job.source, "owner_user", None)
+        if not owner:
+            return
+
+        Notification.objects.create(
+            org=job.org,
+            user=owner,
+            type="job_completed" if success else "job_failed",
+            title=f"{'Concluído' if success else 'Falhou'}: {job.job_type}",
+            body=job.last_error[:200] if not success else "",
+            link="/autopilot?tab=runs",
+        )
+    except Exception as e:
+        logger.error("Failed to create job notification: %s", e)
+
+
 def _update_policy_after_run(job, success):
     """Update the source ReminderPolicy after a job run."""
     from assistant.engine import generate_jobs_for_policy
@@ -629,3 +712,43 @@ def _update_policy_after_run(job, success):
 
     except ReminderPolicy.DoesNotExist:
         logger.warning("Policy %s not found when updating after job %s", policy_id, job.id)
+
+
+@shared_task(name="assistant.tasks.cleanup_old_data")
+def cleanup_old_data():
+    """
+    Daily cleanup: jobs >6mo, dispatches >90d, attempts >90d,
+    read notifications >90d, archived session messages >90d.
+    """
+    from assistant.models import (
+        AssistantMessage,
+        ChannelDispatch,
+        JobAttempt,
+        Notification,
+        ScheduledJob,
+    )
+
+    cutoff_jobs = timezone.now() - timedelta(days=180)
+    cutoff_90d = timezone.now() - timedelta(days=90)
+
+    d1 = ScheduledJob.objects.filter(
+        status__in=["completed", "cancelled", "skipped"],
+        updated_at__lt=cutoff_jobs,
+    ).delete()
+
+    d2 = ChannelDispatch.objects.filter(created_at__lt=cutoff_90d).delete()
+
+    d3 = JobAttempt.objects.filter(created_at__lt=cutoff_90d).delete()
+
+    d4 = Notification.objects.filter(
+        read_at__isnull=False, created_at__lt=cutoff_90d
+    ).delete()
+
+    d5 = AssistantMessage.objects.filter(
+        session__status="archived", created_at__lt=cutoff_90d
+    ).delete()
+
+    logger.info(
+        "Cleanup: jobs=%s dispatches=%s attempts=%s notif=%s msgs=%s",
+        d1, d2, d3, d4, d5,
+    )

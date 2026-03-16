@@ -169,4 +169,9 @@ app.conf.beat_schedule = {
         "task": "assistant.tasks.process_scheduled_jobs",
         "schedule": crontab(minute="*"),
     },
+    # Assistant — Daily cleanup of old data at 4 AM
+    "cleanup-autopilot-data": {
+        "task": "assistant.tasks.cleanup_old_data",
+        "schedule": crontab(hour=4, minute=0),
+    },
 }

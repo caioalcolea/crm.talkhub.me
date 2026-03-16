@@ -324,6 +324,76 @@ class AssistantMessage(BaseOrgModel):
         return f"Message [{self.role}] in {self.session_id}"
 
 
+class Notification(BaseOrgModel):
+    """In-app notification for CRM users."""
+
+    user = models.ForeignKey(
+        "common.Profile", on_delete=models.CASCADE, related_name="notifications"
+    )
+    TYPE_CHOICES = [
+        ("job_completed", "Job concluído"),
+        ("job_failed", "Job falhou"),
+        ("approval_pending", "Aprovação pendente"),
+        ("campaign_done", "Campanha concluída"),
+        ("system", "Sistema"),
+    ]
+    type = models.CharField(max_length=30, choices=TYPE_CHOICES)
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True, default="")
+    link = models.CharField(max_length=500, blank=True, default="")
+    read_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "notification"
+        indexes = [
+            models.Index(fields=["org", "user", "-created_at"]),
+            models.Index(
+                fields=["org", "user", "read_at"],
+                name="idx_notification_unread",
+            ),
+        ]
+        verbose_name = "Notification"
+        verbose_name_plural = "Notifications"
+
+    def __str__(self):
+        return f"Notification [{self.type}] for {self.user_id}"
+
+
+class JobAttempt(BaseOrgModel):
+    """Detailed record of each ScheduledJob execution attempt."""
+
+    job = models.ForeignKey(
+        ScheduledJob, on_delete=models.CASCADE, related_name="attempts"
+    )
+    attempt_number = models.PositiveIntegerField()
+    STATUS_CHOICES = [
+        ("running", "Em execução"),
+        ("success", "Sucesso"),
+        ("failed", "Falhou"),
+        ("rate_limited", "Rate limited"),
+        ("deferred", "Adiado"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    error_message = models.TextField(blank=True, default="")
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    channel_type = models.CharField(max_length=50, blank=True, default="")
+    destination = models.CharField(max_length=255, blank=True, default="")
+    provider_response = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "assistant_job_attempt"
+        indexes = [
+            models.Index(fields=["job", "attempt_number"]),
+        ]
+        verbose_name = "Job Attempt"
+        verbose_name_plural = "Job Attempts"
+
+    def __str__(self):
+        return f"Attempt #{self.attempt_number} for job {self.job_id} [{self.status}]"
+
+
 class AutopilotTemplate(BaseOrgModel):
     """
     Reusable template for quickly creating reminders, rules, or campaigns.

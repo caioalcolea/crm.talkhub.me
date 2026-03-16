@@ -6,6 +6,8 @@ from assistant.models import (
     AssistantSession,
     AutopilotTemplate,
     ChannelDispatch,
+    JobAttempt,
+    Notification,
     ReminderPolicy,
     ScheduledJob,
     TaskLink,
@@ -234,6 +236,44 @@ class AutopilotTemplateSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+# ── Notification + JobAttempt Serializers ──────────────────────────────
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = [
+            "id",
+            "type",
+            "title",
+            "body",
+            "link",
+            "read_at",
+            "metadata",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class JobAttemptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = JobAttempt
+        fields = [
+            "id",
+            "job",
+            "attempt_number",
+            "status",
+            "error_message",
+            "started_at",
+            "finished_at",
+            "channel_type",
+            "destination",
+            "provider_response",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 
 # ── Assistant Chat Serializers ─────────────────────────────────────────

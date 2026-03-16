@@ -9,6 +9,10 @@ from assistant.views import (
     AssistantSessionListView,
     AutopilotTemplateViewSet,
     EntityReminderListCreateView,
+    NotificationListView,
+    NotificationMarkAllReadView,
+    NotificationMarkReadView,
+    NotificationUnreadCountView,
     PresetsView,
     ReminderPolicyActivateView,
     ReminderPolicyDeactivateView,
@@ -92,6 +96,27 @@ urlpatterns = [
     ),
     # AI copilot (legacy)
     path("ai/generate/", AIGenerateView.as_view(), name="ai_generate"),
+    # ── Notifications ──
+    path(
+        "notifications/",
+        NotificationListView.as_view(),
+        name="notification_list",
+    ),
+    path(
+        "notifications/unread-count/",
+        NotificationUnreadCountView.as_view(),
+        name="notification_unread_count",
+    ),
+    path(
+        "notifications/<uuid:pk>/read/",
+        NotificationMarkReadView.as_view(),
+        name="notification_mark_read",
+    ),
+    path(
+        "notifications/mark-all-read/",
+        NotificationMarkAllReadView.as_view(),
+        name="notification_mark_all_read",
+    ),
     # ── Chat (Phase 1 — Conversational Assistant) ──
     path("chat/", AssistantChatView.as_view(), name="chat"),
     path("chat/confirm/", AssistantChatConfirmView.as_view(), name="chat_confirm"),

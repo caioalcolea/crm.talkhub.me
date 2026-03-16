@@ -1,6 +1,7 @@
 <script>
   import { useSidebar } from '$lib/components/ui/sidebar/context.svelte.js';
   import { Menu } from '@lucide/svelte';
+  import NotificationBell from './NotificationBell.svelte';
 
   /**
    * @typedef {Object} Props
@@ -60,11 +61,12 @@
     </div>
 
     <!-- Actions Section -->
-    {#if actions}
-      <div class="flex shrink-0 items-center gap-2 md:gap-3">
+    <div class="flex shrink-0 items-center gap-2 md:gap-3">
+      <NotificationBell />
+      {#if actions}
         {@render actions()}
-      </div>
-    {/if}
+      {/if}
+    </div>
   </div>
 
   <!-- Bottom accent line -->
