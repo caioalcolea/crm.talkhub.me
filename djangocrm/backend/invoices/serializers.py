@@ -21,6 +21,7 @@ from invoices.models import (
     Product,
     RecurringInvoice,
     RecurringInvoiceLineItem,
+    StockMovement,
 )
 from opportunity.models import Opportunity
 
@@ -52,6 +53,23 @@ class OpportunityMinimalSerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     """Serializer for Product catalog"""
 
+    margin_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, read_only=True
+    )
+    net_price = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+    is_low_stock = serializers.BooleanField(read_only=True)
+    supplier_account_name = serializers.CharField(
+        source="supplier_account.name", read_only=True, default=""
+    )
+    plano_receita_nome = serializers.CharField(
+        source="default_plano_receita.__str__", read_only=True, default=""
+    )
+    plano_custo_nome = serializers.CharField(
+        source="default_plano_custo.__str__", read_only=True, default=""
+    )
+
     class Meta:
         model = Product
         fields = (
@@ -59,10 +77,29 @@ class ProductSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "sku",
+            "product_type",
             "price",
+            "cost_price",
             "currency",
             "category",
             "is_active",
+            "default_tax_rate",
+            "tax_profile",
+            "gateway_fee_percent",
+            "gateway_fee_fixed",
+            "track_inventory",
+            "stock_quantity",
+            "stock_min_alert",
+            "unit_of_measure",
+            "supplier_account",
+            "supplier_account_name",
+            "default_plano_receita",
+            "default_plano_custo",
+            "plano_receita_nome",
+            "plano_custo_nome",
+            "margin_percent",
+            "net_price",
+            "is_low_stock",
             "created_at",
             "updated_at",
         )
@@ -78,10 +115,23 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "sku",
+            "product_type",
             "price",
+            "cost_price",
             "currency",
             "category",
             "is_active",
+            "default_tax_rate",
+            "tax_profile",
+            "gateway_fee_percent",
+            "gateway_fee_fixed",
+            "track_inventory",
+            "stock_quantity",
+            "stock_min_alert",
+            "unit_of_measure",
+            "supplier_account",
+            "default_plano_receita",
+            "default_plano_custo",
         )
 
     def create(self, validated_data):
@@ -93,6 +143,38 @@ class ProductCreateSerializer(serializers.ModelSerializer):
                 validated_data["currency"] = getattr(
                     request.profile.org, "default_currency", "USD"
                 )
+        return super().create(validated_data)
+
+
+class StockMovementSerializer(serializers.ModelSerializer):
+    """Serializer for Stock Movements"""
+
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    movement_type_display = serializers.CharField(
+        source="get_movement_type_display", read_only=True
+    )
+
+    class Meta:
+        model = StockMovement
+        fields = (
+            "id",
+            "product",
+            "product_name",
+            "movement_type",
+            "movement_type_display",
+            "quantity",
+            "unit_cost",
+            "reference_type",
+            "reference_id",
+            "notes",
+            "created_at",
+        )
+        read_only_fields = ("id", "created_at")
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and hasattr(request, "profile"):
+            validated_data["org"] = request.profile.org
         return super().create(validated_data)
 
 

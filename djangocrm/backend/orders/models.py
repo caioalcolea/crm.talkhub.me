@@ -16,6 +16,11 @@ ORDER_STATUS = (
     ("CANCELLED", "Cancelled"),
 )
 
+ORDER_TYPES = (
+    ("sales", "Pedido de Venda"),
+    ("purchase", "Pedido de Compra"),
+)
+
 
 # =============================================================================
 # ORDER
@@ -32,6 +37,9 @@ class Order(BaseOrgModel):
     name = models.CharField(_("Order Name"), max_length=255)
     order_number = models.CharField(
         _("Order Number"), max_length=100, blank=True, default=""
+    )
+    order_type = models.CharField(
+        _("Order Type"), max_length=10, choices=ORDER_TYPES, default="sales",
     )
     status = models.CharField(
         _("Status"), max_length=20, choices=ORDER_STATUS, default="DRAFT"
@@ -123,6 +131,9 @@ class Order(BaseOrgModel):
         verbose_name_plural = "Orders"
         db_table = "orders"
         ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["org", "order_type", "-created_at"]),
+        ]
 
     def __str__(self):
         return self.name

@@ -126,6 +126,12 @@ urlpatterns = [
         api_views.ProductDetailView.as_view(),
         name="product_detail",
     ),
+    # Stock Movements
+    path(
+        "products/<uuid:product_id>/stock-movements/",
+        api_views.StockMovementListView.as_view(),
+        name="stock_movement_list",
+    ),
     # ==========================================================================
     # TEMPLATES
     # ==========================================================================
@@ -156,6 +162,21 @@ urlpatterns = [
         "reports/aging/",
         api_views.AgingReportView.as_view(),
         name="reports_aging",
+    ),
+    path(
+        "reports/product-margin/",
+        api_views.ProductMarginReportView.as_view(),
+        name="reports_product_margin",
+    ),
+    path(
+        "reports/inventory-summary/",
+        api_views.InventorySummaryView.as_view(),
+        name="reports_inventory_summary",
+    ),
+    path(
+        "reports/top-products/",
+        api_views.TopProductsView.as_view(),
+        name="reports_top_products",
     ),
     # ==========================================================================
     # INVOICE FROM OPPORTUNITY

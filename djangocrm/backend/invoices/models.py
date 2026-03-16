@@ -138,18 +138,95 @@ class InvoiceTemplate(OrgScopedMixin, BaseModel):
 # =============================================================================
 
 
-class Product(OrgScopedMixin, BaseModel):
-    """Product Catalog for Line Items"""
+PRODUCT_TYPES = (
+    ("product", _("Produto")),
+    ("service", _("Serviço")),
+)
 
+STOCK_MOVEMENT_TYPES = (
+    ("in", _("Entrada")),
+    ("out", _("Saída")),
+    ("adjustment", _("Ajuste")),
+)
+
+
+class Product(OrgScopedMixin, BaseModel):
+    """Product/Service Catalog for Line Items"""
+
+    # Core
     name = models.CharField(_("Product Name"), max_length=255)
     description = models.TextField(_("Description"), blank=True, null=True)
     sku = models.CharField(_("SKU"), max_length=100, blank=True, null=True)
-    price = models.DecimalField(_("Price"), max_digits=12, decimal_places=2, default=0)
+    category = models.CharField(_("Category"), max_length=100, blank=True, null=True)
+    is_active = models.BooleanField(_("Is Active"), default=True)
+
+    # Type: product vs service
+    product_type = models.CharField(
+        _("Type"), max_length=20, choices=PRODUCT_TYPES, default="product"
+    )
+
+    # Pricing
+    price = models.DecimalField(_("Sale Price"), max_digits=12, decimal_places=2, default=0)
+    cost_price = models.DecimalField(
+        _("Cost Price"), max_digits=12, decimal_places=2, default=0,
+        help_text=_("Purchase/production cost for margin calculation"),
+    )
     currency = models.CharField(
         _("Currency"), max_length=10, choices=CURRENCY_CODES, blank=True, null=True
     )
-    category = models.CharField(_("Category"), max_length=100, blank=True, null=True)
-    is_active = models.BooleanField(_("Is Active"), default=True)
+
+    # Taxes & Fees
+    default_tax_rate = models.DecimalField(
+        _("Default Tax Rate (%)"), max_digits=5, decimal_places=2, default=0,
+        help_text=_("Default tax rate applied when adding to invoices"),
+    )
+    tax_profile = models.JSONField(
+        _("Tax Profile"), default=dict, blank=True,
+        help_text='{"icms": 18, "iss": 5, "pis": 1.65, "cofins": 7.6}',
+    )
+    gateway_fee_percent = models.DecimalField(
+        _("Gateway Fee (%)"), max_digits=5, decimal_places=2, default=0,
+        help_text=_("Payment gateway/marketplace fee percentage (e.g., 3.5% Moip)"),
+    )
+    gateway_fee_fixed = models.DecimalField(
+        _("Gateway Fee (Fixed)"), max_digits=8, decimal_places=2, default=0,
+        help_text=_("Fixed fee per transaction (e.g., R$0.50)"),
+    )
+
+    # Inventory (only for product_type='product')
+    track_inventory = models.BooleanField(_("Track Inventory"), default=False)
+    stock_quantity = models.DecimalField(
+        _("Stock Quantity"), max_digits=12, decimal_places=2, default=0,
+    )
+    stock_min_alert = models.DecimalField(
+        _("Min Stock Alert"), max_digits=12, decimal_places=2, default=0,
+        help_text=_("Alert when stock falls below this quantity"),
+    )
+    unit_of_measure = models.CharField(
+        _("Unit of Measure"), max_length=20, default="un", blank=True,
+        help_text=_("un, kg, hr, mês, licença"),
+    )
+
+    # Supplier
+    supplier_account = models.ForeignKey(
+        "accounts.Account", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="supplied_products",
+        help_text=_("Preferred supplier for purchase orders"),
+    )
+
+    # Financial classification
+    default_plano_receita = models.ForeignKey(
+        "financeiro.PlanoDeContas", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="+",
+        help_text=_("Default revenue account for financeiro integration"),
+    )
+    default_plano_custo = models.ForeignKey(
+        "financeiro.PlanoDeContas", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="+",
+        help_text=_("Default cost account for COGS entries"),
+    )
+
+    # Organization
     org = models.ForeignKey(Org, on_delete=models.CASCADE, related_name="products")
 
     class Meta:
@@ -160,10 +237,78 @@ class Product(OrgScopedMixin, BaseModel):
         unique_together = [["sku", "org"]]
         indexes = [
             models.Index(fields=["org", "is_active"]),
+            models.Index(fields=["org", "product_type"]),
         ]
 
     def __str__(self):
         return self.name
+
+    @property
+    def margin_percent(self):
+        """Calculate margin percentage: (price - cost) / price * 100"""
+        if self.price and self.price > 0:
+            return ((self.price - self.cost_price) / self.price * 100).quantize(
+                Decimal("0.01")
+            )
+        return Decimal("0")
+
+    @property
+    def net_price(self):
+        """Price after gateway fees"""
+        fee = self.price * (self.gateway_fee_percent / Decimal("100")) + self.gateway_fee_fixed
+        return (self.price - fee).quantize(Decimal("0.01"))
+
+    @property
+    def is_low_stock(self):
+        """Check if stock is below minimum alert threshold"""
+        if not self.track_inventory:
+            return False
+        return self.stock_quantity <= self.stock_min_alert
+
+
+class StockMovement(OrgScopedMixin, BaseModel):
+    """Inventory movement tracking — entries, exits, and adjustments"""
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="stock_movements",
+    )
+    movement_type = models.CharField(
+        _("Movement Type"), max_length=10, choices=STOCK_MOVEMENT_TYPES,
+    )
+    quantity = models.DecimalField(
+        _("Quantity"), max_digits=12, decimal_places=2,
+    )
+    unit_cost = models.DecimalField(
+        _("Unit Cost"), max_digits=12, decimal_places=2, default=0,
+    )
+    reference_type = models.CharField(
+        _("Reference Type"), max_length=30, blank=True, default="",
+        help_text=_("invoice, order, purchase, manual"),
+    )
+    reference_id = models.UUIDField(
+        _("Reference ID"), null=True, blank=True,
+        help_text=_("UUID of the related document"),
+    )
+    notes = models.TextField(_("Notes"), blank=True, default="")
+    org = models.ForeignKey(Org, on_delete=models.CASCADE, related_name="stock_movements")
+
+    class Meta:
+        verbose_name = "Stock Movement"
+        verbose_name_plural = "Stock Movements"
+        db_table = "stock_movement"
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["org", "-created_at"]),
+            models.Index(fields=["product", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_movement_type_display()} {self.product.name} x{self.quantity}"
+
+    def save(self, *args, **kwargs):
+        if not self.org_id and self.product_id:
+            self.org_id = self.product.org_id
+        super().save(*args, **kwargs)
 
 
 # =============================================================================

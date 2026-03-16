@@ -53,7 +53,8 @@
     Video,
     Bot,
     Bell,
-    History
+    History,
+    ShoppingCart
   } from '@lucide/svelte';
 
   /**
@@ -245,7 +246,8 @@
       children: [
         { href: '/invoices', label: 'Todas as Faturas', icon: FileText, preload: 'off' },
         { href: '/invoices/estimates', label: 'Orçamentos', icon: FileEdit, preload: 'off' },
-        { href: '/invoices/products', label: 'Produtos', icon: Package, preload: 'off' },
+        { href: '/invoices/products', label: 'Produtos/Serviços', icon: Package, preload: 'off' },
+        { href: '/orders', label: 'Pedidos de Compra', icon: ShoppingCart, preload: 'off' },
         { href: '/invoices/recurring', label: 'Recorrentes', icon: RefreshCw, preload: 'off' },
         { href: '/invoices/templates', label: 'Modelos', icon: FileCode, preload: 'off' },
         { href: '/invoices/reports', label: 'Relatórios', icon: BarChart3, preload: 'off' }

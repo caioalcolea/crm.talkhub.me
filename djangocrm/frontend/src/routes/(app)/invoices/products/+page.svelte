@@ -13,30 +13,37 @@
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { formatCurrency } from '$lib/utils/formatting.js';
+  import { Package, ArrowLeft, Filter, Columns3, Plus, AlertTriangle } from '@lucide/svelte';
 
   /** @type {{ data: import('./$types').PageData }} */
   let { data } = $props();
 
-  // Status options
+  // Status/Type options
   const STATUS_OPTIONS = [
     { value: 'true', label: 'Ativo' },
     { value: 'false', label: 'Inativo' }
   ];
 
-  /**
-   * @typedef {'text' | 'email' | 'number' | 'date' | 'select' | 'checkbox' | 'relation'} ColumnType
-   * @typedef {{ key: string, label: string, type?: ColumnType, width?: string, editable?: boolean, canHide?: boolean, getValue?: (row: any) => any, emptyText?: string, relationIcon?: string, options?: Array<{value: string, label: string, color: string}> }} ColumnDef
-   */
+  const TYPE_OPTIONS = [
+    { value: 'product', label: 'Produto' },
+    { value: 'service', label: 'Serviço' }
+  ];
 
-  /** @type {ColumnDef[]} */
+  /** @type {Array<{key: string, label: string, type?: string, width?: string, editable?: boolean, canHide?: boolean, getValue?: (row: any) => any}>} */
   const columns = [
     {
       key: 'name',
       label: 'Nome',
       type: 'text',
       width: 'w-48',
-      editable: false,
       canHide: false
+    },
+    {
+      key: 'product_type',
+      label: 'Tipo',
+      type: 'text',
+      width: 'w-24',
+      canHide: true,
     },
     {
       key: 'sku',
@@ -44,7 +51,6 @@
       type: 'text',
       width: 'w-28',
       canHide: true,
-      getValue: (row) => row.sku
     },
     {
       key: 'category',
@@ -52,39 +58,65 @@
       type: 'text',
       width: 'w-32',
       canHide: true,
-      getValue: (row) => row.category
     },
     {
       key: 'price',
-      label: 'Preço',
+      label: 'Preço Venda',
       type: 'number',
       width: 'w-28',
       canHide: false,
-      getValue: (row) => formatCurrency(Number(row.price), row.currency)
     },
     {
-      key: 'description',
-      label: 'Descrição',
-      type: 'text',
-      width: 'w-64',
+      key: 'cost_price',
+      label: 'Custo',
+      type: 'number',
+      width: 'w-28',
       canHide: true,
-      getValue: (row) => row.description
+    },
+    {
+      key: 'margin_percent',
+      label: 'Margem %',
+      type: 'number',
+      width: 'w-24',
+      canHide: true,
+    },
+    {
+      key: 'stock_quantity',
+      label: 'Estoque',
+      type: 'number',
+      width: 'w-24',
+      canHide: true,
+    },
+    {
+      key: 'default_tax_rate',
+      label: 'Imposto %',
+      type: 'number',
+      width: 'w-24',
+      canHide: true,
     }
   ];
 
   // Drawer field definitions
   const drawerFields = [
     { key: 'name', label: 'Nome', type: 'text', section: 'core', required: true },
+    { key: 'product_type', label: 'Tipo', type: 'select', section: 'core', options: TYPE_OPTIONS },
     { key: 'sku', label: 'SKU', type: 'text', section: 'core' },
     { key: 'category', label: 'Categoria', type: 'text', section: 'core' },
-    { key: 'price', label: 'Preço', type: 'number', section: 'pricing' },
+    { key: 'unit_of_measure', label: 'Unidade de Medida', type: 'text', section: 'core' },
+    { key: 'price', label: 'Preço de Venda', type: 'number', section: 'pricing' },
+    { key: 'cost_price', label: 'Preço de Custo', type: 'number', section: 'pricing' },
     { key: 'currency', label: 'Moeda', type: 'text', section: 'pricing' },
+    { key: 'default_tax_rate', label: 'Imposto Padrão (%)', type: 'number', section: 'taxes' },
+    { key: 'gateway_fee_percent', label: 'Taxa Gateway (%)', type: 'number', section: 'taxes' },
+    { key: 'gateway_fee_fixed', label: 'Taxa Fixa (R$)', type: 'number', section: 'taxes' },
+    { key: 'track_inventory', label: 'Controlar Estoque', type: 'boolean', section: 'inventory' },
+    { key: 'stock_quantity', label: 'Quantidade em Estoque', type: 'number', section: 'inventory' },
+    { key: 'stock_min_alert', label: 'Estoque Mínimo (Alerta)', type: 'number', section: 'inventory' },
     { key: 'isActive', label: 'Ativo', type: 'boolean', section: 'settings' },
     { key: 'description', label: 'Descrição', type: 'textarea', section: 'details' }
   ];
 
-  // Default visible columns
-  const DEFAULT_VISIBLE_COLUMNS = ['name', 'sku', 'category', 'price', 'description'];
+  const DEFAULT_VISIBLE_COLUMNS = ['name', 'product_type', 'sku', 'category', 'price', 'cost_price', 'margin_percent', 'stock_quantity'];
 
   // State
   let filtersExpanded = $state(false);
@@ -109,10 +141,19 @@
     name: '',
     description: '',
     sku: '',
+    product_type: 'product',
     price: '0',
-    currency: 'USD',
+    cost_price: '0',
+    currency: 'BRL',
     category: '',
-    isActive: 'true'
+    isActive: 'true',
+    default_tax_rate: '0',
+    gateway_fee_percent: '0',
+    gateway_fee_fixed: '0',
+    track_inventory: 'false',
+    stock_quantity: '0',
+    stock_min_alert: '0',
+    unit_of_measure: 'un'
   });
 
   // Derived values
@@ -121,32 +162,23 @@
   const products = $derived(data.products);
   const categories = $derived(data.categories || []);
 
-  // Count active filters
   const activeFiltersCount = $derived(() => {
     let count = 0;
     if (filters.search) count++;
     if (filters.category) count++;
     if (filters.is_active) count++;
+    if (filters.product_type) count++;
     return count;
   });
 
   // Filter handlers
   async function updateFilters(newFilters) {
     const url = new URL($page.url);
-
-    // Clear existing filter params
-    ['search', 'category', 'is_active'].forEach((key) => url.searchParams.delete(key));
-
-    // Set new params
+    ['search', 'category', 'is_active', 'product_type'].forEach((key) => url.searchParams.delete(key));
     Object.entries(newFilters).forEach(([key, value]) => {
-      if (value) {
-        url.searchParams.set(key, value);
-      }
+      if (value) url.searchParams.set(key, value);
     });
-
-    // Reset to page 1 when filters change
     url.searchParams.set('page', '1');
-
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
@@ -154,7 +186,6 @@
     await updateFilters({});
   }
 
-  // Pagination handlers
   async function handlePageChange(newPage) {
     const url = new URL($page.url);
     url.searchParams.set('page', newPage.toString());
@@ -168,14 +199,12 @@
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
-  // Row click handler
   function handleRowClick(product) {
     selectedProduct = product;
     drawerMode = 'view';
     drawerOpen = true;
   }
 
-  // Create new product
   function openCreateDrawer() {
     selectedProduct = null;
     drawerMode = 'create';
@@ -183,71 +212,88 @@
       name: '',
       description: '',
       sku: '',
+      product_type: 'product',
       price: '0',
-      currency: 'USD',
+      cost_price: '0',
+      currency: 'BRL',
       category: '',
-      isActive: true
+      isActive: true,
+      default_tax_rate: '0',
+      gateway_fee_percent: '0',
+      gateway_fee_fixed: '0',
+      track_inventory: false,
+      stock_quantity: '0',
+      stock_min_alert: '0',
+      unit_of_measure: 'un'
     };
     drawerOpen = true;
   }
 
-  // Close drawer
   function closeDrawer() {
     drawerOpen = false;
     selectedProduct = null;
     drawerFormData = {};
   }
 
-  // Sync drawer form data when opening
   $effect(() => {
     if (drawerOpen) {
-      if (drawerMode === 'create') {
-        // Already set in openCreateDrawer
-      } else if (selectedProduct) {
+      if (drawerMode !== 'create' && selectedProduct) {
         drawerFormData = { ...selectedProduct };
       }
     }
   });
 
-  // Field change handler
   function handleFieldChange(field, value) {
     drawerFormData[field] = value;
   }
 
-  // Save handler
   async function handleDrawerSave() {
+    const d = drawerFormData;
     if (drawerMode === 'create') {
-      formState.name = drawerFormData.name;
-      formState.description = drawerFormData.description;
-      formState.sku = drawerFormData.sku;
-      formState.price = drawerFormData.price?.toString() || '0';
-      formState.currency = drawerFormData.currency;
-      formState.category = drawerFormData.category;
-      formState.isActive = drawerFormData.isActive ? 'true' : 'false';
-
+      formState.name = d.name || '';
+      formState.description = d.description || '';
+      formState.sku = d.sku || '';
+      formState.product_type = d.product_type || 'product';
+      formState.price = d.price?.toString() || '0';
+      formState.cost_price = d.cost_price?.toString() || '0';
+      formState.currency = d.currency || 'BRL';
+      formState.category = d.category || '';
+      formState.isActive = d.isActive ? 'true' : 'false';
+      formState.default_tax_rate = d.default_tax_rate?.toString() || '0';
+      formState.gateway_fee_percent = d.gateway_fee_percent?.toString() || '0';
+      formState.gateway_fee_fixed = d.gateway_fee_fixed?.toString() || '0';
+      formState.track_inventory = d.track_inventory ? 'true' : 'false';
+      formState.stock_quantity = d.stock_quantity?.toString() || '0';
+      formState.stock_min_alert = d.stock_min_alert?.toString() || '0';
+      formState.unit_of_measure = d.unit_of_measure || 'un';
       await tick();
       createForm.requestSubmit();
     } else {
       formState.productId = selectedProduct.id;
-      formState.name = drawerFormData.name;
-      formState.description = drawerFormData.description;
-      formState.sku = drawerFormData.sku;
-      formState.price = drawerFormData.price?.toString() || '0';
-      formState.currency = drawerFormData.currency;
-      formState.category = drawerFormData.category;
-      formState.isActive = drawerFormData.isActive ? 'true' : 'false';
-
+      formState.name = d.name || '';
+      formState.description = d.description || '';
+      formState.sku = d.sku || '';
+      formState.product_type = d.product_type || 'product';
+      formState.price = d.price?.toString() || '0';
+      formState.cost_price = d.cost_price?.toString() || '0';
+      formState.currency = d.currency || 'BRL';
+      formState.category = d.category || '';
+      formState.isActive = d.isActive ? 'true' : 'false';
+      formState.default_tax_rate = d.default_tax_rate?.toString() || '0';
+      formState.gateway_fee_percent = d.gateway_fee_percent?.toString() || '0';
+      formState.gateway_fee_fixed = d.gateway_fee_fixed?.toString() || '0';
+      formState.track_inventory = d.track_inventory ? 'true' : 'false';
+      formState.stock_quantity = d.stock_quantity?.toString() || '0';
+      formState.stock_min_alert = d.stock_min_alert?.toString() || '0';
+      formState.unit_of_measure = d.unit_of_measure || 'un';
       await tick();
       updateForm.requestSubmit();
     }
   }
 
-  // Delete handler
   async function handleDelete() {
     if (!selectedProduct) return;
-
-    if (!confirm('Tem certeza que deseja excluir este produto?')) return;
-
+    if (!confirm('Tem certeza que deseja excluir este produto/serviço?')) return;
     formState.productId = selectedProduct.id;
     await tick();
     deleteForm.requestSubmit();
@@ -258,11 +304,8 @@
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('products-column-config');
       if (saved) {
-        try {
-          visibleColumns = JSON.parse(saved);
-        } catch (e) {
-          visibleColumns = [...DEFAULT_VISIBLE_COLUMNS];
-        }
+        try { visibleColumns = JSON.parse(saved); }
+        catch { visibleColumns = [...DEFAULT_VISIBLE_COLUMNS]; }
       }
     }
   }
@@ -275,8 +318,7 @@
 
   function toggleColumn(key) {
     const column = columns.find((c) => c.key === key);
-    if (column && !column.canHide) return;
-
+    if (column && column.canHide === false) return;
     if (visibleColumns.includes(key)) {
       visibleColumns = visibleColumns.filter((k) => k !== key);
     } else {
@@ -285,10 +327,7 @@
     saveColumnConfig();
   }
 
-  // Load column config on mount
-  $effect(() => {
-    loadColumnConfig();
-  });
+  $effect(() => { loadColumnConfig(); });
 </script>
 
 <!-- Hidden Forms -->
@@ -300,11 +339,11 @@
   use:enhance={() => {
     return async ({ result }) => {
       if (result.type === 'success') {
-        toast.success('Produto criado(a)');
+        toast.success('Produto/Serviço criado');
         closeDrawer();
         invalidateAll();
       } else if (result.type === 'failure') {
-        toast.error(/** @type {string} */ (result.data?.error) || 'Falha ao criar produto');
+        toast.error(/** @type {string} */ (result.data?.error) || 'Falha ao criar');
       }
     };
   }}
@@ -312,10 +351,19 @@
   <input type="hidden" name="name" value={formState.name} />
   <input type="hidden" name="description" value={formState.description} />
   <input type="hidden" name="sku" value={formState.sku} />
+  <input type="hidden" name="product_type" value={formState.product_type} />
   <input type="hidden" name="price" value={formState.price} />
+  <input type="hidden" name="cost_price" value={formState.cost_price} />
   <input type="hidden" name="currency" value={formState.currency} />
   <input type="hidden" name="category" value={formState.category} />
   <input type="hidden" name="isActive" value={formState.isActive} />
+  <input type="hidden" name="default_tax_rate" value={formState.default_tax_rate} />
+  <input type="hidden" name="gateway_fee_percent" value={formState.gateway_fee_percent} />
+  <input type="hidden" name="gateway_fee_fixed" value={formState.gateway_fee_fixed} />
+  <input type="hidden" name="track_inventory" value={formState.track_inventory} />
+  <input type="hidden" name="stock_quantity" value={formState.stock_quantity} />
+  <input type="hidden" name="stock_min_alert" value={formState.stock_min_alert} />
+  <input type="hidden" name="unit_of_measure" value={formState.unit_of_measure} />
 </form>
 
 <form
@@ -326,11 +374,11 @@
   use:enhance={() => {
     return async ({ result }) => {
       if (result.type === 'success') {
-        toast.success('Produto atualizado(a)');
+        toast.success('Produto/Serviço atualizado');
         closeDrawer();
         invalidateAll();
       } else if (result.type === 'failure') {
-        toast.error(/** @type {string} */ (result.data?.error) || 'Falha ao atualizar produto');
+        toast.error(/** @type {string} */ (result.data?.error) || 'Falha ao atualizar');
       }
     };
   }}
@@ -339,10 +387,19 @@
   <input type="hidden" name="name" value={formState.name} />
   <input type="hidden" name="description" value={formState.description} />
   <input type="hidden" name="sku" value={formState.sku} />
+  <input type="hidden" name="product_type" value={formState.product_type} />
   <input type="hidden" name="price" value={formState.price} />
+  <input type="hidden" name="cost_price" value={formState.cost_price} />
   <input type="hidden" name="currency" value={formState.currency} />
   <input type="hidden" name="category" value={formState.category} />
   <input type="hidden" name="isActive" value={formState.isActive} />
+  <input type="hidden" name="default_tax_rate" value={formState.default_tax_rate} />
+  <input type="hidden" name="gateway_fee_percent" value={formState.gateway_fee_percent} />
+  <input type="hidden" name="gateway_fee_fixed" value={formState.gateway_fee_fixed} />
+  <input type="hidden" name="track_inventory" value={formState.track_inventory} />
+  <input type="hidden" name="stock_quantity" value={formState.stock_quantity} />
+  <input type="hidden" name="stock_min_alert" value={formState.stock_min_alert} />
+  <input type="hidden" name="unit_of_measure" value={formState.unit_of_measure} />
 </form>
 
 <form
@@ -353,11 +410,11 @@
   use:enhance={() => {
     return async ({ result }) => {
       if (result.type === 'success') {
-        toast.success('Produto excluído(a)');
+        toast.success('Produto/Serviço excluído');
         closeDrawer();
         invalidateAll();
       } else if (result.type === 'failure') {
-        toast.error(/** @type {string} */ (result.data?.error) || 'Falha ao excluir produto');
+        toast.error(/** @type {string} */ (result.data?.error) || 'Falha ao excluir');
       }
     };
   }}
@@ -368,76 +425,33 @@
 <!-- Page Content -->
 <div class="flex flex-col gap-4 p-6">
   <!-- Header -->
-  <PageHeader title="Produtos">
+  <PageHeader title="Produtos/Serviços">
     {#snippet actions()}
-      <!-- Back to Invoices -->
       <Button variant="ghost" size="sm" onclick={() => goto('/invoices')}>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="mr-2"
-        >
-          <path d="M19 12H5M12 19l-7-7 7-7" />
-        </svg>
+        <ArrowLeft class="mr-2 size-4" />
         Faturas
       </Button>
 
-      <!-- Filters Toggle -->
       <Button
         variant="outline"
         size="sm"
         onclick={() => (filtersExpanded = !filtersExpanded)}
         class="gap-2"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-        </svg>
+        <Filter class="size-4" />
         Filtros
         {#if activeFiltersCount() > 0}
-          <span
-            class="rounded-full bg-[var(--color-primary-light)] px-2 py-0.5 text-xs text-[var(--color-primary-default)]"
-          >
+          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
             {activeFiltersCount()}
           </span>
         {/if}
       </Button>
 
-      <!-- Column Visibility -->
       <DropdownMenu.Root>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
             <Button {...props} variant="outline" size="sm" class="gap-2">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
+              <Columns3 class="size-4" />
               Colunas
             </Button>
           {/snippet}
@@ -445,9 +459,8 @@
         <DropdownMenu.Content align="end" class="w-48">
           {#each columns as column}
             <DropdownMenu.CheckboxItem
-              class=""
               checked={visibleColumns.includes(column.key)}
-              disabled={!column.canHide}
+              disabled={column.canHide === false}
               onCheckedChange={() => toggleColumn(column.key)}
             >
               {column.label}
@@ -456,23 +469,9 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
 
-      <!-- New Product -->
       <Button onclick={openCreateDrawer} class="gap-2">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-        Novo Produto
+        <Plus class="size-4" />
+        Novo
       </Button>
     {/snippet}
   </PageHeader>
@@ -486,8 +485,15 @@
   >
     <SearchInput
       value={filters.search}
-      placeholder="Buscar produtos..."
+      placeholder="Buscar produtos/serviços..."
       onchange={(value) => updateFilters({ ...filters, search: value })}
+    />
+
+    <SelectFilter
+      label="Tipo"
+      value={filters.product_type}
+      options={TYPE_OPTIONS}
+      onchange={(value) => updateFilters({ ...filters, product_type: value })}
     />
 
     {#if categories.length > 0}
@@ -511,22 +517,45 @@
   <CrmTable data={products} {columns} bind:visibleColumns onRowClick={handleRowClick}>
     {#snippet emptyState()}
       <div class="flex flex-col items-center justify-center py-16 text-center">
-        <div
-          class="mb-4 flex size-16 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--surface-sunken)]"
-        >
-          <span class="text-4xl">📦</span>
+        <div class="mb-4 flex size-16 items-center justify-center rounded-xl bg-muted">
+          <Package class="size-8 text-muted-foreground" />
         </div>
-        <h3 class="text-lg font-medium text-[var(--text-primary)]">Nenhum produto ainda</h3>
-        <p class="text-sm text-[var(--text-secondary)]">
-          Crie seu primeiro produto para usar nas faturas
+        <h3 class="text-lg font-medium text-foreground">Nenhum produto/serviço ainda</h3>
+        <p class="text-sm text-muted-foreground">
+          Crie seu primeiro produto ou serviço para usar nas faturas
         </p>
       </div>
     {/snippet}
     {#snippet cellContent(row, column)}
-      {#if column.key === 'price'}
-        {formatCurrency(Number(row.price), row.currency)}
+      {#if column.key === 'product_type'}
+        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {row.product_type === 'service' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}">
+          {row.product_type === 'service' ? 'Serviço' : 'Produto'}
+        </span>
+      {:else if column.key === 'price'}
+        {formatCurrency(Number(row.price), row.currency || 'BRL')}
+      {:else if column.key === 'cost_price'}
+        {formatCurrency(Number(row.cost_price || 0), row.currency || 'BRL')}
+      {:else if column.key === 'margin_percent'}
+        <span class="font-medium {Number(row.margin_percent || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">
+          {Number(row.margin_percent || 0).toFixed(1)}%
+        </span>
+      {:else if column.key === 'stock_quantity'}
+        {#if row.track_inventory}
+          <div class="flex items-center gap-1.5">
+            <span class="{row.is_low_stock ? 'text-rose-600 dark:text-rose-400 font-semibold' : ''}">
+              {Number(row.stock_quantity || 0)} {row.unit_of_measure || 'un'}
+            </span>
+            {#if row.is_low_stock}
+              <AlertTriangle class="size-3.5 text-rose-500" />
+            {/if}
+          </div>
+        {:else}
+          <span class="text-muted-foreground">—</span>
+        {/if}
+      {:else if column.key === 'default_tax_rate'}
+        {Number(row.default_tax_rate || 0) > 0 ? `${Number(row.default_tax_rate).toFixed(1)}%` : '—'}
       {:else}
-        {row[column.key] || '-'}
+        {row[column.key] || '—'}
       {/if}
     {/snippet}
   </CrmTable>
@@ -548,8 +577,8 @@
   data={drawerFormData}
   columns={drawerFields}
   titleKey="name"
-  titlePlaceholder="Novo Produto"
-  headerLabel="Produto"
+  titlePlaceholder="Novo Produto/Serviço"
+  headerLabel={drawerFormData.product_type === 'service' ? 'Serviço' : 'Produto'}
   mode={drawerMode}
   onFieldChange={handleFieldChange}
   onDelete={handleDelete}
@@ -559,7 +588,7 @@
     <div class="flex w-full items-center justify-end gap-2">
       <Button variant="outline" onclick={closeDrawer}>Cancelar</Button>
       <Button onclick={handleDrawerSave}>
-        {drawerMode === 'create' ? 'Criar Produto' : 'Salvar Alterações'}
+        {drawerMode === 'create' ? 'Criar' : 'Salvar Alterações'}
       </Button>
     </div>
   {/snippet}

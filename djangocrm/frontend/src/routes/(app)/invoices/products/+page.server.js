@@ -1,7 +1,7 @@
 /**
- * Products List Page
+ * Products/Services List Page
  *
- * Product catalog for invoice line items.
+ * Product and service catalog with inventory, cost, and tax management.
  * Django endpoint: GET /api/invoices/products/
  */
 
@@ -16,11 +16,11 @@ export async function load({ url, locals, cookies }) {
     throw error(401, 'Contexto de organização é obrigatório');
   }
 
-  // Parse filter params from URL
   const filters = {
     search: url.searchParams.get('search') || '',
     category: url.searchParams.get('category') || '',
-    is_active: url.searchParams.get('is_active') || ''
+    is_active: url.searchParams.get('is_active') || '',
+    product_type: url.searchParams.get('product_type') || ''
   };
 
   try {
@@ -28,7 +28,6 @@ export async function load({ url, locals, cookies }) {
     const limit = parseInt(url.searchParams.get('limit') || '10');
     const sort = url.searchParams.get('sort') || '-created_at';
 
-    // Build query parameters for Django
     const queryParams = buildQueryParams({
       page,
       limit,
@@ -36,19 +35,17 @@ export async function load({ url, locals, cookies }) {
       order: sort.startsWith('-') ? 'desc' : 'asc'
     });
 
-    // Add filter params
     if (filters.search) queryParams.append('search', filters.search);
     if (filters.category) queryParams.append('category', filters.category);
     if (filters.is_active) queryParams.append('is_active', filters.is_active);
+    if (filters.product_type) queryParams.append('product_type', filters.product_type);
 
-    // Fetch products
     const productsResponse = await apiRequest(
       `/invoices/products/?${queryParams.toString()}`,
       {},
       { cookies, org }
     );
 
-    // Handle Django response format
     let products = [];
     let totalCount = 0;
 
@@ -60,20 +57,37 @@ export async function load({ url, locals, cookies }) {
       totalCount = products.length;
     }
 
-    // Transform products to frontend structure
     const transformedProducts = products.map((product) => ({
       id: product.id,
       name: product.name,
       description: product.description || '',
       sku: product.sku || '',
+      product_type: product.product_type || 'product',
       price: product.price || '0.00',
+      cost_price: product.cost_price || '0.00',
       currency: product.currency || 'BRL',
       category: product.category || '',
       isActive: product.is_active,
+      default_tax_rate: product.default_tax_rate || '0.00',
+      tax_profile: product.tax_profile || {},
+      gateway_fee_percent: product.gateway_fee_percent || '0.00',
+      gateway_fee_fixed: product.gateway_fee_fixed || '0.00',
+      track_inventory: product.track_inventory || false,
+      stock_quantity: product.stock_quantity || '0.00',
+      stock_min_alert: product.stock_min_alert || '0.00',
+      unit_of_measure: product.unit_of_measure || 'un',
+      margin_percent: product.margin_percent || '0.00',
+      net_price: product.net_price || '0.00',
+      is_low_stock: product.is_low_stock || false,
+      supplier_account: product.supplier_account || null,
+      supplier_account_name: product.supplier_account_name || '',
+      default_plano_receita: product.default_plano_receita || null,
+      default_plano_custo: product.default_plano_custo || null,
+      plano_receita_nome: product.plano_receita_nome || '',
+      plano_custo_nome: product.plano_custo_nome || '',
       createdAt: product.created_at
     }));
 
-    // Extract unique categories
     const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].map((c) => ({
       value: c,
       label: c
@@ -106,18 +120,24 @@ export const actions = {
         name: form.get('name')?.toString().trim() || '',
         description: form.get('description')?.toString() || '',
         sku: form.get('sku')?.toString() || '',
+        product_type: form.get('product_type')?.toString() || 'product',
         price: form.get('price')?.toString() || '0',
+        cost_price: form.get('cost_price')?.toString() || '0',
         currency: form.get('currency')?.toString() || 'BRL',
         category: form.get('category')?.toString() || '',
-        is_active: form.get('isActive') === 'true'
+        is_active: form.get('isActive') === 'true',
+        default_tax_rate: form.get('default_tax_rate')?.toString() || '0',
+        gateway_fee_percent: form.get('gateway_fee_percent')?.toString() || '0',
+        gateway_fee_fixed: form.get('gateway_fee_fixed')?.toString() || '0',
+        track_inventory: form.get('track_inventory') === 'true',
+        stock_quantity: form.get('stock_quantity')?.toString() || '0',
+        stock_min_alert: form.get('stock_min_alert')?.toString() || '0',
+        unit_of_measure: form.get('unit_of_measure')?.toString() || 'un'
       };
 
       await apiRequest(
         '/invoices/products/',
-        {
-          method: 'POST',
-          body: productData
-        },
+        { method: 'POST', body: productData },
         { cookies, org: locals.org }
       );
 
@@ -141,18 +161,24 @@ export const actions = {
         name: form.get('name')?.toString().trim() || '',
         description: form.get('description')?.toString() || '',
         sku: form.get('sku')?.toString() || '',
+        product_type: form.get('product_type')?.toString() || 'product',
         price: form.get('price')?.toString() || '0',
+        cost_price: form.get('cost_price')?.toString() || '0',
         currency: form.get('currency')?.toString() || 'BRL',
         category: form.get('category')?.toString() || '',
-        is_active: form.get('isActive') === 'true'
+        is_active: form.get('isActive') === 'true',
+        default_tax_rate: form.get('default_tax_rate')?.toString() || '0',
+        gateway_fee_percent: form.get('gateway_fee_percent')?.toString() || '0',
+        gateway_fee_fixed: form.get('gateway_fee_fixed')?.toString() || '0',
+        track_inventory: form.get('track_inventory') === 'true',
+        stock_quantity: form.get('stock_quantity')?.toString() || '0',
+        stock_min_alert: form.get('stock_min_alert')?.toString() || '0',
+        unit_of_measure: form.get('unit_of_measure')?.toString() || 'un'
       };
 
       await apiRequest(
         `/invoices/products/${productId}/`,
-        {
-          method: 'PUT',
-          body: productData
-        },
+        { method: 'PUT', body: productData },
         { cookies, org: locals.org }
       );
 
