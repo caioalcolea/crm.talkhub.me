@@ -29,12 +29,12 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 ## Módulos CRM
 
 ### Core
-- **Leads** — Pipeline customizável por org, kanban drag-and-drop, conversão para oportunidade/conta
+- **Leads** — Pipeline kanban customizável por org (stages, cores, mapeamento), drag-and-drop, conversão para oportunidade/conta
 - **Contas (Accounts)** — Cadastro de empresas, receita anual, moeda, endereço completo
 - **Contatos (Contacts)** — Pessoas vinculadas a contas, redes sociais, campos TalkHub Omni. Múltiplos emails/telefones por contato (primary + secondary + extras). Merge de contatos com preservação de dados e preview. Detecção automática de duplicatas
-- **Oportunidades (Opportunities)** — Pipeline de vendas com stages, produtos/line items, valor, probabilidade
-- **Casos (Cases)** — Suporte ao cliente, kanban com pipeline customizável, SLA e escalação automática
-- **Tarefas (Tasks)** — Kanban, calendário, boards customizados, prioridades, status, conta vinculada
+- **Oportunidades (Opportunities)** — Pipeline de vendas com stages, produtos/line items, valor, probabilidade. Integração financeira: ao fechar como GANHO, lançamento RECEBER é criado automaticamente
+- **Casos (Cases)** — Suporte ao cliente, kanban com pipeline customizável por org, SLA e escalação automática
+- **Tarefas (Tasks)** — Kanban com pipeline customizável, calendário, boards customizados, prioridades, status, conta vinculada
 
 ### Faturamento
 - **Faturas (Invoices)** — Criação, envio, PDF, status (Rascunho→Enviada→Paga), impostos, descontos
@@ -44,13 +44,15 @@ CRM multi-tenant SaaS completo — Django 5.2 + SvelteKit 2 + PostgreSQL 16 RLS.
 
 ### Financeiro
 - **Lançamentos** — Receitas e despesas com categorias (plano de contas), edição segura (3 níveis: tudo editável / metadados / somente leitura conforme status das parcelas)
-- **Lançamentos Recorrentes** — Salários, assinaturas, etc. Frequências: mensal, quinzenal, semanal, anual. Sem data fim obrigatória. Celery Beat gera 3 meses à frente automaticamente
+- **Lançamentos Recorrentes** — Salários, assinaturas, etc. Frequências: mensal, quinzenal, semanal, anual. Sem data fim obrigatória. Celery Beat gera 12 meses à frente automaticamente (1º e 15º de cada mês)
 - **Taxa de Câmbio** — Fixa (manual) ou variável (automática via API). APIs: open.er-api.com + BCB PTAX (fallback BRL). Cache Redis 4h. Task diário atualiza taxas variáveis
 - **Contas a Pagar / Receber** — Gestão de pagamentos e recebimentos, parcelas com status (ABERTO/PAGO/CANCELADO)
 - **Plano de Contas** — Hierarquia de categorias financeiras (centro de custo)
 - **Formas de Pagamento** — Cadastro de meios de pagamento, edição e remoção via UI
 - **Relatórios** — DRE, fluxo de caixa, por período. Parcelas CANCELADO excluídas de todas as somas
 - **Moeda da Org** — Integração total com `Org.default_currency` em todo o sistema financeiro
+- **PIX** — Gateway de pagamento com QR Code, reconciliação automática a cada 15 min (expira pending), relatório diário de divergências com alertas por email
+- **Integração CRM ↔ Financeiro** — Oportunidade GANHO auto-cria Lancamento RECEBER; KPIs financeiros no Dashboard CRM (A Receber, A Pagar, Saldo, Vencido); resumo financeiro inline nos drawers de Contas, Contatos e Oportunidades via `FinancialSummaryCard`
 
 ### Integrations Hub
 - **integrations** — Hub genérico de integrações: conexões, sync jobs, logs, webhooks, field mapping, conflict resolution
@@ -89,6 +91,7 @@ Três apps formam o sistema de automação unificado, acessíveis via `/autopilo
   - Prompt em linguagem natural → JSON config validado (automações, lembretes, campanhas)
   - Backend: OpenAI GPT-4o (via `CRM_OPENAI_API_KEY`), graceful degradation se não configurado
   - Frontend: componente `AICopilot.svelte` integrado nos formulários de criação
+  - Tools CRM: search_leads, search_opportunities, list_pipelines, get_financial_summary, search_contacts, search_accounts
 
 ### Metas (Goals)
 - **Metas de Vendas** — Definição por usuário, período, tipo (receita/leads/negócios), acompanhamento de progresso
@@ -230,7 +233,7 @@ crm.talkhub.me/
 │       │   │   │   ├── conversations/# ConversationTimeline
 │       │   │   │   ├── autopilot/   # AICopilot, AutomationCreateForm, CampaignCreateForm
 │       │   │   │   ├── cowork/      # CoworkPiP (persistent iframe overlay)
-│       │   │   │   ├── financeiro/  # TransactionForm, CashFlowChart, DailyCashFlowChart
+│       │   │   │   ├── financeiro/  # TransactionForm, CashFlowChart, DailyCashFlowChart, FinancialSummaryCard
 │       │   │   │   └── dashboard/    # MetricsWidget, AgentProductivity, SyncHealthPanel
 │       │   │   ├── constants/
 │       │   │   ├── stores/
@@ -501,6 +504,9 @@ export const actions = {
 | Admin panel não aparece | Usuário não é superuser | Verificar `is_superuser=True` no DB |
 | Convite não funciona | `/invite/` não roteado para backend | Verificar Traefik PathPrefix no YAML |
 | Cowork congela | Player preso em colisão | Verificar spawn position e collision delay |
+| Assistant chat 500 (IntegrityError) | Migrations com FK `created_by`/`updated_by` apontando para `common.profile` em vez de `common.User` | Migration 0007 corrige (já aplicada) |
+| Notification 401 no page load | `startPolling()` dispara antes do JWT estar disponível (Svelte 5 `$effect` roda após `onMount` dos filhos) | Guard `getAccessToken()` antes do polling (já corrigido) |
+| Lançamentos recorrentes geram apenas 4 parcelas | `months_ahead=3` gerava ~4 parcelas mensais | Corrigido para `months_ahead=12`, Beat roda 2x/mês |
 
 ---
 
