@@ -146,6 +146,16 @@ class ScheduledJobListView(APIView):
         if approval_required is not None:
             qs = qs.filter(approval_required=approval_required.lower() == "true")
 
+        target_type = request.query_params.get("target_type")
+        target_id = request.query_params.get("target_id")
+        if target_type and target_id:
+            try:
+                app_label, model = target_type.split(".")
+                ct = ContentType.objects.get(app_label=app_label, model=model)
+                qs = qs.filter(target_content_type=ct, target_object_id=target_id)
+            except (ValueError, ContentType.DoesNotExist):
+                pass
+
         qs = qs.order_by("-due_at")[:100]
         serializer = ScheduledJobSerializer(qs, many=True)
         return Response(serializer.data)

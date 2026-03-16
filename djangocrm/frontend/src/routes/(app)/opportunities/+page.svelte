@@ -34,6 +34,7 @@
   import { CommentSection } from '$lib/components/ui/comment-section';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
@@ -1669,6 +1670,11 @@
           moduleKey="opportunity"
           dateFieldLabel="fechamento"
         />
+      </div>
+
+      <!-- Execution History Section -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <EntityRunsHistory targetType="opportunity.opportunity" targetId={selectedRow.id} />
       </div>
 
       <!-- Comments Section -->

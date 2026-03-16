@@ -552,6 +552,14 @@ export const assistant = {
     return apiRequest(`/assistant/reminders-for/${targetType}/${targetId}/`, { method: 'POST', body });
   },
   templates: createCrudApi('assistant/templates'),
+  async taskLinks(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/task-links/${qs ? `?${qs}` : ''}`);
+  },
+  async entityJobs(targetType, targetId, params = {}) {
+    const qs = new URLSearchParams({ target_type: targetType, target_id: targetId, ...params }).toString();
+    return apiRequest(`/assistant/scheduled-jobs/?${qs}`);
+  },
 };
 
 /**

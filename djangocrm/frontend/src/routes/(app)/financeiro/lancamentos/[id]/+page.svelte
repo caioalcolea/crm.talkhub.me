@@ -7,6 +7,7 @@
   import { financeiro } from '$lib/api.js';
   import { orgSettings } from '$lib/stores/org.js';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import { ArrowLeft, Ban, Pencil, Repeat, Square } from '@lucide/svelte';
 
   let { data } = $props();
@@ -276,6 +277,9 @@
         reminders={data.reminders || []}
         tipo={l.tipo}
       />
+      <div class="mt-4">
+        <EntityRunsHistory targetType="financeiro.lancamento" targetId={l.id} />
+      </div>
     {/if}
   {/if}
 </div>

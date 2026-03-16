@@ -38,6 +38,8 @@
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import AutomationOriginBadge from '$lib/components/assistant/AutomationOriginBadge.svelte';
+  import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import {
@@ -1579,6 +1581,8 @@
   {#snippet activitySection()}
     <!-- Task metadata (only for existing tasks) -->
     {#if selectedTask && !isCreateMode}
+      <AutomationOriginBadge taskId={selectedTask.id} />
+
       <div class="space-y-2 text-sm">
         <div class="mb-3 text-[13px] font-medium text-[var(--text-tertiary)]">Detalhes</div>
         {#if selectedTask.createdBy}
@@ -1603,6 +1607,11 @@
           moduleKey="tasks"
           dateFieldLabel="prazo"
         />
+      </div>
+
+      <!-- Execution History Section -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <EntityRunsHistory targetType="tasks.task" targetId={selectedTask.id} />
       </div>
 
       <!-- Comments Section -->

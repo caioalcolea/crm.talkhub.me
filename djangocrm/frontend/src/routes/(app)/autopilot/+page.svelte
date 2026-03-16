@@ -460,7 +460,14 @@
                     {run.type || '-'}
                   {/if}
                 </td>
-                <td class="max-w-[200px] truncate px-3 py-2.5 text-xs">{run.name || '-'}</td>
+                <td class="max-w-[200px] truncate px-3 py-2.5 text-xs">
+                  {@const tabMap = { reminder: 'reminders', automation: 'rules', campaign_step: 'campaigns' }}
+                  {#if tabMap[run.type]}
+                    <a href="/autopilot?tab={tabMap[run.type]}" class="text-primary hover:underline">{run.name || '-'}</a>
+                  {:else}
+                    {run.name || '-'}
+                  {/if}
+                </td>
                 <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{formatDate(run.executed_at || run.due_at || run.created_at)}</td>
                 <td class="hidden max-w-[200px] truncate px-3 py-2.5 text-xs md:table-cell text-destructive">
                   {run.error || run.last_error || ''}
