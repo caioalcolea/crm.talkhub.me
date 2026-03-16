@@ -119,10 +119,10 @@ app.conf.beat_schedule = {
         "task": "financeiro.tasks.check_overdue_parcelas",
         "schedule": crontab(hour=1, minute=30),
     },
-    # Financeiro — Generate recurring parcelas on 1st of each month at 2 AM
+    # Financeiro — Generate recurring parcelas on 1st and 15th of each month at 2 AM
     "generate-recurring-parcelas": {
         "task": "financeiro.tasks.generate_recurring_parcelas",
-        "schedule": crontab(day_of_month=1, hour=2, minute=0),
+        "schedule": crontab(day_of_month="1,15", hour=2, minute=0),
     },
     # Financeiro — Update variable exchange rates daily at 6:30 AM
     "update-variable-exchange-rates": {
@@ -163,5 +163,15 @@ app.conf.beat_schedule = {
     "channels-poll-imap-emails": {
         "task": "channels.tasks.poll_imap_emails",
         "schedule": crontab(minute="*/2"),
+    },
+    # Assistant — Process scheduled jobs every minute
+    "assistant-process-scheduled-jobs": {
+        "task": "assistant.tasks.process_scheduled_jobs",
+        "schedule": crontab(minute="*"),
+    },
+    # Assistant — Daily cleanup of old data at 4 AM
+    "cleanup-autopilot-data": {
+        "task": "assistant.tasks.cleanup_old_data",
+        "schedule": crontab(hour=4, minute=0),
     },
 }

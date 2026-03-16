@@ -24,6 +24,7 @@ export async function load({ locals, cookies, url }) {
 
   // Parse view mode from URL
   const viewMode = url.searchParams.get('view') || 'list';
+  const pipelineId = url.searchParams.get('pipeline_id') || '';
 
   // Parse pagination params from URL
   const page = parseInt(url.searchParams.get('page') || '1');
@@ -65,12 +66,14 @@ export async function load({ locals, cookies, url }) {
     filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
     if (filters.due_date_gte) kanbanQueryParams.append('due_date__gte', filters.due_date_gte);
     if (filters.due_date_lte) kanbanQueryParams.append('due_date__lte', filters.due_date_lte);
+    if (pipelineId) kanbanQueryParams.append('pipeline_id', pipelineId);
 
     // Fetch tasks (or kanban data) and dropdown options in parallel
     const kanbanQueryString = kanbanQueryParams.toString();
     const [
       tasksResponse,
       kanbanResponse,
+      pipelinesResponse,
       usersRes,
       accountsRes,
       contactsRes,
@@ -88,6 +91,7 @@ export async function load({ locals, cookies, url }) {
             { cookies, org }
           )
         : Promise.resolve(null),
+      apiRequest('/tasks/pipelines/', {}, { cookies, org }).catch(() => []),
       apiRequest('/users/', {}, { cookies, org }).catch(() => ({})),
       apiRequest('/accounts/', {}, { cookies, org }).catch(() => ({})),
       apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({})),
@@ -253,7 +257,9 @@ export async function load({ locals, cookies, url }) {
       },
       filters,
       viewMode,
+      pipelineId,
       kanbanData: kanbanResponse,
+      pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
       // Dropdown options for drawer form
       formOptions: {
         users,

@@ -117,6 +117,18 @@ class Org(BaseModel):
         max_length=2, choices=COUNTRIES, blank=True, null=True
     )
 
+    # Autopilot settings
+    business_hours = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Business hours config: {"timezone": "America/Sao_Paulo", "windows": [{"days": [1,2,3,4,5], "start": "08:00", "end": "18:00"}]}',
+    )
+    channel_rate_limits = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Per-channel hourly rate limits: {"smtp_native": 200, "talkhub_omni": 100}',
+    )
+
     class Meta:
         verbose_name = "Organization"
         verbose_name_plural = "Organizations"

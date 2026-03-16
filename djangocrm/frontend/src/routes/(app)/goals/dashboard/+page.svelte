@@ -1,7 +1,8 @@
 <script>
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { Trophy, TrendingUp, AlertTriangle, Clock, CheckCircle2, Users, ChevronDown, ChevronRight, ArrowLeft } from '@lucide/svelte';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import { Trophy, TrendingUp, AlertTriangle, Clock, CheckCircle2, Users, ChevronDown, ChevronRight } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Progress } from '$lib/components/ui/progress/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
@@ -116,20 +117,14 @@
   };
 </script>
 
-<div class="mx-auto max-w-7xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <Button variant="ghost" size="icon" onclick={() => goto('/goals')}>
-        <ArrowLeft class="size-5" />
-      </Button>
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight">Dashboard de Metas</h1>
-        <p class="text-muted-foreground text-sm">Visão consolidada do progresso das metas ativas</p>
-      </div>
-    </div>
-  </div>
+<div class="flex flex-col">
+  <PageHeader title="Dashboard de Metas" subtitle="Visão consolidada do progresso das metas ativas">
+    {#snippet actions()}
+      <Button href="/goals" variant="outline" size="sm">Voltar</Button>
+    {/snippet}
+  </PageHeader>
 
+  <div class="space-y-6 px-6 py-6 md:px-8">
   <!-- Summary Cards -->
   <div class="grid grid-cols-2 gap-4 md:grid-cols-5">
     <Card.Root>
@@ -224,10 +219,8 @@
       Filtrar
     </Button>
   </div>
-</div>
 
-<!-- Goals List with Breakdowns (continued from above, inside the same root div) -->
-<div class="mx-auto max-w-7xl space-y-4 px-6 pb-6">
+  <!-- Goals List with Breakdowns -->
   {#if data.goals.length === 0}
     <Card.Root>
       <Card.Content class="flex flex-col items-center justify-center py-12">
@@ -341,4 +334,5 @@
       </Card.Root>
     {/each}
   {/if}
+  </div>
 </div>

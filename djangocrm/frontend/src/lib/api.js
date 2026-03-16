@@ -501,7 +501,100 @@ export const financeiro = {
   // Form options
   async formOptions() {
     return apiRequest('/financeiro/form-options/');
-  }
+  },
+
+  // Reminders (per lancamento)
+  async getLancamentoReminders(id) {
+    return apiRequest(`/financeiro/lancamentos/${id}/reminders/`);
+  },
+  async createLancamentoReminder(id, data) {
+    return apiRequest(`/financeiro/lancamentos/${id}/reminders/`, { method: 'POST', body: data });
+  },
+};
+
+/**
+ * Autopilot Assistant API
+ */
+export const assistant = {
+  reminderPolicies: createCrudApi('assistant/reminder-policies'),
+
+  async activatePolicy(id) {
+    return apiRequest(`/assistant/reminder-policies/${id}/activate/`, { method: 'PATCH' });
+  },
+  async deactivatePolicy(id) {
+    return apiRequest(`/assistant/reminder-policies/${id}/deactivate/`, { method: 'PATCH' });
+  },
+  async scheduledJobs(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/scheduled-jobs/${qs ? `?${qs}` : ''}`);
+  },
+  async retryJob(id) {
+    return apiRequest(`/assistant/scheduled-jobs/${id}/retry/`, { method: 'POST' });
+  },
+  async cancelJob(id) {
+    return apiRequest(`/assistant/scheduled-jobs/${id}/cancel/`, { method: 'POST' });
+  },
+  async approveJob(id) {
+    return apiRequest(`/assistant/scheduled-jobs/${id}/approve/`, { method: 'POST' });
+  },
+  async runs(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/runs/${qs ? `?${qs}` : ''}`);
+  },
+  async presets(module = '') {
+    const qs = module ? `?module=${module}` : '';
+    return apiRequest(`/assistant/presets/${qs}`);
+  },
+  async getReminders(targetType, targetId) {
+    return apiRequest(`/assistant/reminders-for/${targetType}/${targetId}/`);
+  },
+  async createReminder(targetType, targetId, body) {
+    return apiRequest(`/assistant/reminders-for/${targetType}/${targetId}/`, { method: 'POST', body });
+  },
+  templates: createCrudApi('assistant/templates'),
+  async taskLinks(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/task-links/${qs ? `?${qs}` : ''}`);
+  },
+  async entityJobs(targetType, targetId, params = {}) {
+    const qs = new URLSearchParams({ target_type: targetType, target_id: targetId, ...params }).toString();
+    return apiRequest(`/assistant/scheduled-jobs/?${qs}`);
+  },
+  async aiGenerate(body) {
+    return apiRequest('/assistant/ai/generate/', { method: 'POST', body });
+  },
+
+  // ── Notifications ──
+  async notifications(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/assistant/notifications/${qs ? `?${qs}` : ''}`);
+  },
+  async unreadCount() {
+    return apiRequest('/assistant/notifications/unread-count/');
+  },
+  async markRead(id) {
+    return apiRequest(`/assistant/notifications/${id}/read/`, { method: 'PATCH' });
+  },
+  async markAllRead() {
+    return apiRequest('/assistant/notifications/mark-all-read/', { method: 'POST' });
+  },
+
+  // ── Chat (Conversational Assistant) ──
+  async chat(body) {
+    return apiRequest('/assistant/chat/', { method: 'POST', body });
+  },
+  async chatConfirm(body) {
+    return apiRequest('/assistant/chat/confirm/', { method: 'POST', body });
+  },
+  async sessions() {
+    return apiRequest('/assistant/sessions/');
+  },
+  async session(id) {
+    return apiRequest(`/assistant/sessions/${id}/`);
+  },
+  async archiveSession(id) {
+    return apiRequest(`/assistant/sessions/${id}/`, { method: 'DELETE' });
+  },
 };
 
 /**
@@ -683,6 +776,41 @@ export const talkhubOmni = {
 };
 
 /**
+ * Automations API
+ */
+export const automations = createCrudApi('automations');
+
+/**
+ * Campaigns API
+ */
+export const campaigns = {
+  ...createCrudApi('campaigns'),
+
+  async previewAudience(id, filterCriteria) {
+    return apiRequest(`/campaigns/${id}/audience/preview/`, { method: 'POST', body: { filter_criteria: filterCriteria } });
+  },
+  async generateAudience(id, filterCriteria, name) {
+    return apiRequest(`/campaigns/${id}/audience/generate/`, { method: 'POST', body: { filter_criteria: filterCriteria, name } });
+  },
+  async schedule(id, scheduledAt) {
+    return apiRequest(`/campaigns/${id}/schedule/`, { method: 'POST', body: { scheduled_at: scheduledAt } });
+  },
+  async pauseResume(id, action) {
+    return apiRequest(`/campaigns/${id}/pause-resume/`, { method: 'POST', body: { action } });
+  },
+  async analytics(id) {
+    return apiRequest(`/campaigns/${id}/analytics/`);
+  },
+  async recipients(id, params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/campaigns/${id}/recipients/${qs ? '?' + qs : ''}`);
+  },
+  async createStep(id, step) {
+    return apiRequest(`/campaigns/${id}/steps/`, { method: 'POST', body: step });
+  },
+};
+
+/**
  * Export all as default
  */
 export default {
@@ -696,6 +824,8 @@ export default {
   events,
   invoices,
   financeiro,
+  automations,
+  campaigns,
   salesforce,
   talkhubOmni,
   apiRequest,

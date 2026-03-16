@@ -269,6 +269,14 @@ class LeadPipeline(OrgScopedMixin, BaseModel):
         default=True,
         help_text="Se True, cria Opportunity automaticamente quando Lead entra neste pipeline",
     )
+    visible_to_teams = models.ManyToManyField(
+        Teams, blank=True, related_name="visible_lead_pipelines",
+        help_text="Se vazio = visível para todos. Se preenchido = apenas estes times.",
+    )
+    visible_to_users = models.ManyToManyField(
+        Profile, blank=True, related_name="visible_lead_pipelines",
+        help_text="Se vazio = visível para todos. Se preenchido = apenas estes usuários.",
+    )
 
     class Meta:
         verbose_name = "Lead Pipeline"

@@ -133,9 +133,18 @@ ORG_SCOPED_TABLES = [
     "sales_goal",
     "stage_aging_config",
     "opportunity_line_item",
+    # Opportunity pipeline
+    "opportunity_pipeline",
+    "opportunity_stage",
     # Cowork
     "cowork_coworkroom",
     "cowork_coworkinvite",
+    # Assistant (Autopilot)
+    "assistant_reminder_policy",
+    "assistant_scheduled_job",
+    "assistant_channel_dispatch",
+    "assistant_task_link",
+    "assistant_autopilot_template",
 ]
 
 # Centralized RLS configuration

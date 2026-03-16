@@ -50,29 +50,41 @@ def _render_template(body_template, contact):
 def check_scheduled_campaigns():
     """
     Beat task (a cada minuto): verifica campanhas agendadas cujo
-    scheduled_at já passou e dispara a task de execução apropriada.
+    scheduled_at já passou e gera ScheduledJobs para execução via runtime unificado.
+
+    Processes per-org to respect RLS context.
     """
     from campaigns.models import Campaign
-    from common.models import Org
+    from campaigns.job_generator import generate_campaign_jobs
 
     now = timezone.now()
-    campaigns = Campaign.objects.filter(
-        status="scheduled",
-        scheduled_at__lte=now,
-    ).select_related("org")
 
-    for campaign in campaigns:
-        set_rls_context(campaign.org_id)
-        campaign.status = "running"
-        campaign.started_at = now
-        campaign.save(update_fields=["status", "started_at", "updated_at"])
+    # First, get distinct org_ids that have scheduled campaigns.
+    # This query is safe (only fetches org IDs, no sensitive data).
+    org_ids = list(
+        Campaign.objects.filter(
+            status="scheduled",
+            scheduled_at__lte=now,
+        ).values_list("org_id", flat=True).distinct()
+    )
 
-        if campaign.campaign_type == "email_blast":
-            execute_email_blast.delay(str(campaign.id), str(campaign.org_id))
-        elif campaign.campaign_type == "whatsapp_broadcast":
-            execute_whatsapp_broadcast.delay(str(campaign.id), str(campaign.org_id))
-        elif campaign.campaign_type == "nurture_sequence":
-            execute_nurture_first_step.delay(str(campaign.id), str(campaign.org_id))
+    for org_id in org_ids:
+        set_rls_context(org_id)
+        campaigns = Campaign.objects.filter(
+            status="scheduled",
+            scheduled_at__lte=now,
+        ).select_related("org")
+
+        for campaign in campaigns:
+            campaign.status = "running"
+            campaign.started_at = now
+            campaign.save(update_fields=["status", "started_at", "updated_at"])
+
+            job_count = generate_campaign_jobs(campaign)
+            logger.info(
+                "Campaign %s started: %d jobs generated (%s)",
+                campaign.id, job_count, campaign.campaign_type,
+            )
 
 
 @shared_task(name="campaigns.tasks.execute_email_blast")
@@ -480,13 +492,18 @@ def execute_nurture_step(campaign_id, recipient_id, org_id, step_order):
 
 def _check_nurture_completion(campaign):
     """Check if all recipients have completed the nurture sequence."""
-    from campaigns.models import CampaignRecipient
+    from django.db import transaction
+    from campaigns.models import Campaign, CampaignRecipient
 
     pending = CampaignRecipient.objects.filter(
         campaign=campaign, status="pending"
     ).exists()
 
-    if not pending and campaign.status == "running":
-        campaign.status = "completed"
-        campaign.completed_at = timezone.now()
-        campaign.save(update_fields=["status", "completed_at", "updated_at"])
+    if not pending:
+        with transaction.atomic():
+            locked = Campaign.objects.select_for_update().get(id=campaign.id)
+            if locked.status != "running":
+                return
+            locked.status = "completed"
+            locked.completed_at = timezone.now()
+            locked.save(update_fields=["status", "completed_at", "updated_at"])

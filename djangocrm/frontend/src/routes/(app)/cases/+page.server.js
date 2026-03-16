@@ -23,6 +23,7 @@ export async function load({ url, locals, cookies }) {
 
   // Parse view mode (list or kanban)
   const viewMode = url.searchParams.get('view') || 'list';
+  const pipelineId = url.searchParams.get('pipeline_id') || '';
 
   // Parse pagination params from URL
   const page = parseInt(url.searchParams.get('page') || '1');
@@ -65,9 +66,10 @@ export async function load({ url, locals, cookies }) {
     if (filters.priority) kanbanQueryParams.append('priority', filters.priority);
     if (filters.case_type) kanbanQueryParams.append('case_type', filters.case_type);
     filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
+    if (pipelineId) kanbanQueryParams.append('pipeline_id', pipelineId);
 
     // Fetch cases, kanban data, and dropdown options in parallel
-    const [casesResponse, kanbanResponse, accountsRes, usersRes, contactsRes, teamsRes, tagsRes] =
+    const [casesResponse, kanbanResponse, accountsRes, usersRes, contactsRes, teamsRes, tagsRes, pipelinesResponse] =
       await Promise.all([
         apiRequest(`/cases/?${queryParams.toString()}`, {}, { cookies, org }),
         viewMode === 'kanban'
@@ -81,7 +83,8 @@ export async function load({ url, locals, cookies }) {
         apiRequest('/users/', {}, { cookies, org }).catch(() => ({})),
         apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({})),
         apiRequest('/teams/', {}, { cookies, org }).catch(() => ({})),
-        apiRequest('/tags/', {}, { cookies, org }).catch(() => ({}))
+        apiRequest('/tags/', {}, { cookies, org }).catch(() => ({})),
+        apiRequest('/cases/pipelines/', {}, { cookies, org }).catch(() => [])
       ]);
 
     // Extract cases from response
@@ -270,7 +273,9 @@ export async function load({ url, locals, cookies }) {
       },
       filters,
       viewMode,
+      pipelineId,
       kanbanData: kanbanResponse,
+      pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
       statusOptions,
       caseTypeOptions,
       // Dropdown options loaded server-side

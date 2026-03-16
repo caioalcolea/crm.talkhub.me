@@ -1,7 +1,8 @@
 <script>
   import { goto, invalidateAll } from '$app/navigation';
-  import { QrCode, Copy, Clock, CheckCircle2, XCircle, AlertTriangle, Search, Filter, Plus, ArrowLeft, RefreshCw } from '@lucide/svelte';
+  import { QrCode, Copy, Clock, CheckCircle2, XCircle, AlertTriangle, Search, Filter, Plus, RefreshCw } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { PageHeader } from '$lib/components/layout';
   import { Input } from '$lib/components/ui/input/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
@@ -151,24 +152,16 @@
   };
 </script>
 
-<div class="mx-auto max-w-7xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <Button variant="ghost" size="icon" onclick={() => goto('/financeiro')}>
-        <ArrowLeft class="size-5" />
-      </Button>
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight">Transações PIX</h1>
-        <p class="text-muted-foreground text-sm">Gerencie pagamentos PIX e acompanhe confirmações</p>
-      </div>
-    </div>
+<PageHeader title="Transações PIX" subtitle="Gerencie pagamentos PIX e acompanhe confirmações">
+  {#snippet actions()}
     <Button onclick={() => { generateAmount = ''; generateDescription = ''; generateExpiration = '30'; showGenerateModal = true; }}>
       <Plus class="mr-2 size-4" />
       Gerar PIX
     </Button>
-  </div>
+  {/snippet}
+</PageHeader>
 
+<div class="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
   <!-- Filters -->
   <div class="flex flex-wrap items-end gap-3">
     <div class="w-48">

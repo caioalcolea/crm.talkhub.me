@@ -31,11 +31,62 @@ export const actions = {
       codigo: form.get('codigo'),
       nome: form.get('nome'),
       descricao: form.get('descricao') || '',
-      ordem: parseInt(form.get('ordem') || '0')
+      ordem: parseInt(form.get('ordem') || '0'),
+      color: form.get('color') || '#6B7280',
+      applies_to: form.get('applies_to') || 'AMBOS'
     };
 
     try {
       await apiRequest('/financeiro/plano-de-contas/grupos/', { method: 'POST', body }, { cookies, org });
+      return { success: true };
+    } catch (err) {
+      return fail(400, { error: err.message || 'Falha na operação' });
+    }
+  },
+
+  editGrupo: async ({ request, locals, cookies }) => {
+    const org = locals.org;
+    if (!org) return fail(401, { error: 'Contexto de organização é obrigatório' });
+
+    const form = await request.formData();
+    const id = form.get('id');
+    const body = {
+      codigo: form.get('codigo'),
+      nome: form.get('nome'),
+      descricao: form.get('descricao') || '',
+      ordem: parseInt(form.get('ordem') || '0'),
+      color: form.get('color') || '#6B7280',
+      applies_to: form.get('applies_to') || 'AMBOS'
+    };
+
+    try {
+      await apiRequest(`/financeiro/plano-de-contas/grupos/${id}/`, { method: 'PATCH', body }, { cookies, org });
+      return { success: true };
+    } catch (err) {
+      return fail(400, { error: err.message || 'Falha na operação' });
+    }
+  },
+
+  archiveGrupo: async ({ request, locals, cookies }) => {
+    const org = locals.org;
+    if (!org) return fail(401, { error: 'Contexto de organização é obrigatório' });
+    const form = await request.formData();
+    const id = form.get('id');
+    try {
+      await apiRequest(`/financeiro/plano-de-contas/grupos/${id}/`, { method: 'PATCH', body: { is_active: false } }, { cookies, org });
+      return { success: true };
+    } catch (err) {
+      return fail(400, { error: err.message || 'Falha na operação' });
+    }
+  },
+
+  restoreGrupo: async ({ request, locals, cookies }) => {
+    const org = locals.org;
+    if (!org) return fail(401, { error: 'Contexto de organização é obrigatório' });
+    const form = await request.formData();
+    const id = form.get('id');
+    try {
+      await apiRequest(`/financeiro/plano-de-contas/grupos/${id}/`, { method: 'PATCH', body: { is_active: true } }, { cookies, org });
       return { success: true };
     } catch (err) {
       return fail(400, { error: err.message || 'Falha na operação' });
@@ -55,6 +106,38 @@ export const actions = {
 
     try {
       await apiRequest('/financeiro/plano-de-contas/', { method: 'POST', body }, { cookies, org });
+      return { success: true };
+    } catch (err) {
+      return fail(400, { error: err.message || 'Falha na operação' });
+    }
+  },
+
+  editConta: async ({ request, locals, cookies }) => {
+    const org = locals.org;
+    if (!org) return fail(401, { error: 'Contexto de organização é obrigatório' });
+
+    const form = await request.formData();
+    const id = form.get('id');
+    const body = {
+      nome: form.get('nome'),
+      descricao: form.get('descricao') || ''
+    };
+
+    try {
+      await apiRequest(`/financeiro/plano-de-contas/${id}/`, { method: 'PATCH', body }, { cookies, org });
+      return { success: true };
+    } catch (err) {
+      return fail(400, { error: err.message || 'Falha na operação' });
+    }
+  },
+
+  archiveConta: async ({ request, locals, cookies }) => {
+    const org = locals.org;
+    if (!org) return fail(401, { error: 'Contexto de organização é obrigatório' });
+    const form = await request.formData();
+    const id = form.get('id');
+    try {
+      await apiRequest(`/financeiro/plano-de-contas/${id}/`, { method: 'PATCH', body: { is_active: false } }, { cookies, org });
       return { success: true };
     } catch (err) {
       return fail(400, { error: err.message || 'Falha na operação' });

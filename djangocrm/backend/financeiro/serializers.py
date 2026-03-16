@@ -30,10 +30,13 @@ class PlanoDeContasGrupoSerializer(serializers.ModelSerializer):
             "descricao",
             "is_active",
             "ordem",
+            "color",
+            "applies_to",
+            "is_system_default",
             "contas_count",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at", "contas_count"]
+        read_only_fields = ["id", "created_at", "contas_count", "is_system_default"]
 
     def get_contas_count(self, obj):
         return obj.contas.filter(is_active=True).count()
@@ -53,9 +56,12 @@ class PlanoDeContasSerializer(serializers.ModelSerializer):
             "nome",
             "descricao",
             "is_active",
+            "code",
+            "is_system_default",
+            "sort_order",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "is_system_default"]
 
 
 class PlanoDeContasGrupoTreeSerializer(serializers.ModelSerializer):
@@ -72,6 +78,9 @@ class PlanoDeContasGrupoTreeSerializer(serializers.ModelSerializer):
             "descricao",
             "is_active",
             "ordem",
+            "color",
+            "applies_to",
+            "is_system_default",
             "contas",
         ]
 
@@ -187,6 +196,8 @@ class LancamentoListSerializer(serializers.ModelSerializer):
     parcelas_pagas = serializers.SerializerMethodField()
     currency_symbol = serializers.SerializerMethodField()
     can_edit_financials = serializers.SerializerMethodField()
+    valor_parcela_display = serializers.SerializerMethodField()
+    recorrencia_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Lancamento
@@ -221,6 +232,8 @@ class LancamentoListSerializer(serializers.ModelSerializer):
             "data_fim_recorrencia",
             "recorrencia_ativa",
             "can_edit_financials",
+            "valor_parcela_display",
+            "recorrencia_label",
             "created_at",
         ]
 
@@ -251,14 +264,61 @@ class LancamentoListSerializer(serializers.ModelSerializer):
             return False
         return not obj.parcelas.filter(status="PAGO").exists()
 
+    def get_valor_parcela_display(self, obj):
+        """Value per parcela: for recurring = valor_total, for installments = valor_total / n."""
+        if obj.is_recorrente:
+            return str(obj.valor_convertido)
+        if obj.numero_parcelas and obj.numero_parcelas > 1:
+            return str((obj.valor_convertido / obj.numero_parcelas).quantize(Decimal("0.01")))
+        return str(obj.valor_convertido)
+
+    RECORRENCIA_LABELS = {
+        "MENSAL": "Mensal",
+        "QUINZENAL": "Quinzenal",
+        "SEMANAL": "Semanal",
+        "ANUAL": "Anual",
+    }
+
+    def get_recorrencia_label(self, obj):
+        """Human label for recurrence: 'Mensal', 'Mensal (parado)', or null."""
+        if not obj.is_recorrente:
+            return None
+        label = self.RECORRENCIA_LABELS.get(obj.recorrencia_tipo, obj.recorrencia_tipo or "Recorrente")
+        if not obj.recorrencia_ativa:
+            label += " (parado)"
+        return label
+
 
 class LancamentoDetailSerializer(LancamentoListSerializer):
     parcelas = ParcelaSerializer(many=True, read_only=True)
+    reminder_policies = serializers.SerializerMethodField()
 
     class Meta(LancamentoListSerializer.Meta):
         fields = LancamentoListSerializer.Meta.fields + [
             "observacoes",
             "parcelas",
+            "reminder_policies",
+        ]
+
+    def get_reminder_policies(self, obj):
+        from django.contrib.contenttypes.models import ContentType
+        from assistant.models import ReminderPolicy
+        ct = ContentType.objects.get_for_model(obj)
+        policies = ReminderPolicy.objects.filter(
+            target_content_type=ct, target_object_id=obj.id
+        )
+        return [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "is_active": p.is_active,
+                "trigger_type": p.trigger_type,
+                "trigger_config": p.trigger_config,
+                "channel_config": p.channel_config,
+                "next_run_at": p.next_run_at.isoformat() if p.next_run_at else None,
+                "run_count": p.run_count,
+            }
+            for p in policies
         ]
 
 

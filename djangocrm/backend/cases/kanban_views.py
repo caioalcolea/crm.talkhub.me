@@ -367,9 +367,12 @@ class CasePipelineListCreateView(APIView):
         tags=["Case Pipelines"], responses={200: CasePipelineListSerializer(many=True)}
     )
     def get(self, request):
-        """List all pipelines for the organization."""
+        """List all pipelines for the organization (filtered by visibility)."""
+        from common.pipeline_visibility import filter_visible_pipelines
+
         org = request.profile.org
         pipelines = CasePipeline.objects.filter(org=org, is_active=True)
+        pipelines = filter_visible_pipelines(pipelines, request.profile)
         serializer = CasePipelineListSerializer(pipelines, many=True)
         return Response({"pipelines": serializer.data})
 

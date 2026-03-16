@@ -55,6 +55,8 @@
   import CrmTable from '$lib/components/ui/crm-table/CrmTable.svelte';
   import CrmDrawer from '$lib/components/ui/crm-drawer/CrmDrawer.svelte';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser, apiRequest } from '$lib/api.js';
@@ -62,6 +64,8 @@
   import { orgSettings } from '$lib/stores/org.js';
   import { ViewToggle } from '$lib/components/ui/view-toggle';
   import { LeadKanban } from '$lib/components/ui/lead-kanban';
+  import { PipelineManager } from '$lib/components/ui/pipeline-manager';
+  import { apiRequest as clientApiRequest } from '$lib/api.js';
 
   // Column visibility configuration
   const STORAGE_KEY = 'leads-column-config';
@@ -596,6 +600,88 @@
   const pagination = $derived(data.pagination || { page: 1, limit: 10, total: 0, totalPages: 0 });
   const viewMode = $derived(data.viewMode || 'kanban');
   const kanbanData = $derived(data.kanbanData || null);
+  const leadPipelines = $derived(data.pipelines || []);
+  let activePipelineId = $state('');
+
+  $effect(() => {
+    if (data.pipelineId) activePipelineId = data.pipelineId;
+  });
+
+  async function handleLeadPipelineSelect(pipelineId) {
+    activePipelineId = pipelineId;
+    const url = new URL($page.url);
+    if (pipelineId) {
+      url.searchParams.set('pipeline_id', pipelineId);
+    } else {
+      url.searchParams.delete('pipeline_id');
+    }
+    url.searchParams.set('viewMode', 'kanban');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+  }
+
+  async function handleLeadPipelineCreate(pipelineData) {
+    await clientApiRequest('/leads/pipelines/', {
+      method: 'POST',
+      body: pipelineData
+    });
+    toast.success('Pipeline criado');
+    await invalidateAll();
+  }
+
+  async function handleLeadPipelineDelete(pipelineId) {
+    await clientApiRequest(`/leads/pipelines/${pipelineId}/`, { method: 'DELETE' });
+    toast.success('Pipeline excluído');
+    if (activePipelineId === pipelineId) activePipelineId = '';
+    await invalidateAll();
+  }
+
+  async function handleLeadPipelineUpdate(pipelineId, pipelineData) {
+    await clientApiRequest(`/leads/pipelines/${pipelineId}/`, {
+      method: 'PUT',
+      body: pipelineData
+    });
+    toast.success('Pipeline atualizado');
+    await invalidateAll();
+  }
+
+  async function handleLeadStageCreate(pipelineId, stageData) {
+    await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/`, {
+      method: 'POST',
+      body: stageData
+    });
+    toast.success('Estágio criado');
+    await invalidateAll();
+  }
+
+  async function handleLeadStageUpdate(stageId, stageData) {
+    await clientApiRequest(`/leads/stages/${stageId}/`, {
+      method: 'PUT',
+      body: stageData
+    });
+    await invalidateAll();
+  }
+
+  async function handleLeadStageDelete(stageId) {
+    await clientApiRequest(`/leads/stages/${stageId}/`, { method: 'DELETE' });
+    toast.success('Estágio removido');
+    await invalidateAll();
+  }
+
+  async function handleLeadStageReorder(pipelineId, stageOrder) {
+    await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/reorder/`, {
+      method: 'POST',
+      body: { stage_ids: stageOrder }
+    });
+    await invalidateAll();
+  }
+
+  let isLeadAdmin = $state(false);
+  onMount(() => {
+    try {
+      const user = getCurrentUser();
+      isLeadAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
+    } catch { /* ignore */ }
+  });
 
   // Total lead count - use kanban data when in kanban mode for accurate count
   const totalLeadCount = $derived(
@@ -1698,6 +1784,26 @@
 
   <!-- Content: Table or Kanban -->
   {#if viewMode === 'kanban'}
+    <!-- Pipeline Manager -->
+    <div class="mb-4">
+      <PipelineManager
+        pipelines={leadPipelines}
+        {activePipelineId}
+        onSelect={handleLeadPipelineSelect}
+        onCreate={handleLeadPipelineCreate}
+        onDelete={handleLeadPipelineDelete}
+        onUpdate={handleLeadPipelineUpdate}
+        onStageCreate={handleLeadStageCreate}
+        onStageUpdate={handleLeadStageUpdate}
+        onStageDelete={handleLeadStageDelete}
+        onStageReorder={handleLeadStageReorder}
+        canManage={isLeadAdmin}
+        teams={data.formOptions?.teams || []}
+        users={data.formOptions?.users || []}
+        module="leads"
+      />
+    </div>
+
     <!-- Kanban View -->
     <LeadKanban
       data={kanbanData}
@@ -1865,6 +1971,17 @@
           entityType="lead"
           sections={['opportunities', 'tasks']}
         />
+      </div>
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <ReminderSection
+          targetType="leads.lead"
+          targetId={drawerData.id}
+          moduleKey="leads"
+          dateFieldLabel="follow-up"
+        />
+      </div>
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <EntityRunsHistory targetType="leads.lead" targetId={drawerData.id} />
       </div>
       <CommentSection
         entityId={drawerData.id}

@@ -20,7 +20,7 @@ Production: https://crm.talkhub.me
 ```
 crm.talkhub.me/
 ├── djangocrm/
-│   ├── backend/              # Django REST API (18 apps)
+│   ├── backend/              # Django REST API (20 apps)
 │   │   ├── crm/              # Settings, URLs, Celery, WSGI
 │   │   ├── common/           # Auth, RLS, middleware, permissions, admin panel, invitations
 │   │   ├── accounts/         # Companies
@@ -38,8 +38,9 @@ crm.talkhub.me/
 │   │   ├── chatwoot/         # Chatwoot connector + channel provider
 │   │   ├── talkhub_omni/     # TalkHub Omni connector
 │   │   ├── cowork/           # Sala Cowork Django models + API
-│   │   ├── automations/      # Workflow automations
-│   │   ├── campaigns/        # Marketing campaigns
+│   │   ├── automations/      # Workflow automations (rules engine)
+│   │   ├── campaigns/        # Marketing campaigns (email blast, WhatsApp, nurture)
+│   │   ├── assistant/        # Autopilot scheduler, reminders, templates, AI copilot
 │   │   └── requirements.txt
 │   └── frontend/             # SvelteKit app
 │       ├── src/
@@ -208,12 +209,15 @@ bash docker/debug-traefik.sh
 22. **Secondary email/phone in channel matching**: All lookup chains follow the order: primary → secondary → extra table. Chatwoot connector, SMTP polling, data_unifier, and duplicate detection all include secondary fields.
 23. **Financeiro CANCELADO in reports**: All report views (FluxoPlanoContas, RelatorioMensal, EntityFinancial) exclude `status="CANCELADO"` parcelas from sums. Dashboard already filters by specific statuses.
 24. **Financeiro variable exchange rate**: `exchange_rate_type` field on Lancamento: FIXO (manual) or VARIAVEL (auto-fetch from API). Primary API: open.er-api.com, fallback: BCB PTAX for BRL pairs. Rates cached in Redis (4h TTL).
-25. **Financeiro recurring lancamentos**: `is_recorrente` + `recorrencia_tipo` (MENSAL/QUINZENAL/SEMANAL/ANUAL). Each parcela = full valor_total. Celery Beat generates 3 months ahead on 1st of each month. Stop via `recorrencia_ativa=False`.
+25. **Financeiro recurring lancamentos**: `is_recorrente` + `recorrencia_tipo` (MENSAL/QUINZENAL/SEMANAL/ANUAL). Each parcela = full valor_total. `generate_recurring_parcelas(months_ahead=12)` generates 12 months ahead. Celery Beat extends on 1st AND 15th of each month. Stop via `recorrencia_ativa=False` or set `data_fim_recorrencia`. Frontend disables `numero_parcelas` input when recurring is enabled (auto-managed).
 26. **Lancamento edit rules**: If all parcelas ABERTO → can edit everything (parcelas regenerated). If some PAGO → metadata only. If CANCELADO → read-only (except descricao/observacoes).
 27. **Org currency integration**: All frontend financial pages use `$orgSettings.default_currency` instead of hardcoded 'BRL'. Backend `FormOptionsView` returns `org_currency`. TransactionForm auto-hides exchange rate when currency == org base currency.
 28. **Org settings field mapping**: Frontend sends `website` (NOT `domain`) to match the Org model. The `description` field does not exist on the model — don't add it. All company profile fields (company_name, address_line, city, state, postcode, country, phone, email, website, tax_id) are editable via `PATCH /api/org/settings/`. Logo upload supports PNG/JPG/SVG (max 2MB); removal sends `logo: null`.
 29. **Org logo in PDFs**: Invoice and estimate templates already render `{% if org.logo %}<img src="{{ org.logo.url }}">{% endif %}`. WeasyPrint passes full org context. Company address fields (address_line, city, state, phone, email, tax_id) also appear in PDF templates. No backend changes needed for logo to work in print.
 30. **Formas de pagamento editáveis**: `FormaPagamentoViewSet` is a full `ModelViewSet` — supports PATCH/PUT out of the box. Frontend has edit dialog with `?/edit` action.
+31. **Financeiro Saldo Projetado**: `saldo_projetado_mes` and `saldo_projetado_ano` include ALL non-cancelled parcelas (PAGO + ABERTO), not just ABERTO. Formula: total RECEBER - total PAGAR. The old `saldo_projetado` key is kept as alias for `saldo_projetado_ano` for backward compat.
+32. **Financeiro Daily Cash Flow**: `FluxoDiarioReportView` at `/api/financeiro/reports/fluxo-diario/?ano=YYYY&mes=M`. Returns day-by-day receita/despesa with `saldo_acumulado` running balance. Uses `data_pagamento` for PAGO parcelas, `data_vencimento` for ABERTO. Detects negative accumulated balance days in `resumo.dias_negativos`.
+33. **Docker healthcheck start-period**: Dockerfile.backend uses `start-period=300s` (5 minutes) because the entrypoint runs DB setup + migrations + RLS check (79 tables) + collectstatic + admin creation before Gunicorn starts. The 60s default caused Docker Swarm to kill the container before it was ready.
 
 ## Invitation System
 
@@ -350,14 +354,25 @@ startCoworkSession() → mode='full' → page renders [data-cowork-target]
 | Cowork postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
 | CoworkPiP (persistent iframe) | `frontend/src/lib/components/cowork/CoworkPiP.svelte`, `frontend/src/lib/stores/cowork.svelte.js` |
 | Financeiro models | `backend/financeiro/models.py` (Lancamento, Parcela, FormaPagamento, PaymentTransaction) |
-| Financeiro views | `backend/financeiro/api_views.py` (ViewSets, reports, PIX) |
+| Financeiro views | `backend/financeiro/api_views.py` (ViewSets, reports, PIX, FluxoDiarioReportView) |
 | Financeiro exchange rates | `backend/financeiro/exchange_rates.py` (get_exchange_rate, API integration) |
 | Financeiro tasks | `backend/financeiro/tasks.py` (overdue, recurring, variable rates, PIX reconciliation) |
 | Financeiro frontend | `frontend/src/routes/(app)/financeiro/` (lancamentos, formas-pagamento, relatorios, PIX) |
 | Financeiro form | `frontend/src/lib/components/financeiro/TransactionForm.svelte` |
+| Financeiro daily chart | `frontend/src/lib/components/financeiro/DailyCashFlowChart.svelte` (SVG wave chart, daily cash flow) |
+| Financeiro monthly chart | `frontend/src/lib/components/financeiro/CashFlowChart.svelte` (SVG bar chart, monthly cash flow) |
 | Org settings | `backend/common/serializers.py` (OrgSettingsSerializer), `frontend/src/routes/(app)/settings/organization/` (+page.svelte, +page.server.js) |
 | Org model | `backend/common/models.py` (Org: name, company_name, logo, address, phone, email, website, tax_id, currency, country) |
 | Invoice/Estimate PDF | `backend/invoices/pdf.py` (WeasyPrint), `backend/invoices/templates/invoices/pdf/` (invoice.html, estimate.html) |
+| Invoice → Lancamento signal | `backend/invoices/signals.py` (auto-create RECEBER + COGS on Invoice save) |
+| Opportunity → Lancamento signal | `backend/opportunity/signals.py` (auto-create RECEBER on CLOSED_WON) |
+| Financial summary card | `frontend/src/lib/components/financeiro/FinancialSummaryCard.svelte` (entity drawer widget) |
+| Pipeline management | `frontend/src/lib/components/ui/pipeline-manager/PipelineManager.svelte`, `PipelineSettingsDialog.svelte` (shared CRUD, inline stage edit, DnD reorder) |
+| Pipeline visibility | `frontend/src/lib/utils/pipeline-visibility.js` (`filter_visible_pipelines()`) |
+| Autopilot AI tools | `backend/assistant/tools.py` (15 tools: CRUD, search, financial, pipelines) |
+| Autopilot chat | `backend/assistant/views.py` (ChatView, ChatConfirmView) |
+| Notification store | `frontend/src/lib/stores/notifications.svelte.js` (polling, JWT guard) |
+| CRM Dashboard | `frontend/src/routes/(app)/+page.svelte`, `+page.server.js` (KPIs + financial) |
 
 ## Chatwoot Integration
 
@@ -407,6 +422,44 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - Reply threading via `In-Reply-To` / `References` headers
 - Contact lookup chain: primary email → secondary_email → extra_emails table
 
+## Financeiro — Reports & Dashboard
+
+### Dashboard KPIs (`DashboardReportView`)
+| Metric | Formula | Scope |
+|--------|---------|-------|
+| A Receber | Σ RECEBER, ABERTO | competencia_ano = selected year |
+| A Pagar | Σ PAGAR, ABERTO | competencia_ano = selected year |
+| Recebido no Mês | Σ RECEBER, PAGO | data_pagamento = current month |
+| Pago no Mês | Σ PAGAR, PAGO | data_pagamento = current month |
+| Vencido | Σ ABERTO, data_vencimento < today | All time |
+| Saldo do Mês | Recebido - Pago (current month) | data_pagamento |
+| Projetado (Mês) | ALL RECEBER - ALL PAGAR (PAGO+ABERTO, excludes CANCELADO) | competencia_mes = current month |
+| Projetado (Ano) | ALL RECEBER - ALL PAGAR (PAGO+ABERTO, excludes CANCELADO) | competencia_ano = selected year |
+
+### Report Endpoints
+| Endpoint | View | Description |
+|----------|------|-------------|
+| `GET /financeiro/reports/dashboard/?ano=` | `DashboardReportView` | KPIs + monthly flow + last 10 transactions |
+| `GET /financeiro/reports/fluxo-diario/?ano=&mes=` | `FluxoDiarioReportView` | Day-by-day cash flow with accumulated balance |
+| `GET /financeiro/reports/fluxo-plano-contas/?ano=` | `FluxoPlanoContasReportView` | Pivot table: Plano de Contas x 12 months |
+| `GET /financeiro/reports/relatorio-mensal/?ano=` | `RelatorioMensalReportView` | Monthly breakdown + saldo_projetado + saldo_acumulado |
+| `GET /financeiro/reports/by-entity/<uuid>/` | `EntityFinancialReportView` | Financial summary for Account/Contact/Opportunity |
+
+### Daily Cash Flow Chart (`DailyCashFlowChart.svelte`)
+- Custom SVG wave chart (no external charting library)
+- X-axis: days 1-N of the month, Y-axis: scaled to max value
+- Three data series: receita (emerald area), despesa (rose area), saldo_acumulado (blue line)
+- Red zone shading when accumulated balance goes negative
+- "Hoje" (today) vertical marker line
+- Interactive tooltips showing day details on hover
+- Negative day alert banner shown below chart when `resumo.dias_negativos > 0`
+
+### Monthly Cash Flow Chart (`CashFlowChart.svelte`)
+- Custom SVG stacked bar chart (no external library)
+- 12 months, each with paired bars (receivable/payable)
+- Solid color = realized (PAGO), faded = projected (ABERTO)
+- Current month highlighted with bold label
+
 ## Contact Management
 
 ### Multiple Emails/Phones per Contact
@@ -436,6 +489,228 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - **Chatwoot protection**: Webhook handlers skip soft-deleted conversations (won't resurrect them)
 - **Frontend**: "Deletados" filter in inbox, trash banner, restore/permanent-delete buttons (admin only)
 
+## TalkHub Autopilot — Automações, Lembretes e Campanhas
+
+### Architecture Overview
+Three apps form the unified autopilot system:
+- **`assistant`** — Core scheduler + reminder engine (ReminderPolicy, ScheduledJob, ChannelDispatch, TaskLink, AutopilotTemplate)
+- **`automations`** — Rule engine (Automation: routine, logic_rule, social + AutomationLog)
+- **`campaigns`** — Campaign engine (Campaign, CampaignAudience, CampaignRecipient, CampaignStep)
+
+All three share: scheduler, jobs, tasks, channel dispatch, logs, audit, permissions, RLS.
+
+### Assistant App Models (5 models, RLS-enabled)
+| Model | Purpose | Key Pattern |
+|-------|---------|-------------|
+| `ReminderPolicy` | When/how to trigger reminders for any entity | GenericForeignKey target, 5 trigger types, channel_config, task_config |
+| `ScheduledJob` | Executable work unit | GenericForeignKey source+target, idempotency_key, SELECT FOR UPDATE SKIP LOCKED |
+| `ChannelDispatch` | Audit trail of sends | FK to ScheduledJob, channel_type, status, sent_at, error |
+| `TaskLink` | Links automation source → Task | GenericForeignKey source, sync_mode (persistent/per_run) |
+| `AutopilotTemplate` | Reusable preset configs | template_type, category, module_key, config_template |
+
+### Trigger Types (engine.py)
+| Type | Use Case | Config Example |
+|------|----------|----------------|
+| `due_date` | Parcela reminder | `{date_field: "data_vencimento", offsets: [-7, -3, 0, 1, 3]}` |
+| `recurring` | Follow-up every N days | `{interval_days: 3, max_runs: 10, start_after_field: "data_vencimento"}` |
+| `cron` | Daily at 9 AM | `{cron_expression: "0 9 * * 1-5"}` |
+| `relative_date` | N days after creation | `{date_field: "created_at", offset_days: 7}` |
+| `event_plus_offset` | After event + delay | Stub — needs event listener system |
+
+### Presets (19 templates in presets.py)
+- **Financeiro** (4): contas_receber_padrao, contas_receber_email, contas_pagar_padrao, cobranca_recorrente
+- **Leads** (2): follow_up_padrao, lead_esfriando
+- **Opportunities** (2): close_date_approaching, deal_stale
+- **Cases** (2): sla_resolution, case_escalation
+- **Tasks** (2): task_due_date, task_overdue
+- **Invoices** (2): invoice_due_date, invoice_overdue_email
+
+### Template Engine (template_engine.py)
+- Pattern: `{{variable_name}}` interpolation with per-module whitelist
+- Modules: financeiro, leads, cases, tasks, invoices, opportunity, system
+- Context builders: `build_context_for_parcela()`, `_for_lead()`, `_for_task()`, `_for_opportunity()`, `_for_case()`, `_for_invoice()`
+
+### Signal Handlers (signals.py)
+Auto-recalculate reminder schedules on entity changes:
+- Parcela → finds parent Lancamento → recalc all policies
+- Lead, Opportunity, Case, Task, Invoice → recalc targeting policies
+- ReminderPolicy saved → cancel stale jobs / generate initial jobs
+
+### Celery Tasks (tasks.py)
+| Task | Schedule | Purpose |
+|------|----------|---------|
+| `process_scheduled_jobs` | Every minute (Beat) | Find due jobs, lock, dispatch to execute_job |
+| `execute_job` | On-demand | Lock → render template → dispatch channel → create task → audit |
+| `recalculate_policy_schedules` | On signal | Cancel old jobs → regenerate from current state |
+
+### Dispatch Service (dispatch.py)
+```
+dispatch_message(org_id, channel_type, destination, message_data, metadata)
+  → ChannelRegistry.get(channel_type) [preferred]
+  → fallback: automations.router.dispatch() [legacy]
+  → Returns: {success, message_id, error}
+```
+
+### API Endpoints (`/api/assistant/`)
+| Endpoint | Methods | Purpose |
+|----------|---------|---------|
+| `reminder-policies/` | GET, POST | List/create policies |
+| `reminder-policies/<id>/` | GET, PUT, PATCH, DELETE | CRUD |
+| `reminder-policies/<id>/activate/` | PATCH | Activate + recalculate |
+| `reminder-policies/<id>/deactivate/` | PATCH | Deactivate + cancel pending |
+| `scheduled-jobs/` | GET | List with status/type/date filters |
+| `scheduled-jobs/<id>/` | GET | Detail + dispatches |
+| `scheduled-jobs/<id>/retry/` | POST | Retry failed/cancelled |
+| `scheduled-jobs/<id>/cancel/` | POST | Cancel pending |
+| `scheduled-jobs/<id>/approve/` | POST | Approve manual-approval jobs |
+| `reminders-for/<target_type>/<target_id>/` | GET, POST | Entity-scoped reminders |
+| `task-links/` | GET | List by source/task |
+| `runs/` | GET | Consolidated execution history |
+| `presets/` | GET | Available preset templates |
+| `templates/` | GET | User/system templates |
+
+### Automations App (3 automation types)
+| Type | Trigger | Config |
+|------|---------|--------|
+| `routine` | Celery Beat (cron/interval) | `{schedule_cron, action_type, action_params}` |
+| `logic_rule` | Django signals (post_save) | `{trigger_event, conditions[], actions[]}` |
+| `social` | TalkHub Omni webhooks | `{channel_type, social_event, actions[]}` |
+
+Events: `lead.created`, `lead.status_changed`, `opportunity.created`, `opportunity.stage_changed`, `case.created`, `task.completed`, `contact.created`
+
+### Campaigns App
+| Type | Behavior |
+|------|----------|
+| `email_blast` | Batch send (50/batch, 1s throttle) with tracking pixel + unsubscribe |
+| `whatsapp_broadcast` | Batch send (20/batch, 2s throttle) via TalkHub Omni |
+| `nurture_sequence` | Multi-step with delay_hours between steps, per-recipient tracking |
+
+Campaigns integrate with assistant's ScheduledJob via `job_generator.py` (idempotency keys, staggered due_at).
+
+### Frontend Routes
+| Route | Purpose |
+|-------|---------|
+| `/autopilot` | Unified dashboard (6 tabs: Rules, Reminders, Campaigns, Approvals, Runs, Templates) |
+| `/automations` | Legacy list + create |
+| `/automations/new` | Create automation (JSON config) |
+| `/campaigns` | List + pause/resume |
+| `/campaigns/new` | Create campaign |
+| `/campaigns/[id]` | Campaign detail |
+| `/campaigns/[id]/analytics` | Campaign analytics |
+
+### Implementation Status
+```
+Backend (assistant+automations+campaigns): ~98% complete
+Frontend (autopilot UI):                   ~90% complete
+IA assistida:                              ~85% complete (backend + inline UI done, needs testing with real API key)
+Kanban Pipelines (all 4 modules):          ✅ 100% complete
+CRM-Financeiro integration:               ~90% complete (signals, dashboard KPIs, entity cards)
+```
+
+### Roadmap Status
+| Feature | Status |
+|---------|--------|
+| Financeiro inline UI | ✅ Implementado — inline create com presets, AI copilot, manual config no TransactionForm |
+| Unified /autopilot UX | ✅ Implementado — 6 tabs (Regras, Lembretes, Campanhas, Aprovações, Execuções, Modelos) |
+| Approval queue UI | ✅ Implementado — tab "Aprovações" com approve/reject + badge count |
+| AI-assisted creation | ✅ Implementado — backend + inline UI (needs real API key testing) |
+| Customizable Kanban Pipelines | ✅ Implementado — Leads, Cases, Tasks, Opportunities com PipelineManager + visibilidade por time/usuário |
+| CRM Dashboard Financial KPIs | ✅ Implementado — A Receber, A Pagar, Saldo, Vencido no dashboard principal |
+| Financial Summary on Entities | ✅ Implementado — FinancialSummaryCard em drawers de Account, Contact, Opportunity |
+| Opportunity Won → Financeiro | ✅ Implementado — auto-create Lancamento RECEBER via post_save signal |
+| Autopilot FK fix (production) | ✅ Corrigido — migration 0007 corrige created_by/updated_by em 9 modelos |
+| Notification JWT guard | ✅ Corrigido — polling espera JWT antes de chamar API |
+| Autopilot AI tools expansion | ✅ Implementado — 15 tools (search, pipelines, financeiro) |
+| Recurring Lancamentos fix | ✅ Corrigido — gera 12 meses (era 3), Celery roda 2x/mês |
+| Pipeline CRUD fix (production) | ✅ Corrigido — double JSON.stringify, pipeline data extraction, admin check, tasks handler signatures |
+| Pipeline UX: inline edit + DnD | ✅ Implementado — stage names editable inline, drag-and-drop reorder, stale dialog sync |
+| Visual builders | ⏳ Pendente — Rule builder, step editor, template editor (replace JSON forms) |
+| Cross-module navigation | ⏳ Pendente — Task↔origin bidirectional links |
+
+### Autopilot File Map
+| Component | Files |
+|-----------|-------|
+| Assistant models | `backend/assistant/models.py` (ReminderPolicy, ScheduledJob, ChannelDispatch, TaskLink, AutopilotTemplate) |
+| Scheduling engine | `backend/assistant/engine.py` (calculate_next_run, generate_jobs, cancel_stale) |
+| Celery tasks | `backend/assistant/tasks.py` (process_scheduled_jobs, execute_job, recalculate) |
+| Dispatch service | `backend/assistant/dispatch.py` (unified channel dispatch) |
+| Template engine | `backend/assistant/template_engine.py` (variable interpolation, context builders) |
+| Presets | `backend/assistant/presets.py` (19 preset templates) |
+| Signal handlers | `backend/assistant/signals.py` (7 entity change handlers) |
+| Views/API | `backend/assistant/views.py` (13 REST endpoints) |
+| Serializers | `backend/assistant/serializers.py` (6 serializers) |
+| Automations models | `backend/automations/models.py` (Automation, AutomationLog) |
+| Automations engine | `backend/automations/engine.py` (condition evaluator) |
+| Automations router | `backend/automations/router.py` (email/whatsapp/internal dispatch) |
+| Campaign models | `backend/campaigns/models.py` (Campaign, Audience, Recipient, Step) |
+| Campaign audience | `backend/campaigns/audience.py` (audience builder) |
+| Campaign jobs | `backend/campaigns/job_generator.py` (ScheduledJob integration) |
+| Campaign tracking | `backend/campaigns/tracking.py` (pixel + unsubscribe) |
+| Autopilot page | `frontend/src/routes/(app)/autopilot/` (+page.svelte, +page.server.js) |
+| Automations page | `frontend/src/routes/(app)/automations/` (+page.svelte, new/) |
+| Campaigns page | `frontend/src/routes/(app)/campaigns/` (+page.svelte, new/, [id]/, analytics/) |
+| AI copilot service | `backend/assistant/ai_service.py` (OpenAI GPT-4o, 3 generation functions) |
+| AI copilot endpoint | `backend/assistant/views.py` (AIGenerateView at `/api/assistant/ai/generate/`) |
+| AI copilot component | `frontend/src/lib/components/autopilot/AICopilot.svelte` (inline AI form widget) |
+| AI tools registry | `backend/assistant/tools.py` (15 tools: CRUD, search, financial, pipelines) |
+| Audit FK migration | `backend/assistant/migrations/0007_fix_audit_fk.py` (fix created_by/updated_by → User) |
+| Notification store | `frontend/src/lib/stores/notifications.svelte.js` (polling with JWT guard) |
+| Notification bell | `frontend/src/lib/components/layout/NotificationBell.svelte` (popover + badge) |
+
+## AI Copilot (IA Assistida)
+
+### Architecture
+```
+User types natural language prompt → AICopilot.svelte
+  → POST /api/assistant/ai/generate/ { type, prompt, ...context }
+  → ai_service.py builds system prompt with schema + presets + variables
+  → Calls OpenAI GPT-4o (response_format: json_object, temperature: 0.3)
+  → Returns validated JSON config
+  → Frontend fills form fields → user reviews and submits normally
+```
+
+### Generation Types
+| Type | Input Context | Output |
+|------|---------------|--------|
+| `automation` | `automation_type`, `module` | `{ name, config_json }` |
+| `reminder` | `module_key`, `tipo` | `{ name, trigger_type, trigger_config, channel_config, task_config, message_template, approval_policy }` |
+| `campaign` | `campaign_type` | `{ name, subject, body_template }` or `{ name, steps }` |
+
+### Key Files
+- `backend/assistant/ai_service.py` — Core service: 3 generation functions, schema definitions, OpenAI client
+- `backend/assistant/views.py` — `AIGenerateView` at `POST /api/assistant/ai/generate/`
+- `frontend/src/lib/components/autopilot/AICopilot.svelte` — Reusable inline UI component
+- Integrated in: `AutomationCreateForm.svelte`, `CampaignCreateForm.svelte`, `ReminderSection.svelte`
+
+### Environment Variable
+- `OPENAI_API_KEY` — Required for AI copilot. Set via `CRM_OPENAI_API_KEY` in Docker env.
+- If not set, the copilot shows "IA não configurada" gracefully (no errors).
+
+### Known Patterns
+33. **AI copilot graceful degradation**: If `OPENAI_API_KEY` not set, `AIGenerateView` returns `{"error": "IA não configurada..."}` with HTTP 422. The `AICopilot.svelte` component detects this and shows an info banner instead of an error.
+34. **AI copilot prompt limits**: Max 1000 characters per prompt. Backend validates and rejects longer prompts with HTTP 400.
+35. **AI copilot system prompts**: Each generation type has a specialized system prompt with the exact JSON schema, available variables (from `template_engine.py` whitelist), preset examples (from `presets.py`), and strict rules for Portuguese output.
+36. **Financeiro inline reminder**: TransactionForm has an optional inline reminder config (create mode only). The reminder is created via a second API call AFTER the lancamento is created. If the reminder creation fails, the lancamento is still saved (graceful degradation). The `reminderConfig` prop is `$bindable(null)` — parent reads it after form submit.
+37. **Approval queue tab**: The "Aprovações" tab in `/autopilot` loads pending jobs via `?approval_required=true&status=pending`. The count is loaded on ALL tabs for the badge. Approving sets `approval_required=False` → next Celery Beat picks it up. Rejecting cancels the job.
+38. **Internal dispatch is no-op**: `_dispatch_internal()` in `dispatch.py` only logs — no notifications sent. Presets with `channel_type: "internal"` work because `task_config.enabled=True` creates tasks via `execute_job()`. Internal notifications will be implemented when the notification system is built.
+39. **Campaign tracking RLS bypass**: `TrackingPixelView` and `UnsubscribeView` are public endpoints (no JWT). They use `_set_rls_for_recipient()` with raw SQL to set `app.current_org` from the recipient's org_id before ORM queries. UUID recipient_id serves as the auth token (same pattern as webhook_token). Transaction-scoped config (`true` param) ensures RLS resets after request.
+40. **Template payment_link placeholder**: `payment_link` variable in financeiro context is currently an empty string placeholder. Will be populated when PIX/boleto link generation is implemented.
+41. **Customizable Kanban Pipelines**: All 4 modules (Leads, Cases, Tasks, Opportunities) support multiple pipelines per org with per-team/user visibility. `PipelineManager` shared component handles CRUD. Pipeline stages have `maps_to_stage` for legacy compat. `filter_visible_pipelines()` utility filters by user/team. RLS covers all pipeline tables.
+42. **Pipeline stage org validation**: All modules validate `stage.org_id == self.org_id` in model `save()` to prevent cross-tenant stage assignment.
+43. **Opportunity Won → auto Lancamento**: `post_save` signal on Opportunity (`opportunity/signals.py`) auto-creates Lancamento RECEBER when stage = CLOSED_WON (via `pipeline_stage.maps_to_stage` or legacy `stage` field). Skips if Lancamento already exists. Registered in `OpportunityConfig.ready()`.
+44. **Financial summary on entity drawers**: `FinancialSummaryCard.svelte` fetches from `/financeiro/reports/by-entity/<uuid>/?entity_type=<type>` and shows A Receber/Pagar/Pago/Vencido + last 3 lancamentos. Added to Account, Contact, and Opportunity CrmDrawer `activitySection`.
+45. **Dashboard financial KPIs**: CRM dashboard (`+page.svelte`) fetches `/financeiro/reports/dashboard/` in parallel with `/dashboard/`. Shows 4 KPI cards (A Receber, A Pagar, Saldo do Mês, Vencido) in a dedicated "Financeiro" section. Graceful degradation if financeiro API fails.
+46. **Assistant audit FK fix**: Migration `0007_fix_audit_fk.py` corrects `created_by`/`updated_by` FK on ALL 9 assistant models from `common.profile` → `settings.AUTH_USER_MODEL` (`common.User`). This was the root cause of 500 errors on `/api/assistant/chat/` — `BaseModel.save()` sets `created_by = get_current_user()` (User object), but the DB FK constraint pointed to Profile table.
+47. **Notification polling JWT guard**: `notifications.svelte.js` checks `getAccessToken()` before `pollUnreadCount()`. Prevents 401 on initial page load when `$effect` in `+layout.svelte` hasn't yet called `initClientAuth()`. Next 10s interval tick succeeds after JWT is set.
+48. **Autopilot AI tools**: `assistant/tools.py` has 15 tools: `create_reminder_policy`, `preview_policy_schedule`, `activate_policy`, `deactivate_policy`, `cancel_job`, `retry_job`, `create_automation`, `create_campaign_draft`, `render_template_preview`, `list_entity_reminders`, `search_contacts`, `search_lancamentos`, `search_leads`, `search_opportunities`, `list_pipelines`, `get_financial_summary`. All read-only tools have `risk: "none"`.
+49. **Template engine single-brace warning**: `render_template()` in `template_engine.py` logs a warning when single-brace `{var}` patterns are detected (should be `{{var}}`). Helps diagnose user-created templates with wrong syntax.
+50. **Pipeline API body serialization**: `apiRequest()` in `api.js` (line 203) already calls `JSON.stringify(body)`. All pipeline handler functions in page components must pass raw objects as `body:`, NOT `JSON.stringify(data)`. Double-stringifying causes Django 400 errors.
+51. **Pipeline data extraction**: Backend pipeline endpoints return `{ pipelines: [...] }`, NOT `{ results: [...] }`. Frontend must check `response.pipelines` (not `response?.results`).
+52. **Admin check pattern (frontend)**: `/api/auth/me/` returns role inside `user.organizations[]` array, not as top-level `user.is_admin`. Use `getCurrentUser()` from `$lib/stores/auth.js` + `user.organizations.some(o => o.role === 'ADMIN')`.
+53. **Tasks pipeline URL pattern**: Tasks stages use flat URLs `/tasks/stages/<id>/` (not nested `/tasks/pipelines/<pid>/stages/<sid>/`). Stage reorder uses `{ stage_ids: [...] }` (not `stage_order`). Handler signatures must match PipelineManager callbacks: `onStageUpdate(stageId, data)` (2 params), `onStageDelete(stageId)` (1 param).
+54. **PipelineSettingsDialog stale state**: `settingsPipeline` in PipelineManager is a `$state` snapshot set on dialog open. After `invalidateAll()` refreshes `pipelines` prop, a `$effect` syncs `settingsPipeline` with the fresh pipeline data so the dialog shows updated stages.
+55. **Stage inline editing + DnD**: PipelineSettingsDialog supports inline stage name editing (Input component + onblur/Enter triggers PATCH) and native HTML5 drag-and-drop reorder via GripVertical handle. Both depend on correct body serialization (gotcha 50).
+
 ## Security Audit Fixes Applied
 
 - RLS bypass in data views: replaced `user.is_superuser` with `profile.is_admin`
@@ -444,6 +719,7 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - XSS: hardened `linkify()` regex + `noreferrer` on generated links
 - Webhook HMAC: updated to new Chatwoot signature format
 - Multi-tenant webhook URLs: per-connection `webhook_token` prevents cross-tenant leakage
+- Campaign tracking RLS: public tracking endpoints (`/track/open/`, `/track/unsubscribe/`) use raw SQL to set RLS context from recipient UUID — prevents silent ORM failures from missing org context
 
 ## Credentials (Development)
 

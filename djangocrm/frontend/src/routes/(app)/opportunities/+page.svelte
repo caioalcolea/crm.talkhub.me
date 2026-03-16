@@ -1,4 +1,5 @@
 <script>
+  import { enhance } from '$app/forms';
   import { invalidateAll, goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, tick } from 'svelte';
@@ -33,6 +34,9 @@
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import FinancialSummaryCard from '$lib/components/financeiro/FinancialSummaryCard.svelte';
+  import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
   import { getCurrentUser } from '$lib/api.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
@@ -55,6 +59,10 @@
     CURRENCY_CODES
   } from '$lib/constants/filters.js';
   import { orgSettings } from '$lib/stores/org.js';
+  import { ViewToggle } from '$lib/components/ui/view-toggle';
+  import { OpportunityKanban } from '$lib/components/ui/opportunity-kanban';
+  import { PipelineManager } from '$lib/components/ui/pipeline-manager';
+  import { apiRequest as clientApiRequest } from '$lib/api.js';
 
   const STORAGE_KEY = 'opportunities-crm-columns';
 
@@ -222,6 +230,179 @@
 
   /** @type {{ data: any }} */
   let { data } = $props();
+
+  // View mode & kanban state
+  const viewMode = $derived(data.viewMode || 'table');
+  const kanbanData = $derived(data.kanbanData || null);
+  const pipelines = $derived(data.pipelines || []);
+  let activePipelineId = $state('');
+
+  // Sync pipeline ID from URL
+  $effect(() => {
+    if (data.pipelineId) {
+      activePipelineId = data.pipelineId;
+    }
+  });
+
+  // Kanban move form reference
+  let moveFormEl = $state(null);
+  let kanbanFormState = $state({
+    opportunityId: '',
+    stage: '',
+    pipelineStageId: ''
+  });
+
+  /**
+   * Change view mode (table/kanban)
+   * @param {'table' | 'kanban'} mode
+   */
+  async function setViewMode(mode) {
+    const url = new URL($page.url);
+    url.searchParams.set('viewMode', mode);
+    url.searchParams.set('page', '1');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+  }
+
+  /**
+   * Handle kanban drag-drop move
+   * @param {string} oppId
+   * @param {string} targetColumnId
+   * @param {string} _columnId
+   */
+  async function handleKanbanMove(oppId, targetColumnId, _columnId) {
+    kanbanFormState.opportunityId = oppId;
+
+    // Determine if pipeline mode or legacy status mode
+    if (kanbanData?.mode === 'pipeline') {
+      kanbanFormState.pipelineStageId = targetColumnId;
+      kanbanFormState.stage = '';
+    } else {
+      kanbanFormState.stage = targetColumnId;
+      kanbanFormState.pipelineStageId = '';
+    }
+
+    await tick();
+    moveFormEl?.requestSubmit();
+  }
+
+  /**
+   * Handle pipeline selection change
+   * @param {string} pipelineId
+   */
+  async function handlePipelineSelect(pipelineId) {
+    activePipelineId = pipelineId;
+    const url = new URL($page.url);
+    if (pipelineId) {
+      url.searchParams.set('pipeline_id', pipelineId);
+    } else {
+      url.searchParams.delete('pipeline_id');
+    }
+    url.searchParams.set('viewMode', 'kanban');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+  }
+
+  /**
+   * Create a new pipeline via client-side API
+   * @param {{ name: string, create_default_stages: boolean }} pipelineData
+   */
+  async function handleCreatePipeline(pipelineData) {
+    await clientApiRequest('/opportunities/pipelines/', {
+      method: 'POST',
+      body: pipelineData
+    });
+    toast.success('Pipeline criado com sucesso');
+    await invalidateAll();
+  }
+
+  /**
+   * Delete a pipeline via client-side API
+   * @param {string} pipelineId
+   */
+  async function handleDeletePipeline(pipelineId) {
+    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
+      method: 'DELETE'
+    });
+    toast.success('Pipeline excluído');
+    if (activePipelineId === pipelineId) {
+      activePipelineId = '';
+    }
+    await invalidateAll();
+  }
+
+  /**
+   * Update pipeline settings via client-side API
+   * @param {string} pipelineId
+   * @param {any} pipelineData
+   */
+  async function handleUpdatePipeline(pipelineId, pipelineData) {
+    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
+      method: 'PUT',
+      body: pipelineData
+    });
+    toast.success('Pipeline atualizado');
+    await invalidateAll();
+  }
+
+  /**
+   * Create a new stage in a pipeline
+   * @param {string} pipelineId
+   * @param {any} stageData
+   */
+  async function handleStageCreate(pipelineId, stageData) {
+    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/`, {
+      method: 'POST',
+      body: stageData
+    });
+    toast.success('Estágio criado');
+    await invalidateAll();
+  }
+
+  /**
+   * Update a stage
+   * @param {string} stageId
+   * @param {any} stageData
+   */
+  async function handleStageUpdate(stageId, stageData) {
+    await clientApiRequest(`/opportunities/stages/${stageId}/`, {
+      method: 'PUT',
+      body: stageData
+    });
+    await invalidateAll();
+  }
+
+  /**
+   * Delete a stage
+   * @param {string} stageId
+   */
+  async function handleStageDelete(stageId) {
+    await clientApiRequest(`/opportunities/stages/${stageId}/`, {
+      method: 'DELETE'
+    });
+    toast.success('Estágio removido');
+    await invalidateAll();
+  }
+
+  /**
+   * Reorder stages in a pipeline
+   * @param {string} pipelineId
+   * @param {string[]} stageOrder
+   */
+  async function handleStageReorder(pipelineId, stageOrder) {
+    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/reorder/`, {
+      method: 'POST',
+      body: { stage_ids: stageOrder }
+    });
+    await invalidateAll();
+  }
+
+  // Check if user is admin (can manage pipelines)
+  let isAdmin = $state(false);
+  onMount(() => {
+    try {
+      const user = getCurrentUser();
+      isAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
+    } catch { /* ignore */ }
+  });
 
   // Options for form
   const formOptions = $derived({
@@ -1179,6 +1360,11 @@
 <PageHeader title="Negócios" subtitle="Funil: {formatCurrency(stats.pipeline, $orgSettings.default_currency || 'BRL')}">
   {#snippet actions()}
     <div class="flex items-center gap-2">
+      <!-- View Toggle -->
+      <ViewToggle view={viewMode} onchange={setViewMode} />
+
+      <div class="hidden 2xl:block mx-1 h-6 w-px bg-[var(--border-default)]"></div>
+
       <!-- Status Filter Chips — hidden below 2xl (1536px) to prevent body-level overflow -->
       <div class="hidden 2xl:flex gap-1">
         <button
@@ -1366,49 +1552,102 @@
       onchange={(ids) => updateFilters({ ...filters, tags: ids })}
     />
   </FilterBar>
-  <!-- Table View -->
-  {#if filteredOpportunities.length === 0}
-    <div class="flex flex-col items-center justify-center py-16 text-center">
-      <div
-        class="mb-4 flex size-16 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--surface-sunken)]"
-      >
-        <Target class="size-8 text-[var(--text-tertiary)]" />
-      </div>
-      <h3 class="text-lg font-medium text-[var(--text-primary)]">Nenhum negócio encontrado</h3>
-      <p class="mt-1 text-sm text-[var(--text-secondary)]">
-        Tente ajustar seus filtros ou crie um novo negócio
-      </p>
-    </div>
-  {:else}
-    <CrmTable
-      data={filteredOpportunities}
-      {columns}
-      bind:visibleColumns
-      onRowChange={handleRowChange}
-      onRowClick={(row) => openDrawer(row.id)}
-    >
-      {#snippet emptyState()}
-        <div class="flex flex-col items-center justify-center py-16 text-center">
-          <div
-            class="mb-4 flex size-16 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--surface-sunken)]"
-          >
-            <Target class="size-8 text-[var(--text-tertiary)]" />
-          </div>
-          <h3 class="text-lg font-medium text-[var(--text-primary)]">Nenhum negócio encontrado</h3>
-        </div>
-      {/snippet}
-    </CrmTable>
-  {/if}
 
-  <!-- Pagination -->
-  <Pagination
-    page={pagination.page}
-    limit={pagination.limit}
-    total={pagination.total}
-    onPageChange={handlePageChange}
-    onLimitChange={handleLimitChange}
-  />
+  <!-- Content: Table or Kanban -->
+  {#if viewMode === 'kanban'}
+    <!-- Pipeline Manager -->
+    <div class="mb-4">
+      <PipelineManager
+        {pipelines}
+        {activePipelineId}
+        onSelect={handlePipelineSelect}
+        onCreate={handleCreatePipeline}
+        onDelete={handleDeletePipeline}
+        onUpdate={handleUpdatePipeline}
+        onStageCreate={handleStageCreate}
+        onStageUpdate={handleStageUpdate}
+        onStageDelete={handleStageDelete}
+        onStageReorder={handleStageReorder}
+        canManage={isAdmin}
+        teams={formOptions.teams}
+        users={formOptions.users}
+        module="opportunities"
+      />
+    </div>
+
+    <!-- Kanban View -->
+    <OpportunityKanban
+      data={kanbanData}
+      onStatusChange={handleKanbanMove}
+      onCardClick={(opp) => openDrawer(opp.id)}
+    />
+  {:else}
+    <!-- Table View -->
+    {#if filteredOpportunities.length === 0}
+      <div class="flex flex-col items-center justify-center py-16 text-center">
+        <div
+          class="mb-4 flex size-16 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--surface-sunken)]"
+        >
+          <Target class="size-8 text-[var(--text-tertiary)]" />
+        </div>
+        <h3 class="text-lg font-medium text-[var(--text-primary)]">Nenhum negócio encontrado</h3>
+        <p class="mt-1 text-sm text-[var(--text-secondary)]">
+          Tente ajustar seus filtros ou crie um novo negócio
+        </p>
+      </div>
+    {:else}
+      <CrmTable
+        data={filteredOpportunities}
+        {columns}
+        bind:visibleColumns
+        onRowChange={handleRowChange}
+        onRowClick={(row) => openDrawer(row.id)}
+      >
+        {#snippet emptyState()}
+          <div class="flex flex-col items-center justify-center py-16 text-center">
+            <div
+              class="mb-4 flex size-16 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--surface-sunken)]"
+            >
+              <Target class="size-8 text-[var(--text-tertiary)]" />
+            </div>
+            <h3 class="text-lg font-medium text-[var(--text-primary)]">Nenhum negócio encontrado</h3>
+          </div>
+        {/snippet}
+      </CrmTable>
+    {/if}
+
+    <!-- Pagination -->
+    <Pagination
+      page={pagination.page}
+      limit={pagination.limit}
+      total={pagination.total}
+      onPageChange={handlePageChange}
+      onLimitChange={handleLimitChange}
+    />
+  {/if}
 </div>
+
+<!-- Hidden form for kanban move action -->
+<form
+  method="POST"
+  action="?/move"
+  use:enhance={() => {
+    return async ({ result }) => {
+      if (result.type === 'success') {
+        await invalidateAll();
+      } else {
+        toast.error('Falha ao mover oportunidade');
+        await invalidateAll();
+      }
+    };
+  }}
+  bind:this={moveFormEl}
+  class="hidden"
+>
+  <input type="hidden" name="opportunityId" value={kanbanFormState.opportunityId} />
+  <input type="hidden" name="stage" value={kanbanFormState.stage} />
+  <input type="hidden" name="pipelineStageId" value={kanbanFormState.pipelineStageId} />
+</form>
 
 <!-- Opportunity Drawer -->
 <CrmDrawer
@@ -1658,6 +1897,26 @@
           entityType="opportunity"
           sections={['tasks', 'invoices', 'financial', 'lead']}
         />
+      </div>
+
+      <!-- Reminders Section -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <ReminderSection
+          targetType="opportunity.opportunity"
+          targetId={selectedRow.id}
+          moduleKey="opportunity"
+          dateFieldLabel="fechamento"
+        />
+      </div>
+
+      <!-- Execution History Section -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <EntityRunsHistory targetType="opportunity.opportunity" targetId={selectedRow.id} />
+      </div>
+
+      <!-- Financial Summary -->
+      <div class="mt-6 border-t border-[var(--border-default)] pt-4">
+        <FinancialSummaryCard entityId={selectedRow.id} entityType="opportunity" />
       </div>
 
       <!-- Comments Section -->

@@ -312,6 +312,8 @@ class LeadPipelineSerializer(serializers.ModelSerializer):
             "stages",
             "stage_count",
             "lead_count",
+            "visible_to_teams",
+            "visible_to_users",
             "created_at",
             "updated_at",
         ]
@@ -344,6 +346,8 @@ class LeadPipelineListSerializer(serializers.ModelSerializer):
             "is_active",
             "stage_count",
             "lead_count",
+            "visible_to_teams",
+            "visible_to_users",
             "created_at",
         ]
 

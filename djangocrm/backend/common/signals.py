@@ -1,15 +1,46 @@
 """
-Django signals for automatic activity tracking across CRM entities.
+Django signals for automatic activity tracking across CRM entities
+and org-level initialization.
 
 This module registers post_save and post_delete signals on all major CRM models
 to automatically create Activity records when entities are created, updated, or deleted.
+It also seeds default financial data (Centro de Custo, Formas de Pagamento) when a new
+organization is created.
 """
+
+import logging
 
 from crum import get_current_request
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from common.models import Activity
+from common.models import Activity, Org
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Org creation — seed defaults
+# =============================================================================
+
+
+@receiver(post_save, sender=Org)
+def seed_org_defaults_on_creation(sender, instance, created, **kwargs):
+    """Auto-seed default Centro de Custo and Formas de Pagamento for new orgs."""
+    if not created:
+        return
+
+    try:
+        from common.management.commands.seed_org_defaults import seed_for_org
+        seed_for_org(instance)
+    except Exception as exc:
+        # Don't break org creation if seeding fails
+        logger.error("Failed to seed defaults for org %s: %s", instance.id, exc)
+
+
+# =============================================================================
+# Activity tracking
+# =============================================================================
 
 
 def get_entity_name(instance):

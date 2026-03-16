@@ -1,5 +1,6 @@
 <script>
-  import { Building, Users, Activity, Clock, Search, Shield } from '@lucide/svelte';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
+  import { Building, Users, Activity, Clock, Search } from '@lucide/svelte';
   import * as Card from '$lib/components/ui/card/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -38,18 +39,10 @@
   <title>Administração | TalkHub CRM</title>
 </svelte:head>
 
-<div class="mx-auto max-w-7xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center gap-3">
-    <div class="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-      <Shield class="size-5 text-primary" />
-    </div>
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Painel de Administração</h1>
-      <p class="text-sm text-muted-foreground">Gerenciamento da plataforma TalkHub CRM</p>
-    </div>
-  </div>
+<div class="flex flex-col">
+  <PageHeader title="Painel de Administração" subtitle="Gerenciamento da plataforma TalkHub CRM" />
 
+  <div class="space-y-6 px-6 py-6 md:px-8">
   <!-- KPI Cards -->
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
     <Card.Root>
@@ -247,4 +240,5 @@
       </Card.Content>
     </Card.Root>
   {/if}
+  </div>
 </div>

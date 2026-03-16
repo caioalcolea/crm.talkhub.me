@@ -14,12 +14,12 @@ TalkHub CRM is a full-featured Customer Relationship Management system designed 
 ## Features
 
 ### Core CRM Modules
-- **Leads** — Customizable pipeline per org, kanban drag-and-drop, conversion to opportunity
+- **Leads** — Customizable pipeline per org, kanban drag-and-drop, inline stage editing, drag-and-drop stage reorder, conversion to opportunity
 - **Accounts** — Company management with revenue, currency (21 currencies + crypto), address
 - **Contacts** — Contact management with social media, TalkHub Omni integration fields
 - **Opportunities** — Sales pipeline with stages, line items, products, probability
-- **Cases** — Customer support with customizable kanban pipeline, SLA and auto-escalation
-- **Tasks** — Kanban, calendar, custom boards, priorities, account linking
+- **Cases** — Customer support with customizable kanban pipeline, inline stage editing, drag-and-drop reorder, SLA and auto-escalation
+- **Tasks** — Kanban with customizable pipeline, inline stage editing, drag-and-drop reorder, calendar, custom boards, priorities, account linking
 - **Invoices** — Invoices, estimates, recurring, products, PDF, taxes, discounts
 - **Financeiro** — Financial module: transactions, payables/receivables, chart of accounts, payment methods, reports (P&L, cash flow)
 - **Goals** — Sales goals by user, period, type (revenue/leads/deals)

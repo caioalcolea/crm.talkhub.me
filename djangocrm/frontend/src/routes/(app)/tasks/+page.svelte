@@ -31,14 +31,18 @@
     Columns
   } from '@lucide/svelte';
   import { TaskKanban } from '$lib/components/ui/task-kanban';
+  import { PipelineManager } from '$lib/components/ui/pipeline-manager';
+  import { apiRequest as clientApiRequest, getCurrentUser } from '$lib/api.js';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import AutomationOriginBadge from '$lib/components/assistant/AutomationOriginBadge.svelte';
+  import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser } from '$lib/api.js';
   import {
     FilterBar,
     SearchInput,
@@ -255,6 +259,9 @@
       }
     }
     currentUser = getCurrentUser();
+    if (currentUser) {
+      isTaskAdmin = currentUser.organizations?.some((o) => o.role === 'ADMIN') || false;
+    }
   });
 
   // Save column visibility when changed
@@ -474,6 +481,80 @@
 
   // Kanban data from server
   const kanbanData = $derived(data.kanbanData);
+
+  // Pipeline state
+  const taskPipelines = $derived(data.pipelines || []);
+  let activeTaskPipelineId = $state(data.pipelineId || '');
+  let isTaskAdmin = $state(false);
+
+  async function handleTaskPipelineSelect(id) {
+    activeTaskPipelineId = id;
+    const url = new URL(window.location.href);
+    if (id) {
+      url.searchParams.set('pipeline_id', id);
+    } else {
+      url.searchParams.delete('pipeline_id');
+    }
+    url.searchParams.set('view', 'kanban');
+    await goto(url.toString(), { invalidateAll: true });
+  }
+
+  async function handleTaskPipelineCreate(pipelineData) {
+    const result = await clientApiRequest('/tasks/pipelines/', {
+      method: 'POST',
+      body: pipelineData
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskPipelineDelete(id) {
+    await clientApiRequest(`/tasks/pipelines/${id}/`, { method: 'DELETE' });
+    if (activeTaskPipelineId === id) {
+      activeTaskPipelineId = '';
+    }
+    await invalidateAll();
+  }
+
+  async function handleTaskPipelineUpdate(id, pipelineData) {
+    const result = await clientApiRequest(`/tasks/pipelines/${id}/`, {
+      method: 'PUT',
+      body: pipelineData
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskStageCreate(pipelineId, stageData) {
+    const result = await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/`, {
+      method: 'POST',
+      body: stageData
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskStageUpdate(stageId, stageData) {
+    const result = await clientApiRequest(`/tasks/stages/${stageId}/`, {
+      method: 'PUT',
+      body: stageData
+    });
+    await invalidateAll();
+    return result;
+  }
+
+  async function handleTaskStageDelete(stageId) {
+    await clientApiRequest(`/tasks/stages/${stageId}/`, { method: 'DELETE' });
+    await invalidateAll();
+  }
+
+  async function handleTaskStageReorder(pipelineId, stageOrder) {
+    await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/reorder/`, {
+      method: 'POST',
+      body: { stage_ids: stageOrder }
+    });
+    await invalidateAll();
+  }
 
   // Form references for server actions
   /** @type {HTMLFormElement} */
@@ -1317,6 +1398,24 @@
       {/snippet}
     </CrmTable>
   {:else if viewMode === 'kanban'}
+    <div class="mb-4">
+      <PipelineManager
+        pipelines={taskPipelines}
+        activePipelineId={activeTaskPipelineId}
+        onSelect={handleTaskPipelineSelect}
+        onCreate={handleTaskPipelineCreate}
+        onDelete={handleTaskPipelineDelete}
+        onUpdate={handleTaskPipelineUpdate}
+        onStageCreate={handleTaskStageCreate}
+        onStageUpdate={handleTaskStageUpdate}
+        onStageDelete={handleTaskStageDelete}
+        onStageReorder={handleTaskStageReorder}
+        canManage={isTaskAdmin}
+        teams={data.formOptions?.teams || []}
+        users={data.formOptions?.users || []}
+        module="tasks"
+      />
+    </div>
     <TaskKanban
       data={kanbanData}
       loading={false}
@@ -1578,6 +1677,8 @@
   {#snippet activitySection()}
     <!-- Task metadata (only for existing tasks) -->
     {#if selectedTask && !isCreateMode}
+      <AutomationOriginBadge taskId={selectedTask.id} />
+
       <div class="space-y-2 text-sm">
         <div class="mb-3 text-[13px] font-medium text-[var(--text-tertiary)]">Detalhes</div>
         {#if selectedTask.createdBy}
@@ -1592,6 +1693,21 @@
             <span>Criado em {formatRelativeDate(selectedTask.createdAt)}</span>
           </div>
         {/if}
+      </div>
+
+      <!-- Reminders Section -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <ReminderSection
+          targetType="tasks.task"
+          targetId={selectedTask.id}
+          moduleKey="tasks"
+          dateFieldLabel="prazo"
+        />
+      </div>
+
+      <!-- Execution History Section -->
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <EntityRunsHistory targetType="tasks.task" targetId={selectedTask.id} />
       </div>
 
       <!-- Comments Section -->

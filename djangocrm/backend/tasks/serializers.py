@@ -313,6 +313,8 @@ class TaskPipelineSerializer(serializers.ModelSerializer):
             "stages",
             "stage_count",
             "task_count",
+            "visible_to_teams",
+            "visible_to_users",
             "created_at",
             "updated_at",
         ]
@@ -343,6 +345,8 @@ class TaskPipelineListSerializer(serializers.ModelSerializer):
             "is_active",
             "stage_count",
             "task_count",
+            "visible_to_teams",
+            "visible_to_users",
             "created_at",
         ]
 

@@ -32,6 +32,7 @@
   import { PageHeader } from '$lib/components/layout';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import FinancialSummaryCard from '$lib/components/financeiro/FinancialSummaryCard.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import MergeContactModal from '$lib/components/contacts/MergeContactModal.svelte';
   import ExtraContactInfo from '$lib/components/contacts/ExtraContactInfo.svelte';
@@ -1125,6 +1126,11 @@
           entityType="contact"
           sections={['leads', 'opportunities', 'cases', 'tasks', 'invoices', 'financial', 'conversations']}
         />
+      </div>
+
+      <!-- Financial Summary -->
+      <div class="mt-6 border-t border-[var(--border-default)] pt-4">
+        <FinancialSummaryCard entityId={selectedContact.id} entityType="contact" />
       </div>
 
       <!-- Comments Section -->

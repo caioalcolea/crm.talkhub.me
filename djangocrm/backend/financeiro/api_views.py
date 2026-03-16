@@ -81,6 +81,20 @@ class PlanoDeContasGrupoViewSet(FinanceiroMixin, ModelViewSet):
             qs = qs.filter(is_active=True)
         return qs.prefetch_related("contas")
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_system_default:
+            return Response(
+                {"detail": "Grupos padrão do sistema não podem ser deletados. Use arquivar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Lancamento.objects.filter(plano_de_contas__grupo=instance).exists():
+            return Response(
+                {"detail": "Este grupo possui lançamentos vinculados. Arquive em vez de deletar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
 
 class PlanoDeContasViewSet(FinanceiroMixin, ModelViewSet):
     queryset = PlanoDeContas.objects.select_related("grupo").all()
@@ -94,6 +108,20 @@ class PlanoDeContasViewSet(FinanceiroMixin, ModelViewSet):
         if self.request.query_params.get("active_only") == "true":
             qs = qs.filter(is_active=True)
         return qs
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_system_default:
+            return Response(
+                {"detail": "Contas padrão do sistema não podem ser deletadas. Use arquivar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Lancamento.objects.filter(plano_de_contas=instance).exists():
+            return Response(
+                {"detail": "Esta conta possui lançamentos vinculados. Arquive em vez de deletar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 # =============================================================================
@@ -266,6 +294,57 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         parcelas = lancamento.parcelas.all()
         serializer = ParcelaSerializer(parcelas, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["get", "post"])
+    def reminders(self, request, pk=None):
+        """List or create reminder policies for this lancamento."""
+        from django.contrib.contenttypes.models import ContentType
+        from assistant.models import ReminderPolicy, ScheduledJob
+        from assistant.serializers import (
+            ReminderPolicySerializer,
+            ReminderPolicyWriteSerializer,
+            ScheduledJobSerializer,
+        )
+        from assistant.tasks import recalculate_policy_schedules
+
+        lancamento = self.get_object()
+        ct = ContentType.objects.get_for_model(Lancamento)
+
+        if request.method == "GET":
+            policies = ReminderPolicy.objects.filter(
+                org=request.profile.org,
+                target_content_type=ct,
+                target_object_id=lancamento.id,
+            ).order_by("-created_at")
+
+            source_ct = ContentType.objects.get_for_model(ReminderPolicy)
+            data = ReminderPolicySerializer(policies, many=True).data
+            for item in data:
+                jobs = ScheduledJob.objects.filter(
+                    source_content_type=source_ct,
+                    source_object_id=item["id"],
+                    status__in=["pending", "locked"],
+                ).order_by("due_at")[:10]
+                item["upcoming_jobs"] = ScheduledJobSerializer(jobs, many=True).data
+            return Response(data)
+
+        # POST — create a new policy for this lancamento
+        serializer = ReminderPolicyWriteSerializer(
+            data={
+                **request.data,
+                "target_type": "financeiro.lancamento",
+                "target_object_id": str(lancamento.id),
+                "module_key": "financeiro",
+            },
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        policy = serializer.save()
+        recalculate_policy_schedules.delay(str(policy.id))
+        return Response(
+            ReminderPolicySerializer(policy).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # =============================================================================
@@ -481,37 +560,78 @@ class DashboardReportView(APIView):
 
         saldo = recebido_no_mes - pago_no_mes
 
-        # Monthly cash flow for the year
+        # Saldo projetado Mês: ALL RECEBER (PAGO+ABERTO) - ALL PAGAR (PAGO+ABERTO) current month
+        parcelas_mes_atual = parcelas_org.filter(
+            competencia_ano=today.year, competencia_mes=today.month
+        ).exclude(status="CANCELADO")
+        receber_mes_total = parcelas_mes_atual.filter(
+            lancamento__tipo="RECEBER"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        pagar_mes_total = parcelas_mes_atual.filter(
+            lancamento__tipo="PAGAR"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        saldo_projetado_mes = float(receber_mes_total - pagar_mes_total)
+
+        # Saldo projetado Ano: ALL RECEBER (PAGO+ABERTO) - ALL PAGAR (PAGO+ABERTO) year
+        parcelas_ano_nc = parcelas_org.filter(competencia_ano=ano).exclude(status="CANCELADO")
+        receber_ano_total = parcelas_ano_nc.filter(
+            lancamento__tipo="RECEBER"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        pagar_ano_total = parcelas_ano_nc.filter(
+            lancamento__tipo="PAGAR"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        saldo_projetado_ano = float(receber_ano_total - pagar_ano_total)
+
+        # Monthly cash flow for the year (realized + projected)
         fluxo_mensal = []
+        fluxo_qs = (
+            parcelas_org.filter(competencia_ano=ano)
+            .exclude(status="CANCELADO")
+            .values("lancamento__tipo", "competencia_mes", "status")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+        # Build lookup: (tipo, mes, status) -> total
+        fluxo_lookup = {}
+        for row in fluxo_qs:
+            key = (row["lancamento__tipo"], row["competencia_mes"], row["status"])
+            fluxo_lookup[key] = float(row["total"])
+
+        saldo_acumulado = Decimal("0")
         for m in range(1, 13):
-            receber_m = (
-                parcelas_org.filter(
-                    lancamento__tipo="RECEBER",
-                    competencia_ano=ano,
-                    competencia_mes=m,
-                    status="PAGO",
-                ).aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
-            pagar_m = (
-                parcelas_org.filter(
-                    lancamento__tipo="PAGAR",
-                    competencia_ano=ano,
-                    competencia_mes=m,
-                    status="PAGO",
-                ).aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
+            receber_realizado = fluxo_lookup.get(("RECEBER", m, "PAGO"), 0)
+            pagar_realizado = fluxo_lookup.get(("PAGAR", m, "PAGO"), 0)
+            receber_projetado = fluxo_lookup.get(("RECEBER", m, "ABERTO"), 0)
+            pagar_projetado = fluxo_lookup.get(("PAGAR", m, "ABERTO"), 0)
+            saldo_mes = receber_realizado - pagar_realizado
+            saldo_acumulado += Decimal(str(saldo_mes))
             fluxo_mensal.append(
                 {
                     "mes": m,
-                    "receber": float(receber_m),
-                    "pagar": float(pagar_m),
-                    "saldo": float(receber_m - pagar_m),
+                    "receber": receber_realizado,
+                    "pagar": pagar_realizado,
+                    "receber_projetado": receber_projetado,
+                    "pagar_projetado": pagar_projetado,
+                    "saldo": saldo_mes,
+                    "saldo_projetado": receber_projetado - pagar_projetado,
+                    "saldo_acumulado": float(saldo_acumulado),
                 }
             )
+
+        # Próximo vencimento (next ABERTO parcela >= today)
+        proximo_vencimento = None
+        prox = (
+            parcelas_org.filter(status="ABERTO", data_vencimento__gte=today)
+            .select_related("lancamento")
+            .order_by("data_vencimento")
+            .first()
+        )
+        if prox:
+            proximo_vencimento = {
+                "data": str(prox.data_vencimento),
+                "descricao": prox.lancamento.descricao,
+                "valor": float(prox.valor_parcela_convertido),
+                "tipo": prox.lancamento.tipo,
+            }
 
         # Last 10 transactions
         ultimas = (
@@ -535,6 +655,10 @@ class DashboardReportView(APIView):
                 "total_vencido": float(total_vencido),
                 "pct_vencidas": pct_vencidas,
                 "saldo": float(saldo),
+                "saldo_projetado": saldo_projetado_ano,
+                "saldo_projetado_mes": saldo_projetado_mes,
+                "saldo_projetado_ano": saldo_projetado_ano,
+                "proximo_vencimento": proximo_vencimento,
                 "fluxo_mensal": fluxo_mensal,
                 "ultimas_transacoes": ultimas_data,
             }
@@ -610,6 +734,7 @@ class RelatorioMensalReportView(APIView):
         parcelas = Parcela.objects.filter(org=org, competencia_ano=ano).exclude(status="CANCELADO")
 
         meses = []
+        saldo_acumulado = Decimal("0")
         for m in range(1, 13):
             p_mes = parcelas.filter(competencia_mes=m)
 
@@ -634,6 +759,12 @@ class RelatorioMensalReportView(APIView):
                 )["total"]
             )
 
+            # Saldo projetado = all revenues - all expenses (PAGO + ABERTO)
+            receber_total_mes = receber_aberto + receber_pago
+            pagar_total_mes = pagar_aberto + pagar_pago
+            saldo_projetado = receber_total_mes - pagar_total_mes
+            saldo_acumulado += saldo_projetado
+
             meses.append(
                 {
                     "mes": m,
@@ -643,10 +774,120 @@ class RelatorioMensalReportView(APIView):
                     "pagar_pago": float(pagar_pago),
                     "saldo_pago": float(receber_pago - pagar_pago),
                     "saldo_aberto": float(receber_aberto - pagar_aberto),
+                    "saldo_projetado": float(saldo_projetado),
+                    "saldo_acumulado": float(saldo_acumulado),
                 }
             )
 
         return Response({"ano": ano, "meses": meses})
+
+
+class FluxoDiarioReportView(APIView):
+    """
+    Daily cash flow for a given month: day-by-day revenue vs expense
+    with running accumulated balance. Useful for detecting days where
+    the accumulated balance goes negative.
+    """
+
+    permission_classes = [IsAuthenticated, HasOrgContext, HasFinancialAccess]
+
+    def get(self, request):
+        org = request.profile.org
+        today = datetime.date.today()
+        ano = int(request.query_params.get("ano", today.year))
+        mes = int(request.query_params.get("mes", today.month))
+
+        # Calculate last day of month
+        if mes == 12:
+            ultimo_dia = datetime.date(ano, 12, 31)
+        else:
+            ultimo_dia = datetime.date(ano, mes + 1, 1) - datetime.timedelta(days=1)
+        num_dias = ultimo_dia.day
+
+        parcelas_org = Parcela.objects.filter(org=org).exclude(status="CANCELADO")
+
+        # PAGO parcelas: group by data_pagamento day
+        pagos = (
+            parcelas_org.filter(
+                status="PAGO",
+                data_pagamento__year=ano,
+                data_pagamento__month=mes,
+            )
+            .values("lancamento__tipo", "data_pagamento")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+
+        # ABERTO parcelas: group by data_vencimento day
+        abertos = (
+            parcelas_org.filter(
+                status="ABERTO",
+                data_vencimento__year=ano,
+                data_vencimento__month=mes,
+            )
+            .values("lancamento__tipo", "data_vencimento")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+
+        # Build daily lookup
+        daily = {}
+        for d in range(1, num_dias + 1):
+            daily[d] = {"receita": Decimal("0"), "despesa": Decimal("0")}
+
+        for row in pagos:
+            dia = row["data_pagamento"].day
+            if row["lancamento__tipo"] == "RECEBER":
+                daily[dia]["receita"] += row["total"]
+            else:
+                daily[dia]["despesa"] += row["total"]
+
+        for row in abertos:
+            dia = row["data_vencimento"].day
+            if row["lancamento__tipo"] == "RECEBER":
+                daily[dia]["receita"] += row["total"]
+            else:
+                daily[dia]["despesa"] += row["total"]
+
+        # Build response with running balance
+        resultado = []
+        saldo_acumulado = Decimal("0")
+        total_receita = Decimal("0")
+        total_despesa = Decimal("0")
+        for d in range(1, num_dias + 1):
+            rec = daily[d]["receita"]
+            desp = daily[d]["despesa"]
+            saldo_dia = rec - desp
+            saldo_acumulado += saldo_dia
+            total_receita += rec
+            total_despesa += desp
+            resultado.append(
+                {
+                    "dia": d,
+                    "data": str(datetime.date(ano, mes, d)),
+                    "receita": float(rec),
+                    "despesa": float(desp),
+                    "saldo_dia": float(saldo_dia),
+                    "saldo_acumulado": float(saldo_acumulado),
+                }
+            )
+
+        dias_negativos = [r for r in resultado if r["saldo_acumulado"] < 0]
+
+        return Response(
+            {
+                "ano": ano,
+                "mes": mes,
+                "dias": resultado,
+                "resumo": {
+                    "total_receita": float(total_receita),
+                    "total_despesa": float(total_despesa),
+                    "saldo_final": float(saldo_acumulado),
+                    "dias_negativos": len(dias_negativos),
+                    "primeiro_dia_negativo": (
+                        dias_negativos[0]["dia"] if dias_negativos else None
+                    ),
+                },
+            }
+        )
 
 
 class EntityFinancialReportView(APIView):

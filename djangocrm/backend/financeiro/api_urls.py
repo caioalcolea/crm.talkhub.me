@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from financeiro.api_views import (
     DashboardReportView,
     EntityFinancialReportView,
+    FluxoDiarioReportView,
     FluxoPlanoContasReportView,
     FormaPagamentoViewSet,
     FormOptionsView,
@@ -43,6 +44,11 @@ urlpatterns = [
         "reports/relatorio-mensal/",
         RelatorioMensalReportView.as_view(),
         name="report-mensal",
+    ),
+    path(
+        "reports/fluxo-diario/",
+        FluxoDiarioReportView.as_view(),
+        name="report-fluxo-diario",
     ),
     path(
         "reports/by-entity/<uuid:pk>/",

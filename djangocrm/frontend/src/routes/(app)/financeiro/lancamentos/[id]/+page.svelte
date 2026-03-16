@@ -2,9 +2,12 @@
   import { goto, invalidateAll } from '$app/navigation';
   import { Button } from '$lib/components/ui/button/index.js';
   import { StatusBadge, ParcelaTable, TransactionForm } from '$lib/components/financeiro';
+  import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { financeiro } from '$lib/api.js';
   import { orgSettings } from '$lib/stores/org.js';
+  import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import { ArrowLeft, Ban, Pencil, Repeat, Square } from '@lucide/svelte';
 
   let { data } = $props();
@@ -110,14 +113,36 @@
   }
 </script>
 
-<div class="space-y-6 p-6">
-  <!-- Back + Header -->
-  <div class="flex items-center gap-3">
-    <Button variant="ghost" size="sm" onclick={() => goto('/financeiro/lancamentos')}>
-      <ArrowLeft class="mr-1 h-4 w-4" /> Voltar
-    </Button>
-  </div>
+<PageHeader title={editing ? 'Editar Lancamento' : l.descricao}>
+  {#snippet actions()}
+    {#if !editing}
+      <Button variant="ghost" size="sm" onclick={() => goto('/financeiro/lancamentos')}>
+        <ArrowLeft class="mr-1 h-4 w-4" /><span class="hidden sm:inline">Voltar</span>
+      </Button>
+      {#if l.status !== 'CANCELADO'}
+        <Button variant="outline" size="sm" onclick={startEdit}>
+          <Pencil class="mr-1 h-4 w-4" /><span class="hidden sm:inline">Editar</span>
+        </Button>
+      {/if}
+      {#if l.is_recorrente && l.status === 'ABERTO'}
+        <Button variant="outline" size="sm" onclick={handleToggleRecorrencia} disabled={loading}>
+          {#if l.recorrencia_ativa}
+            <Square class="mr-1 h-4 w-4" /><span class="hidden sm:inline">Parar Recorrencia</span>
+          {:else}
+            <Repeat class="mr-1 h-4 w-4" /><span class="hidden sm:inline">Reativar</span>
+          {/if}
+        </Button>
+      {/if}
+      {#if l.status === 'ABERTO'}
+        <Button variant="destructive" size="sm" onclick={handleCancelLancamento} disabled={loading}>
+          <Ban class="mr-1 h-4 w-4" /><span class="hidden sm:inline">Cancelar</span>
+        </Button>
+      {/if}
+    {/if}
+  {/snippet}
+</PageHeader>
 
+<div class="space-y-6 p-4 md:p-6">
   {#if editing}
     <!-- Edit Mode -->
     <div class="rounded-lg border p-4">
@@ -134,63 +159,41 @@
     </div>
   {:else}
     <!-- View Mode -->
-    <div class="flex items-start justify-between">
-      <div>
-        <h1 class="text-2xl font-bold">{l.descricao}</h1>
-        <div class="mt-1 flex items-center gap-2">
-          <StatusBadge status={l.tipo} />
-          <StatusBadge status={l.status} tipo={l.tipo} />
-          {#if l.is_recorrente}
-            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-              <Repeat class="mr-1 h-3 w-3" />
-              {l.recorrencia_tipo || 'Recorrente'}
-              {#if !l.recorrencia_ativa}
-                <span class="ml-1 text-gray-500">(parado)</span>
-              {/if}
-            </span>
+    <div class="flex flex-wrap items-center gap-2">
+      <StatusBadge status={l.tipo} />
+      <StatusBadge status={l.status} tipo={l.tipo} />
+      {#if l.is_recorrente}
+        <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+          <Repeat class="mr-1 h-3 w-3" />
+          {l.recorrencia_tipo || 'Recorrente'}
+          {#if !l.recorrencia_ativa}
+            <span class="ml-1 text-gray-500">(parado)</span>
           {/if}
-          {#if l.exchange_rate_type === 'VARIAVEL'}
-            <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-              Taxa variavel
-            </span>
-          {/if}
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        {#if l.status !== 'CANCELADO'}
-          <Button variant="outline" size="sm" onclick={startEdit}>
-            <Pencil class="mr-1 h-4 w-4" />
-            Editar
-          </Button>
-        {/if}
-        {#if l.is_recorrente && l.status === 'ABERTO'}
-          <Button
-            variant="outline"
-            size="sm"
-            onclick={handleToggleRecorrencia}
-            disabled={loading}
-          >
-            {#if l.recorrencia_ativa}
-              <Square class="mr-1 h-4 w-4" /> Parar Recorrencia
-            {:else}
-              <Repeat class="mr-1 h-4 w-4" /> Reativar
-            {/if}
-          </Button>
-        {/if}
-        {#if l.status === 'ABERTO'}
-          <Button variant="destructive" size="sm" onclick={handleCancelLancamento} disabled={loading}>
-            <Ban class="mr-1 h-4 w-4" />
-            Cancelar
-          </Button>
-        {/if}
-      </div>
+        </span>
+      {/if}
+      {#if l.exchange_rate_type === 'VARIAVEL'}
+        <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+          Taxa variavel
+        </span>
+      {/if}
     </div>
 
     <!-- Info Grid -->
-    <div class="grid grid-cols-2 gap-4 rounded-lg border p-4 md:grid-cols-4">
+    <div class="grid grid-cols-1 gap-4 rounded-lg border p-4 sm:grid-cols-2 md:grid-cols-4">
       <div>
-        <span class="text-muted-foreground text-xs font-medium">Valor Total</span>
+        <span class="text-muted-foreground text-xs font-medium">
+          {#if l.is_recorrente}Valor por Período{:else}Valor Total{/if}
+        </span>
         <p class="text-lg font-bold">{formatCurrency(l.valor_convertido, orgCurrency)}</p>
+        {#if l.is_recorrente}
+          <p class="text-muted-foreground text-xs">
+            por período ({l.recorrencia_label || l.recorrencia_tipo || 'recorrente'})
+          </p>
+        {:else if l.numero_parcelas > 1}
+          <p class="text-muted-foreground text-xs">
+            em {l.numero_parcelas} parcelas de {formatCurrency(l.valor_parcela_display, orgCurrency)}
+          </p>
+        {/if}
         {#if l.currency !== orgCurrency}
           <p class="text-muted-foreground text-xs">
             {l.currency_symbol} {parseFloat(l.valor_total).toLocaleString('pt-BR')} ({l.currency})
@@ -250,12 +253,33 @@
 
     <!-- Parcelas -->
     <div>
-      <h2 class="mb-3 text-lg font-semibold">Parcelas</h2>
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Parcelas</h2>
+        {#if l.is_recorrente && l.parcelas?.length > 0}
+          {@const totalGerado = l.parcelas.reduce((sum, p) => sum + parseFloat(p.valor_parcela_convertido || 0), 0)}
+          <span class="text-muted-foreground text-sm">
+            Total gerado: <span class="font-medium">{formatCurrency(totalGerado, orgCurrency)}</span>
+            ({l.parcelas.length} parcelas)
+          </span>
+        {/if}
+      </div>
       <ParcelaTable
         parcelas={l.parcelas || []}
         onpay={handlePayParcela}
         oncancel={handleCancelParcela}
       />
     </div>
+
+    <!-- Reminders -->
+    {#if l.status !== 'CANCELADO'}
+      <ReminderSection
+        lancamentoId={l.id}
+        reminders={data.reminders || []}
+        tipo={l.tipo}
+      />
+      <div class="mt-4">
+        <EntityRunsHistory targetType="financeiro.lancamento" targetId={l.id} />
+      </div>
+    {/if}
   {/if}
 </div>

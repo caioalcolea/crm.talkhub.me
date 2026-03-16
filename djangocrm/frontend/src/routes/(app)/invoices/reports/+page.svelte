@@ -14,6 +14,9 @@
   const revenue = $derived(data.revenue);
   const aging = $derived(data.aging);
   const filters = $derived(data.filters);
+  const productMargin = $derived(data.productMargin);
+  const inventory = $derived(data.inventory);
+  const topProducts = $derived(data.topProducts);
 
   const orgCurrency = $derived($orgSettings.default_currency || 'BRL');
 
@@ -454,4 +457,150 @@
       </div>
     </div>
   </div>
+
+  <!-- Product Margin Report -->
+  {#if productMargin?.results?.length > 0}
+    <div
+      class="rounded-xl border border-[var(--border-default)] bg-[var(--surface-default)] p-6 shadow-sm"
+    >
+      <h3 class="mb-4 text-lg font-semibold text-[var(--text-primary)]">Margem por Produto/Serviço</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-[var(--border-default)]">
+              <th class="py-2 text-left font-medium text-[var(--text-secondary)]">Produto</th>
+              <th class="py-2 text-left font-medium text-[var(--text-secondary)]">Tipo</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Qtd Vendida</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Receita</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Taxas</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Custo</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Margem</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each productMargin.results as item}
+              <tr class="border-b border-[var(--border-default)] last:border-b-0">
+                <td class="py-3 text-[var(--text-primary)]">{item.name}</td>
+                <td class="py-3">
+                  <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {item.product_type === 'service' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}">
+                    {item.product_type === 'service' ? 'Serviço' : 'Produto'}
+                  </span>
+                </td>
+                <td class="py-3 text-right text-[var(--text-secondary)]">{item.quantity_sold}</td>
+                <td class="py-3 text-right text-[var(--text-primary)]">
+                  {formatCurrency(Number(item.revenue), orgCurrency)}
+                </td>
+                <td class="py-3 text-right text-[var(--text-secondary)]">
+                  {formatCurrency(Number(item.gateway_fees), orgCurrency)}
+                </td>
+                <td class="py-3 text-right text-[var(--text-secondary)]">
+                  {formatCurrency(Number(item.cost), orgCurrency)}
+                </td>
+                <td class="py-3 text-right font-medium {Number(item.margin) >= 0 ? 'text-[var(--color-success-default)]' : 'text-[var(--color-negative-default)]'}">
+                  {formatCurrency(Number(item.margin), orgCurrency)}
+                </td>
+                <td class="py-3 text-right font-medium {Number(item.margin_percent) >= 0 ? 'text-[var(--color-success-default)]' : 'text-[var(--color-negative-default)]'}">
+                  {item.margin_percent}%
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Inventory Summary -->
+  {#if inventory?.results?.length > 0}
+    <div
+      class="rounded-xl border border-[var(--border-default)] bg-[var(--surface-default)] p-6 shadow-sm"
+    >
+      <div class="mb-4 flex items-center justify-between">
+        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Resumo de Estoque</h3>
+        <div class="flex gap-4 text-sm">
+          <span class="text-[var(--text-secondary)]">
+            {inventory.summary?.total_products || 0} produtos rastreados
+          </span>
+          <span class="font-medium text-[var(--text-primary)]">
+            Valor: {formatCurrency(Number(inventory.summary?.total_stock_value || 0), orgCurrency)}
+          </span>
+          {#if (inventory.summary?.low_stock_count || 0) > 0}
+            <span class="font-medium text-[var(--color-negative-default)]">
+              {inventory.summary.low_stock_count} com estoque baixo
+            </span>
+          {/if}
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-[var(--border-default)]">
+              <th class="py-2 text-left font-medium text-[var(--text-secondary)]">Produto</th>
+              <th class="py-2 text-left font-medium text-[var(--text-secondary)]">SKU</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Estoque</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Mínimo</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Custo Unit.</th>
+              <th class="py-2 text-right font-medium text-[var(--text-secondary)]">Valor Estoque</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each inventory.results as item}
+              <tr class="border-b border-[var(--border-default)] last:border-b-0 {item.is_low_stock ? 'bg-[var(--color-negative-light)]/30' : ''}">
+                <td class="py-3 text-[var(--text-primary)]">
+                  {item.name}
+                  {#if item.is_low_stock}
+                    <span class="ml-2 text-xs text-[var(--color-negative-default)]">Estoque baixo</span>
+                  {/if}
+                </td>
+                <td class="py-3 text-[var(--text-secondary)]">{item.sku || '—'}</td>
+                <td class="py-3 text-right font-medium {item.is_low_stock ? 'text-[var(--color-negative-default)]' : 'text-[var(--text-primary)]'}">
+                  {item.stock_quantity} {item.unit_of_measure}
+                </td>
+                <td class="py-3 text-right text-[var(--text-secondary)]">{item.stock_min_alert}</td>
+                <td class="py-3 text-right text-[var(--text-secondary)]">
+                  {formatCurrency(Number(item.cost_price), orgCurrency)}
+                </td>
+                <td class="py-3 text-right font-medium text-[var(--text-primary)]">
+                  {formatCurrency(Number(item.stock_value), orgCurrency)}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Top Products -->
+  {#if topProducts?.results?.length > 0}
+    <div
+      class="rounded-xl border border-[var(--border-default)] bg-[var(--surface-default)] p-6 shadow-sm"
+    >
+      <h3 class="mb-4 text-lg font-semibold text-[var(--text-primary)]">Top 10 Produtos por Receita</h3>
+      <div class="space-y-3">
+        {#each topProducts.results as item, i}
+          {@const maxRevenue = Number(topProducts.results[0]?.revenue || 1)}
+          {@const pct = (Number(item.revenue) / maxRevenue) * 100}
+          <div class="flex items-center gap-3">
+            <span class="w-6 text-right text-sm font-medium text-[var(--text-secondary)]">{i + 1}</span>
+            <div class="flex-1">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-[var(--text-primary)]">{item.name}</span>
+                <span class="text-sm text-[var(--text-secondary)]">
+                  {formatCurrency(Number(item.revenue), orgCurrency)}
+                </span>
+              </div>
+              <div class="mt-1 h-2 w-full rounded-full bg-[var(--surface-sunken)]">
+                <div
+                  class="h-2 rounded-full bg-[var(--color-primary-default)]"
+                  style="width: {pct}%"
+                ></div>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>

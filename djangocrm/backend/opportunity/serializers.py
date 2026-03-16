@@ -15,10 +15,13 @@ from common.serializers import (
 )
 from contacts.serializers import ContactSerializer
 from invoices.serializers import ProductSerializer
+from common.utils import STAGES
 from opportunity.models import (
     GoalBreakdown,
     Opportunity,
     OpportunityLineItem,
+    OpportunityPipeline,
+    OpportunityStage,
     SalesGoal,
     StageAgingConfig,
 )
@@ -457,3 +460,154 @@ class GoalBreakdownCreateSerializer(serializers.ModelSerializer):
                 }
             )
         return data
+
+
+# --- Kanban/Pipeline Serializers ---
+
+
+class OpportunityStageSerializer(serializers.ModelSerializer):
+    """Serializer for opportunity pipeline stages."""
+
+    opportunity_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OpportunityStage
+        fields = [
+            "id",
+            "name",
+            "order",
+            "color",
+            "stage_type",
+            "maps_to_stage",
+            "win_probability",
+            "wip_limit",
+            "opportunity_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ("id", "created_at", "updated_at", "org")
+
+    def get_opportunity_count(self, obj):
+        return obj.opportunities.count()
+
+
+class OpportunityPipelineSerializer(serializers.ModelSerializer):
+    """Serializer for opportunity pipelines with nested stages."""
+
+    stages = OpportunityStageSerializer(many=True, read_only=True)
+    stage_count = serializers.SerializerMethodField()
+    opportunity_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OpportunityPipeline
+        fields = [
+            "id",
+            "name",
+            "description",
+            "is_default",
+            "is_active",
+            "stages",
+            "stage_count",
+            "opportunity_count",
+            "visible_to_teams",
+            "visible_to_users",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ("id", "created_at", "updated_at", "org")
+
+    def get_stage_count(self, obj):
+        if hasattr(obj, "_stage_count"):
+            return obj._stage_count
+        return obj.stages.count()
+
+    def get_opportunity_count(self, obj):
+        if hasattr(obj, "_opportunity_count"):
+            return obj._opportunity_count
+        return Opportunity.objects.filter(pipeline_stage__pipeline=obj).count()
+
+
+class OpportunityPipelineListSerializer(serializers.ModelSerializer):
+    """Simplified pipeline serializer for lists."""
+
+    stage_count = serializers.SerializerMethodField()
+    opportunity_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OpportunityPipeline
+        fields = [
+            "id",
+            "name",
+            "description",
+            "is_default",
+            "is_active",
+            "stage_count",
+            "opportunity_count",
+            "visible_to_teams",
+            "visible_to_users",
+            "created_at",
+        ]
+
+    def get_stage_count(self, obj):
+        if hasattr(obj, "_stage_count"):
+            return obj._stage_count
+        return obj.stages.count()
+
+    def get_opportunity_count(self, obj):
+        if hasattr(obj, "_opportunity_count"):
+            return obj._opportunity_count
+        return Opportunity.objects.filter(pipeline_stage__pipeline=obj).count()
+
+
+class OpportunityKanbanCardSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for kanban cards (minimal fields for performance)."""
+
+    assigned_to = ProfileSerializer(read_only=True, many=True)
+    account_name = serializers.SerializerMethodField()
+    aging_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Opportunity
+        fields = [
+            "id",
+            "name",
+            "account_name",
+            "amount",
+            "currency",
+            "probability",
+            "stage",
+            "pipeline_stage",
+            "kanban_order",
+            "closed_on",
+            "aging_status",
+            "assigned_to",
+            "created_at",
+        ]
+
+    def get_account_name(self, obj):
+        return obj.account.name if obj.account else None
+
+    def get_aging_status(self, obj):
+        aging_configs = self.context.get("aging_configs")
+        if aging_configs is not None:
+            return obj.get_aging_status(aging_configs)
+        return obj.aging_status
+
+
+class OpportunityMoveSerializer(serializers.Serializer):
+    """Serializer for moving opportunities in kanban."""
+
+    pipeline_stage_id = serializers.UUIDField(required=False, allow_null=True)
+    stage = serializers.ChoiceField(choices=STAGES, required=False)
+    kanban_order = serializers.DecimalField(
+        max_digits=15, decimal_places=6, required=False
+    )
+    above_opportunity_id = serializers.UUIDField(required=False, allow_null=True)
+    below_opportunity_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if not attrs.get("pipeline_stage_id") and not attrs.get("stage"):
+            raise serializers.ValidationError(
+                "Either pipeline_stage_id or stage must be provided"
+            )
+        return attrs

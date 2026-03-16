@@ -18,9 +18,16 @@ from financeiro.constants import (
 )
 
 
+APPLIES_TO_CHOICES = [
+    ("AMBOS", "Ambos"),
+    ("PAGAR", "Pagar"),
+    ("RECEBER", "Receber"),
+]
+
+
 class PlanoDeContasGrupo(BaseOrgModel):
     """
-    Grupo do Plano de Contas (ex: "1.1 - Receitas Operacionais").
+    Grupo do Plano de Contas / Centro de Custo.
     """
 
     codigo = models.CharField(max_length=20, help_text="Código do grupo (ex: 1.1, 2.1)")
@@ -28,6 +35,12 @@ class PlanoDeContasGrupo(BaseOrgModel):
     descricao = models.TextField(blank=True, default="")
     is_active = models.BooleanField(default=True)
     ordem = models.PositiveIntegerField(default=0, help_text="Ordem de exibição")
+    color = models.CharField(max_length=7, default="#6B7280", help_text="Cor hex para exibição no frontend")
+    applies_to = models.CharField(
+        max_length=10, choices=APPLIES_TO_CHOICES, default="AMBOS",
+        help_text="Tipo de lançamento ao qual este grupo se aplica",
+    )
+    is_system_default = models.BooleanField(default=False, help_text="Grupos padrão do sistema não podem ser deletados")
 
     class Meta:
         db_table = "financeiro_plano_grupo"
@@ -42,7 +55,7 @@ class PlanoDeContasGrupo(BaseOrgModel):
 
 class PlanoDeContas(BaseOrgModel):
     """
-    Conta dentro de um grupo do Plano de Contas.
+    Conta dentro de um grupo do Plano de Contas / Centro de Custo.
     """
 
     grupo = models.ForeignKey(
@@ -53,10 +66,13 @@ class PlanoDeContas(BaseOrgModel):
     nome = models.CharField(max_length=255)
     descricao = models.TextField(blank=True, default="")
     is_active = models.BooleanField(default=True)
+    code = models.CharField(max_length=20, blank=True, default="", help_text="Código interno opcional")
+    is_system_default = models.BooleanField(default=False, help_text="Contas padrão do sistema não podem ser deletadas")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ordem de exibição dentro do grupo")
 
     class Meta:
         db_table = "financeiro_plano_contas"
-        ordering = ["grupo__ordem", "grupo__codigo", "nome"]
+        ordering = ["grupo__ordem", "grupo__codigo", "sort_order", "nome"]
         unique_together = [["grupo", "nome", "org"]]
         verbose_name = "Plano de Contas"
         verbose_name_plural = "Planos de Contas"
@@ -280,11 +296,12 @@ class Lancamento(BaseOrgModel):
 
         Parcela.objects.bulk_create(parcelas)
 
-    def generate_recurring_parcelas(self, months_ahead=3):
+    def generate_recurring_parcelas(self, months_ahead=12):
         """
         Generate parcelas for recurring lancamentos.
         Each parcela = full valor_total (not divided).
-        Generates up to months_ahead months into the future.
+        Generates up to months_ahead months into the future (default 12).
+        Called on creation and periodically by Celery to extend the window.
         """
         import calendar
 

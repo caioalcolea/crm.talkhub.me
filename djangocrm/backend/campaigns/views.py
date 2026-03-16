@@ -468,12 +468,26 @@ class CampaignPauseResumeView(APIView):
         if action == "pause" and campaign.status == "running":
             campaign.status = "paused"
             campaign.save(update_fields=["status", "updated_at"])
-            return Response(CampaignSerializer(campaign).data)
+
+            # Cancel all pending ScheduledJobs for this campaign
+            from campaigns.job_generator import cancel_campaign_jobs
+            cancelled = cancel_campaign_jobs(campaign)
+
+            data = CampaignSerializer(campaign).data
+            data["jobs_cancelled"] = cancelled
+            return Response(data)
 
         if action == "resume" and campaign.status == "paused":
             campaign.status = "running"
             campaign.save(update_fields=["status", "updated_at"])
-            return Response(CampaignSerializer(campaign).data)
+
+            # Recreate ScheduledJobs for pending recipients
+            from campaigns.job_generator import recreate_campaign_jobs
+            created = recreate_campaign_jobs(campaign)
+
+            data = CampaignSerializer(campaign).data
+            data["jobs_created"] = created
+            return Response(data)
 
         return Response(
             {"error": f"Ação '{action}' inválida para status '{campaign.status}'."},

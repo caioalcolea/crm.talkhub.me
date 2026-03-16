@@ -6,6 +6,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
+  import PageHeader from '$lib/components/layout/PageHeader.svelte';
   import { Plus, Zap, Clock, GitBranch, Share2, Eye, Trash2, Power, History } from '@lucide/svelte';
 
   let { data, form } = $props();
@@ -67,19 +68,18 @@
   <title>Automações — TalkHub CRM</title>
 </svelte:head>
 
-<div class="mx-auto max-w-6xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight">Automações</h1>
-      <p class="text-muted-foreground text-sm">Gerencie rotinas, regras lógicas e automações sociais.</p>
-    </div>
-    <Button href="/automations/new" class="gap-2">
-      <Plus class="size-4" />
-      Nova Automação
-    </Button>
-  </div>
+<div class="flex flex-col">
+  <PageHeader title="Automações" subtitle="Gerencie rotinas, regras lógicas e automações sociais.">
+    {#snippet actions()}
+      <Button href="/automations/new" class="gap-2">
+        <Plus class="size-4" />
+        <span class="hidden sm:inline">Nova Automação</span>
+        <span class="sm:hidden">Nova</span>
+      </Button>
+    {/snippet}
+  </PageHeader>
 
+  <div class="space-y-6 px-6 py-6 md:px-8">
   <!-- Filters -->
   <div class="flex gap-3">
     <Button
@@ -190,4 +190,5 @@
       {/each}
     </div>
   {/if}
+  </div>
 </div>

@@ -1,5 +1,5 @@
 <script>
-  import { DollarSign, TrendingUp, Target, Percent, AlertCircle, Sparkles, Menu } from '@lucide/svelte';
+  import { DollarSign, TrendingUp, TrendingDown, Target, Percent, AlertCircle, Sparkles, Menu, Wallet, AlertTriangle } from '@lucide/svelte';
   import { useSidebar } from '$lib/components/ui/sidebar/context.svelte.js';
   import {
     KPICard,
@@ -25,6 +25,7 @@
   const revenueMetrics = $derived(data.revenueMetrics || {});
   const hotLeads = $derived(data.hotLeads || []);
   const goalSummary = $derived(data.goalSummary || []);
+  const finKPIs = $derived(data.financeiroKPIs);
 
   // Get org's default currency for KPI display
   const sidebar = useSidebar();
@@ -180,6 +181,73 @@
           {/snippet}
         </KPICard>
       </div>
+
+      <!-- Financial KPIs (if available) -->
+      {#if finKPIs}
+        <div
+          class="rounded-[var(--radius-xl)] border border-[var(--border-default)] bg-[var(--surface-raised)] p-6 shadow-[var(--shadow-sm)] dark:bg-[var(--surface-raised)]/80 dark:shadow-lg dark:shadow-black/10 dark:backdrop-blur-sm"
+        >
+          <div class="mb-5 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div
+                class="flex size-9 items-center justify-center rounded-[var(--radius-md)] bg-emerald-100 dark:bg-emerald-500/15"
+              >
+                <Wallet class="size-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <h2 class="text-base font-semibold tracking-tight text-[var(--text-primary)]">
+                  Financeiro
+                </h2>
+                <p class="text-xs text-[var(--text-tertiary)]">Resumo do mês</p>
+              </div>
+            </div>
+            <a
+              href="/financeiro"
+              class="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)]"
+            >
+              Ver detalhes →
+            </a>
+          </div>
+          <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <KPICard
+              label="A Receber"
+              value={formatCurrency(finKPIs.a_receber, orgCurrency, true)}
+              accentColor="emerald"
+            >
+              {#snippet icon()}
+                <TrendingUp class="size-5" />
+              {/snippet}
+            </KPICard>
+            <KPICard
+              label="A Pagar"
+              value={formatCurrency(finKPIs.a_pagar, orgCurrency, true)}
+              accentColor="rose"
+            >
+              {#snippet icon()}
+                <TrendingDown class="size-5" />
+              {/snippet}
+            </KPICard>
+            <KPICard
+              label="Saldo do Mês"
+              value={formatCurrency(finKPIs.saldo_mes, orgCurrency, true)}
+              accentColor={finKPIs.saldo_mes >= 0 ? 'emerald' : 'rose'}
+            >
+              {#snippet icon()}
+                <DollarSign class="size-5" />
+              {/snippet}
+            </KPICard>
+            <KPICard
+              label="Vencido"
+              value={formatCurrency(finKPIs.vencido, orgCurrency, true)}
+              accentColor={finKPIs.vencido > 0 ? 'amber' : 'emerald'}
+            >
+              {#snippet icon()}
+                <AlertTriangle class="size-5" />
+              {/snippet}
+            </KPICard>
+          </div>
+        </div>
+      {/if}
 
       <!-- Pipeline Chart + Hot Leads -->
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-5">

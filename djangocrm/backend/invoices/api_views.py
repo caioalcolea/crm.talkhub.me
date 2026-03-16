@@ -5,8 +5,8 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
-from django.db.models import Q, Sum, Count
+from django.db import models, transaction
+from django.db.models import Q, Sum, Count, F, Avg
 from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -27,6 +27,7 @@ from invoices.models import (
     Payment,
     Product,
     RecurringInvoice,
+    StockMovement,
 )
 from invoices.pdf import (
     generate_estimate_filename,
@@ -50,6 +51,7 @@ from invoices.serializers import (
     PaymentSerializer,
     ProductCreateSerializer,
     ProductSerializer,
+    StockMovementSerializer,
     RecurringInvoiceCreateSerializer,
     RecurringInvoiceListSerializer,
     RecurringInvoiceSerializer,
@@ -817,6 +819,18 @@ class ProductListView(APIView, LimitOffsetPagination):
         # Category filter
         if request.query_params.get("category"):
             queryset = queryset.filter(category=request.query_params.get("category"))
+
+        # Product type filter
+        product_type = request.query_params.get("product_type")
+        if product_type in ("product", "service"):
+            queryset = queryset.filter(product_type=product_type)
+
+        # Low stock filter
+        if request.query_params.get("low_stock") == "true":
+            queryset = queryset.filter(
+                track_inventory=True,
+                stock_quantity__lte=F("stock_min_alert"),
+            )
 
         results = self.paginate_queryset(queryset.order_by("name"), request, view=self)
         return Response(
@@ -2094,3 +2108,255 @@ class InvoiceFromOpportunityView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+# =============================================================================
+# STOCK MOVEMENT VIEWS
+# =============================================================================
+
+
+class StockMovementListView(APIView, LimitOffsetPagination):
+    """List stock movements for a product and create manual adjustments"""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    @extend_schema(tags=["Stock Movements"], operation_id="stock_movements_list")
+    def get(self, request, product_id):
+        product = Product.objects.filter(
+            id=product_id, org=request.profile.org
+        ).first()
+        if not product:
+            return Response(
+                {"error": True, "message": "Product not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        queryset = StockMovement.objects.filter(
+            product=product, org=request.profile.org
+        ).order_by("-created_at")
+
+        # Filter by movement type
+        movement_type = request.query_params.get("movement_type")
+        if movement_type in ("in", "out", "adjustment"):
+            queryset = queryset.filter(movement_type=movement_type)
+
+        results = self.paginate_queryset(queryset, request, view=self)
+        return Response(
+            {
+                "count": self.count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "results": StockMovementSerializer(results, many=True).data,
+                "current_stock": str(product.stock_quantity),
+            }
+        )
+
+    @extend_schema(tags=["Stock Movements"], operation_id="stock_movements_create")
+    def post(self, request, product_id):
+        """Create a manual stock adjustment"""
+        product = Product.objects.filter(
+            id=product_id, org=request.profile.org
+        ).first()
+        if not product:
+            return Response(
+                {"error": True, "message": "Product not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not product.track_inventory:
+            return Response(
+                {"error": True, "message": "Product does not track inventory"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = StockMovementSerializer(
+            data=request.data, context={"request": request}
+        )
+        if not serializer.is_valid():
+            return Response(
+                {"error": True, "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            movement = serializer.save(
+                product=product,
+                reference_type="manual",
+            )
+
+            # Update product stock
+            qty = movement.quantity
+            if movement.movement_type == "in":
+                product.stock_quantity += qty
+            elif movement.movement_type == "out":
+                product.stock_quantity -= qty
+            else:  # adjustment — set absolute value
+                product.stock_quantity = qty
+
+            product.save(update_fields=["stock_quantity"])
+
+        return Response(
+            {
+                "error": False,
+                "message": "Stock movement created",
+                "movement": StockMovementSerializer(movement).data,
+                "current_stock": str(product.stock_quantity),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# =============================================================================
+# PRODUCT REPORTS
+# =============================================================================
+
+
+class ProductMarginReportView(APIView):
+    """Product margin report — revenue, cost, margin by product"""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    @extend_schema(tags=["Product Reports"], operation_id="product_margin_report")
+    def get(self, request):
+        org = request.profile.org
+        products = Product.objects.filter(org=org, is_active=True)
+
+        results = []
+        for product in products:
+            line_items = InvoiceLineItem.objects.filter(
+                product=product,
+                invoice__status__in=["Paid", "Partially_Paid", "Sent", "Viewed"],
+            )
+            total_revenue = line_items.aggregate(
+                total=Sum("total")
+            )["total"] or Decimal("0")
+            total_qty = line_items.aggregate(
+                total=Sum("quantity")
+            )["total"] or Decimal("0")
+            total_cost = total_qty * product.cost_price
+
+            # Gateway fees
+            gateway_fees = (
+                total_revenue * (product.gateway_fee_percent / Decimal("100"))
+                + product.gateway_fee_fixed * total_qty
+            )
+            net_revenue = total_revenue - gateway_fees
+            margin = net_revenue - total_cost
+            margin_pct = (
+                (margin / net_revenue * 100).quantize(Decimal("0.01"))
+                if net_revenue > 0
+                else Decimal("0")
+            )
+
+            results.append({
+                "id": str(product.id),
+                "name": product.name,
+                "product_type": product.product_type,
+                "sku": product.sku or "",
+                "quantity_sold": str(total_qty),
+                "revenue": str(total_revenue),
+                "gateway_fees": str(gateway_fees.quantize(Decimal("0.01"))),
+                "net_revenue": str(net_revenue.quantize(Decimal("0.01"))),
+                "cost": str(total_cost.quantize(Decimal("0.01"))),
+                "margin": str(margin.quantize(Decimal("0.01"))),
+                "margin_percent": str(margin_pct),
+            })
+
+        # Sort by revenue descending
+        results.sort(key=lambda x: Decimal(x["revenue"]), reverse=True)
+        return Response({"results": results})
+
+
+class InventorySummaryView(APIView):
+    """Inventory summary — current stock, value, alerts"""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    @extend_schema(tags=["Product Reports"], operation_id="inventory_summary")
+    def get(self, request):
+        org = request.profile.org
+        products = Product.objects.filter(
+            org=org, is_active=True, track_inventory=True,
+        )
+
+        results = []
+        total_value = Decimal("0")
+        low_stock_count = 0
+
+        for product in products:
+            stock_value = product.stock_quantity * product.cost_price
+            total_value += stock_value
+            is_low = product.is_low_stock
+            if is_low:
+                low_stock_count += 1
+
+            results.append({
+                "id": str(product.id),
+                "name": product.name,
+                "sku": product.sku or "",
+                "stock_quantity": str(product.stock_quantity),
+                "unit_of_measure": product.unit_of_measure,
+                "cost_price": str(product.cost_price),
+                "stock_value": str(stock_value.quantize(Decimal("0.01"))),
+                "stock_min_alert": str(product.stock_min_alert),
+                "is_low_stock": is_low,
+            })
+
+        return Response({
+            "results": results,
+            "summary": {
+                "total_products": len(results),
+                "total_stock_value": str(total_value.quantize(Decimal("0.01"))),
+                "low_stock_count": low_stock_count,
+            },
+        })
+
+
+class TopProductsView(APIView):
+    """Top products by revenue, quantity, or margin"""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    @extend_schema(tags=["Product Reports"], operation_id="top_products")
+    def get(self, request):
+        org = request.profile.org
+        limit = min(int(request.query_params.get("limit", "10")), 50)
+        sort_by = request.query_params.get("sort_by", "revenue")
+
+        products = Product.objects.filter(org=org, is_active=True)
+        results = []
+
+        for product in products:
+            line_items = InvoiceLineItem.objects.filter(
+                product=product,
+                invoice__status__in=["Paid", "Partially_Paid"],
+            )
+            agg = line_items.aggregate(
+                total_revenue=Sum("total"),
+                total_qty=Sum("quantity"),
+            )
+            revenue = agg["total_revenue"] or Decimal("0")
+            qty = agg["total_qty"] or Decimal("0")
+            cost = qty * product.cost_price
+            margin = revenue - cost
+
+            results.append({
+                "id": str(product.id),
+                "name": product.name,
+                "product_type": product.product_type,
+                "revenue": revenue,
+                "quantity_sold": qty,
+                "margin": margin,
+            })
+
+        sort_key = {"revenue": "revenue", "quantity": "quantity_sold", "margin": "margin"}
+        key = sort_key.get(sort_by, "revenue")
+        results.sort(key=lambda x: x[key], reverse=True)
+        results = results[:limit]
+
+        for r in results:
+            r["revenue"] = str(r["revenue"].quantize(Decimal("0.01")))
+            r["quantity_sold"] = str(r["quantity_sold"])
+            r["margin"] = str(r["margin"].quantize(Decimal("0.01")))
+
+        return Response({"results": results})

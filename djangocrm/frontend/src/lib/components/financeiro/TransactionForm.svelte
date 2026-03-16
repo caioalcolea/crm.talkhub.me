@@ -1,6 +1,8 @@
 <script>
   import { Button } from '$lib/components/ui/button/index.js';
   import { SearchableSelect } from '$lib/components/ui/searchable-select/index.js';
+  import { Bell, ChevronDown, ChevronRight, Zap } from '@lucide/svelte';
+  import AICopilot from '$lib/components/autopilot/AICopilot.svelte';
 
   let {
     formData = $bindable({}),
@@ -9,7 +11,8 @@
     canEditFinancials = true,
     onsubmit,
     oncancel,
-    loading = false
+    loading = false,
+    reminderConfig = $bindable(null),
   } = $props();
 
   const tipoOptions = [
@@ -76,6 +79,121 @@
       if (formData.exchange_rate_type === 'VARIAVEL') {
         formData.exchange_rate_type = 'FIXO';
       }
+    }
+  });
+
+  // ── Inline Reminder Config ──────────────────────────────
+  let enableReminder = $state(false);
+  let reminderExpanded = $state(false);
+
+  let reminderForm = $state({
+    name: '',
+    trigger_type: 'due_date',
+    trigger_config: { date_field: 'data_vencimento', offsets: [-7, -3, 0, 1, 3] },
+    channel_config: { channel_type: 'internal', destination_type: 'owner_email' },
+    task_config: { enabled: true, mode: 'per_run', title_template: '', priority: 'High' },
+    message_template: '',
+    approval_policy: 'auto',
+  });
+
+  const QUICK_PRESETS = [
+    {
+      label: 'Padrão (7/3/0/+1/+3 dias)',
+      config: {
+        name: 'Lembrete padrão',
+        trigger_type: 'due_date',
+        trigger_config: { date_field: 'data_vencimento', offsets: [-7, -3, 0, 1, 3] },
+        channel_config: { channel_type: 'internal', destination_type: 'owner_email' },
+        task_config: { enabled: true, mode: 'per_run', title_template: 'Cobrança: {{contact_name}} - {{amount}} {{currency}}', priority: 'High' },
+        message_template: 'Lembrete: {{contact_name}} — {{amount}} {{currency}} vence em {{due_date}}.',
+        approval_policy: 'auto',
+      }
+    },
+    {
+      label: 'Recorrente (3 em 3 dias)',
+      config: {
+        name: 'Cobrança recorrente',
+        trigger_type: 'recurring',
+        trigger_config: { interval_days: 3, max_runs: 10, start_after: 'data_vencimento' },
+        channel_config: { channel_type: 'internal', destination_type: 'owner_email' },
+        task_config: { enabled: true, mode: 'per_run', title_template: 'Cobrança pendente: {{contact_name}}', priority: 'High' },
+        message_template: 'Cobrança pendente: {{contact_name}} — {{amount}} {{currency}} em atraso {{days_overdue}} dias.',
+        approval_policy: 'auto',
+      }
+    },
+    {
+      label: 'Email ao contato',
+      config: {
+        name: 'Lembrete por email',
+        trigger_type: 'due_date',
+        trigger_config: { date_field: 'data_vencimento', offsets: [-5, 0, 2] },
+        channel_config: { channel_type: 'smtp_native', destination_type: 'contact_email' },
+        task_config: { enabled: false },
+        message_template: 'Olá {{contact_name}}, este é um lembrete sobre o valor de {{amount}} {{currency}} com vencimento em {{due_date}}.',
+        approval_policy: 'manual',
+      }
+    },
+  ];
+
+  const OFFSET_PRESETS = [
+    { label: '7d antes', value: -7 },
+    { label: '5d antes', value: -5 },
+    { label: '3d antes', value: -3 },
+    { label: '1d antes', value: -1 },
+    { label: 'No dia', value: 0 },
+    { label: '1d após', value: 1 },
+    { label: '3d após', value: 3 },
+    { label: '7d após', value: 7 },
+  ];
+
+  const CHANNEL_OPTIONS = [
+    { value: 'internal', label: 'Notificação interna' },
+    { value: 'smtp_native', label: 'Email (SMTP)' },
+  ];
+
+  const TRIGGER_OPTIONS = [
+    { value: 'due_date', label: 'Por data de vencimento' },
+    { value: 'recurring', label: 'Recorrente após vencimento' },
+  ];
+
+  function applyQuickPreset(preset) {
+    reminderForm = { ...preset.config };
+    reminderExpanded = true;
+  }
+
+  function toggleOffset(val) {
+    const offsets = reminderForm.trigger_config.offsets || [];
+    const idx = offsets.indexOf(val);
+    if (idx >= 0) {
+      reminderForm.trigger_config = {
+        ...reminderForm.trigger_config,
+        offsets: offsets.filter((_, i) => i !== idx),
+      };
+    } else {
+      reminderForm.trigger_config = {
+        ...reminderForm.trigger_config,
+        offsets: [...offsets, val].sort((a, b) => a - b),
+      };
+    }
+  }
+
+  function handleAIReminder(result) {
+    if (result.name) reminderForm.name = result.name;
+    if (result.trigger_type) reminderForm.trigger_type = result.trigger_type;
+    if (result.trigger_config) reminderForm.trigger_config = result.trigger_config;
+    if (result.channel_config) reminderForm.channel_config = result.channel_config;
+    if (result.task_config) reminderForm.task_config = result.task_config;
+    if (result.message_template) reminderForm.message_template = result.message_template;
+    if (result.approval_policy) reminderForm.approval_policy = result.approval_policy;
+    reminderExpanded = true;
+  }
+
+  // Sync reminderConfig bindable with parent
+  $effect(() => {
+    if (enableReminder) {
+      reminderConfig = { ...reminderForm };
+    } else {
+      reminderConfig = null;
     }
   });
 
@@ -302,6 +420,185 @@
             <p class="text-muted-foreground mt-0.5 text-[10px]">Deixe vazio para recorrencia sem fim</p>
           </div>
         </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Inline Reminder Config (create mode only) -->
+  {#if mode === 'create'}
+    <div class="rounded-md border p-3 space-y-3">
+      <label class="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          bind:checked={enableReminder}
+          class="h-4 w-4 rounded border-gray-300"
+        />
+        <Bell class="size-4 text-muted-foreground" />
+        <span class="font-medium">Configurar lembrete automático</span>
+      </label>
+
+      {#if enableReminder}
+        <!-- Quick presets -->
+        <div>
+          <span class="mb-2 block text-xs font-medium text-muted-foreground">Presets Rápidos</span>
+          <div class="flex flex-wrap gap-2">
+            {#each QUICK_PRESETS as preset}
+              <button
+                type="button"
+                class="inline-flex items-center rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+                onclick={() => applyQuickPreset(preset)}
+              >
+                <Zap class="mr-1 size-3" /> {preset.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <!-- AI Copilot -->
+        <AICopilot
+          type="reminder"
+          context={{ module_key: 'financeiro', tipo: formData.tipo || 'RECEBER' }}
+          onGenerated={handleAIReminder}
+        />
+
+        <!-- Expandable detail config -->
+        <button
+          type="button"
+          class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          onclick={() => (reminderExpanded = !reminderExpanded)}
+        >
+          {#if reminderExpanded}
+            <ChevronDown class="size-3" />
+          {:else}
+            <ChevronRight class="size-3" />
+          {/if}
+          Configuração detalhada
+        </button>
+
+        {#if reminderExpanded}
+          <div class="space-y-3 rounded-md border bg-muted/30 p-3">
+            <div>
+              <label for="rem-name" class="mb-1 block text-xs font-medium">Nome</label>
+              <input
+                id="rem-name"
+                type="text"
+                bind:value={reminderForm.name}
+                placeholder="Ex: Lembrete de cobrança"
+                class="border-input bg-background h-8 w-full rounded-md border px-3 text-sm"
+              />
+            </div>
+
+            <div>
+              <label for="rem-trigger" class="mb-1 block text-xs font-medium">Tipo de Gatilho</label>
+              <select
+                id="rem-trigger"
+                bind:value={reminderForm.trigger_type}
+                class="border-input bg-background h-8 w-full rounded-md border px-3 text-sm"
+                onchange={() => {
+                  if (reminderForm.trigger_type === 'due_date') {
+                    reminderForm.trigger_config = { date_field: 'data_vencimento', offsets: [-3, 0, 3] };
+                  } else {
+                    reminderForm.trigger_config = { interval_days: 3, max_runs: 10, start_after: 'data_vencimento' };
+                  }
+                }}
+              >
+                {#each TRIGGER_OPTIONS as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+
+            {#if reminderForm.trigger_type === 'due_date'}
+              <div>
+                <span class="mb-2 block text-xs font-medium">Dias relativos ao vencimento</span>
+                <div class="flex flex-wrap gap-1.5">
+                  {#each OFFSET_PRESETS as op}
+                    <button
+                      type="button"
+                      class="rounded-full border px-2.5 py-1 text-xs transition-colors {(reminderForm.trigger_config.offsets || []).includes(op.value) ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-background hover:bg-muted'}"
+                      onclick={() => toggleOffset(op.value)}
+                    >
+                      {op.label}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            {:else}
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label for="rem-interval" class="mb-1 block text-xs font-medium">Intervalo (dias)</label>
+                  <input
+                    id="rem-interval"
+                    type="number"
+                    min="1"
+                    max="90"
+                    bind:value={reminderForm.trigger_config.interval_days}
+                    class="border-input bg-background h-8 w-full rounded-md border px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label for="rem-max" class="mb-1 block text-xs font-medium">Máximo de execuções</label>
+                  <input
+                    id="rem-max"
+                    type="number"
+                    min="1"
+                    max="100"
+                    bind:value={reminderForm.trigger_config.max_runs}
+                    class="border-input bg-background h-8 w-full rounded-md border px-3 text-sm"
+                  />
+                </div>
+              </div>
+            {/if}
+
+            <div>
+              <label for="rem-channel" class="mb-1 block text-xs font-medium">Canal de Notificação</label>
+              <select
+                id="rem-channel"
+                bind:value={reminderForm.channel_config.channel_type}
+                class="border-input bg-background h-8 w-full rounded-md border px-3 text-sm"
+              >
+                {#each CHANNEL_OPTIONS as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <input
+                id="rem-task"
+                type="checkbox"
+                bind:checked={reminderForm.task_config.enabled}
+                class="size-4 rounded border-input"
+              />
+              <label for="rem-task" class="text-xs font-medium">Criar tarefa automaticamente</label>
+            </div>
+
+            <div>
+              <label for="rem-msg" class="mb-1 block text-xs font-medium">
+                Mensagem <span class="font-normal text-muted-foreground">(variáveis: &#123;&#123;contact_name&#125;&#125;, &#123;&#123;amount&#125;&#125;, &#123;&#123;due_date&#125;&#125;)</span>
+              </label>
+              <textarea
+                id="rem-msg"
+                bind:value={reminderForm.message_template}
+                rows="2"
+                placeholder="Lembrete: {{contact_name}} — {{amount}} {{currency}} vence em {{due_date}}"
+                class="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+
+            <div>
+              <label for="rem-approval" class="mb-1 block text-xs font-medium">Aprovação</label>
+              <select
+                id="rem-approval"
+                bind:value={reminderForm.approval_policy}
+                class="border-input bg-background h-8 w-full rounded-md border px-3 text-sm"
+              >
+                <option value="auto">Automático</option>
+                <option value="manual">Requer aprovação manual</option>
+              </select>
+            </div>
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}

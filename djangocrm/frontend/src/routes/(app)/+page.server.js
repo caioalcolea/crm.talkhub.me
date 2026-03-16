@@ -23,8 +23,11 @@ export async function load({ locals, cookies }) {
   }
 
   try {
-    // Fetch dashboard data from Django API
-    const dashboardResponse = await apiRequest('/dashboard/', {}, { cookies, org });
+    // Fetch dashboard data and financial summary in parallel
+    const [dashboardResponse, financeiroResponse] = await Promise.all([
+      apiRequest('/dashboard/', {}, { cookies, org }),
+      apiRequest('/financeiro/reports/dashboard/', {}, { cookies, org }).catch(() => null),
+    ]);
 
     // Django returns:
     // {
@@ -159,7 +162,17 @@ export async function load({ locals, cookies }) {
         conversion_rate: 0
       },
       hotLeads: hotLeads,
-      goalSummary: dashboardResponse.goal_summary || []
+      goalSummary: dashboardResponse.goal_summary || [],
+      financeiroKPIs: financeiroResponse ? {
+        a_receber: financeiroResponse.a_receber || 0,
+        a_pagar: financeiroResponse.a_pagar || 0,
+        recebido_mes: financeiroResponse.recebido_mes || 0,
+        pago_mes: financeiroResponse.pago_mes || 0,
+        vencido: financeiroResponse.vencido || 0,
+        saldo_mes: financeiroResponse.saldo_mes || 0,
+        saldo_projetado_mes: financeiroResponse.saldo_projetado_mes || 0,
+        saldo_projetado_ano: financeiroResponse.saldo_projetado_ano || 0,
+      } : null,
     };
   } catch (error) {
     console.error('Dashboard load error:', error);
