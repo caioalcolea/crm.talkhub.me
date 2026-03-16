@@ -214,6 +214,9 @@ bash docker/debug-traefik.sh
 28. **Org settings field mapping**: Frontend sends `website` (NOT `domain`) to match the Org model. The `description` field does not exist on the model — don't add it. All company profile fields (company_name, address_line, city, state, postcode, country, phone, email, website, tax_id) are editable via `PATCH /api/org/settings/`. Logo upload supports PNG/JPG/SVG (max 2MB); removal sends `logo: null`.
 29. **Org logo in PDFs**: Invoice and estimate templates already render `{% if org.logo %}<img src="{{ org.logo.url }}">{% endif %}`. WeasyPrint passes full org context. Company address fields (address_line, city, state, phone, email, tax_id) also appear in PDF templates. No backend changes needed for logo to work in print.
 30. **Formas de pagamento editáveis**: `FormaPagamentoViewSet` is a full `ModelViewSet` — supports PATCH/PUT out of the box. Frontend has edit dialog with `?/edit` action.
+31. **Financeiro Saldo Projetado**: `saldo_projetado_mes` and `saldo_projetado_ano` include ALL non-cancelled parcelas (PAGO + ABERTO), not just ABERTO. Formula: total RECEBER - total PAGAR. The old `saldo_projetado` key is kept as alias for `saldo_projetado_ano` for backward compat.
+32. **Financeiro Daily Cash Flow**: `FluxoDiarioReportView` at `/api/financeiro/reports/fluxo-diario/?ano=YYYY&mes=M`. Returns day-by-day receita/despesa with `saldo_acumulado` running balance. Uses `data_pagamento` for PAGO parcelas, `data_vencimento` for ABERTO. Detects negative accumulated balance days in `resumo.dias_negativos`.
+33. **Docker healthcheck start-period**: Dockerfile.backend uses `start-period=300s` (5 minutes) because the entrypoint runs DB setup + migrations + RLS check (79 tables) + collectstatic + admin creation before Gunicorn starts. The 60s default caused Docker Swarm to kill the container before it was ready.
 
 ## Invitation System
 
@@ -350,11 +353,13 @@ startCoworkSession() → mode='full' → page renders [data-cowork-target]
 | Cowork postMessage bridge | `cowork-app/src/lib/postmessage.ts`, `frontend/.../cowork/+page.svelte` |
 | CoworkPiP (persistent iframe) | `frontend/src/lib/components/cowork/CoworkPiP.svelte`, `frontend/src/lib/stores/cowork.svelte.js` |
 | Financeiro models | `backend/financeiro/models.py` (Lancamento, Parcela, FormaPagamento, PaymentTransaction) |
-| Financeiro views | `backend/financeiro/api_views.py` (ViewSets, reports, PIX) |
+| Financeiro views | `backend/financeiro/api_views.py` (ViewSets, reports, PIX, FluxoDiarioReportView) |
 | Financeiro exchange rates | `backend/financeiro/exchange_rates.py` (get_exchange_rate, API integration) |
 | Financeiro tasks | `backend/financeiro/tasks.py` (overdue, recurring, variable rates, PIX reconciliation) |
 | Financeiro frontend | `frontend/src/routes/(app)/financeiro/` (lancamentos, formas-pagamento, relatorios, PIX) |
 | Financeiro form | `frontend/src/lib/components/financeiro/TransactionForm.svelte` |
+| Financeiro daily chart | `frontend/src/lib/components/financeiro/DailyCashFlowChart.svelte` (SVG wave chart, daily cash flow) |
+| Financeiro monthly chart | `frontend/src/lib/components/financeiro/CashFlowChart.svelte` (SVG bar chart, monthly cash flow) |
 | Org settings | `backend/common/serializers.py` (OrgSettingsSerializer), `frontend/src/routes/(app)/settings/organization/` (+page.svelte, +page.server.js) |
 | Org model | `backend/common/models.py` (Org: name, company_name, logo, address, phone, email, website, tax_id, currency, country) |
 | Invoice/Estimate PDF | `backend/invoices/pdf.py` (WeasyPrint), `backend/invoices/templates/invoices/pdf/` (invoice.html, estimate.html) |
@@ -406,6 +411,44 @@ Chatwoot → POST /api/integrations/webhooks/chatwoot/<webhook_token>/ (AllowAny
 - HTML email rendering with text/HTML toggle in conversation timeline
 - Reply threading via `In-Reply-To` / `References` headers
 - Contact lookup chain: primary email → secondary_email → extra_emails table
+
+## Financeiro — Reports & Dashboard
+
+### Dashboard KPIs (`DashboardReportView`)
+| Metric | Formula | Scope |
+|--------|---------|-------|
+| A Receber | Σ RECEBER, ABERTO | competencia_ano = selected year |
+| A Pagar | Σ PAGAR, ABERTO | competencia_ano = selected year |
+| Recebido no Mês | Σ RECEBER, PAGO | data_pagamento = current month |
+| Pago no Mês | Σ PAGAR, PAGO | data_pagamento = current month |
+| Vencido | Σ ABERTO, data_vencimento < today | All time |
+| Saldo do Mês | Recebido - Pago (current month) | data_pagamento |
+| Projetado (Mês) | ALL RECEBER - ALL PAGAR (PAGO+ABERTO, excludes CANCELADO) | competencia_mes = current month |
+| Projetado (Ano) | ALL RECEBER - ALL PAGAR (PAGO+ABERTO, excludes CANCELADO) | competencia_ano = selected year |
+
+### Report Endpoints
+| Endpoint | View | Description |
+|----------|------|-------------|
+| `GET /financeiro/reports/dashboard/?ano=` | `DashboardReportView` | KPIs + monthly flow + last 10 transactions |
+| `GET /financeiro/reports/fluxo-diario/?ano=&mes=` | `FluxoDiarioReportView` | Day-by-day cash flow with accumulated balance |
+| `GET /financeiro/reports/fluxo-plano-contas/?ano=` | `FluxoPlanoContasReportView` | Pivot table: Plano de Contas x 12 months |
+| `GET /financeiro/reports/relatorio-mensal/?ano=` | `RelatorioMensalReportView` | Monthly breakdown + saldo_projetado + saldo_acumulado |
+| `GET /financeiro/reports/by-entity/<uuid>/` | `EntityFinancialReportView` | Financial summary for Account/Contact/Opportunity |
+
+### Daily Cash Flow Chart (`DailyCashFlowChart.svelte`)
+- Custom SVG wave chart (no external charting library)
+- X-axis: days 1-N of the month, Y-axis: scaled to max value
+- Three data series: receita (emerald area), despesa (rose area), saldo_acumulado (blue line)
+- Red zone shading when accumulated balance goes negative
+- "Hoje" (today) vertical marker line
+- Interactive tooltips showing day details on hover
+- Negative day alert banner shown below chart when `resumo.dias_negativos > 0`
+
+### Monthly Cash Flow Chart (`CashFlowChart.svelte`)
+- Custom SVG stacked bar chart (no external library)
+- 12 months, each with paired bars (receivable/payable)
+- Solid color = realized (PAGO), faded = projected (ABERTO)
+- Current month highlighted with bold label
 
 ## Contact Management
 
