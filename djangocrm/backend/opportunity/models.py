@@ -265,6 +265,12 @@ class Opportunity(AssignableMixin, OrgScopedMixin, BaseModel):
 
     def save(self, *args, **kwargs):
         """Auto-set probability and track stage changes."""
+        # Validate pipeline_stage belongs to correct org
+        if self.pipeline_stage_id and self.pipeline_stage.org_id != self.org_id:
+            raise ValidationError(
+                "Opportunity pipeline stage must belong to the same organization"
+            )
+
         from .workflow import STAGE_PROBABILITIES
 
         # Auto-set probability based on stage (only if probability is default/0)

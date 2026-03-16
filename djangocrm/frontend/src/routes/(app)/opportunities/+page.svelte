@@ -61,7 +61,7 @@
   import { ViewToggle } from '$lib/components/ui/view-toggle';
   import { OpportunityKanban } from '$lib/components/ui/opportunity-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
-  import { apiRequest as clientApiRequest, getCurrentUser as getUser } from '$lib/api.js';
+  import { apiRequest as clientApiRequest } from '$lib/api.js';
 
   const STORAGE_KEY = 'opportunities-crm-columns';
 
