@@ -10,7 +10,7 @@ export async function load({ params, locals, cookies }) {
     const [lancamento, formOptions, reminders] = await Promise.all([
       apiRequest(`/financeiro/lancamentos/${params.id}/`, {}, { cookies, org }),
       apiRequest('/financeiro/form-options/', {}, { cookies, org }),
-      apiRequest(`/financeiro/lancamentos/${params.id}/reminders/`, {}, { cookies, org }).catch(() => []),
+      apiRequest(`/assistant/reminders-for/financeiro.lancamento/${params.id}/`, {}, { cookies, org }).catch(() => []),
     ]);
 
     return { lancamento, formOptions, reminders };
