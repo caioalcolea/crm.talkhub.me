@@ -560,8 +560,27 @@ class DashboardReportView(APIView):
 
         saldo = recebido_no_mes - pago_no_mes
 
-        # Saldo projetado: total ABERTO RECEBER - total ABERTO PAGAR (ano)
-        saldo_projetado = float(total_receber - total_pagar)
+        # Saldo projetado Mês: ALL RECEBER (PAGO+ABERTO) - ALL PAGAR (PAGO+ABERTO) current month
+        parcelas_mes_atual = parcelas_org.filter(
+            competencia_ano=today.year, competencia_mes=today.month
+        ).exclude(status="CANCELADO")
+        receber_mes_total = parcelas_mes_atual.filter(
+            lancamento__tipo="RECEBER"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        pagar_mes_total = parcelas_mes_atual.filter(
+            lancamento__tipo="PAGAR"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        saldo_projetado_mes = float(receber_mes_total - pagar_mes_total)
+
+        # Saldo projetado Ano: ALL RECEBER (PAGO+ABERTO) - ALL PAGAR (PAGO+ABERTO) year
+        parcelas_ano_nc = parcelas_org.filter(competencia_ano=ano).exclude(status="CANCELADO")
+        receber_ano_total = parcelas_ano_nc.filter(
+            lancamento__tipo="RECEBER"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        pagar_ano_total = parcelas_ano_nc.filter(
+            lancamento__tipo="PAGAR"
+        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        saldo_projetado_ano = float(receber_ano_total - pagar_ano_total)
 
         # Monthly cash flow for the year (realized + projected)
         fluxo_mensal = []
@@ -636,7 +655,9 @@ class DashboardReportView(APIView):
                 "total_vencido": float(total_vencido),
                 "pct_vencidas": pct_vencidas,
                 "saldo": float(saldo),
-                "saldo_projetado": saldo_projetado,
+                "saldo_projetado": saldo_projetado_ano,
+                "saldo_projetado_mes": saldo_projetado_mes,
+                "saldo_projetado_ano": saldo_projetado_ano,
                 "proximo_vencimento": proximo_vencimento,
                 "fluxo_mensal": fluxo_mensal,
                 "ultimas_transacoes": ultimas_data,
@@ -713,6 +734,7 @@ class RelatorioMensalReportView(APIView):
         parcelas = Parcela.objects.filter(org=org, competencia_ano=ano).exclude(status="CANCELADO")
 
         meses = []
+        saldo_acumulado = Decimal("0")
         for m in range(1, 13):
             p_mes = parcelas.filter(competencia_mes=m)
 
@@ -737,6 +759,12 @@ class RelatorioMensalReportView(APIView):
                 )["total"]
             )
 
+            # Saldo projetado = all revenues - all expenses (PAGO + ABERTO)
+            receber_total_mes = receber_aberto + receber_pago
+            pagar_total_mes = pagar_aberto + pagar_pago
+            saldo_projetado = receber_total_mes - pagar_total_mes
+            saldo_acumulado += saldo_projetado
+
             meses.append(
                 {
                     "mes": m,
@@ -746,10 +774,120 @@ class RelatorioMensalReportView(APIView):
                     "pagar_pago": float(pagar_pago),
                     "saldo_pago": float(receber_pago - pagar_pago),
                     "saldo_aberto": float(receber_aberto - pagar_aberto),
+                    "saldo_projetado": float(saldo_projetado),
+                    "saldo_acumulado": float(saldo_acumulado),
                 }
             )
 
         return Response({"ano": ano, "meses": meses})
+
+
+class FluxoDiarioReportView(APIView):
+    """
+    Daily cash flow for a given month: day-by-day revenue vs expense
+    with running accumulated balance. Useful for detecting days where
+    the accumulated balance goes negative.
+    """
+
+    permission_classes = [IsAuthenticated, HasOrgContext, HasFinancialAccess]
+
+    def get(self, request):
+        org = request.profile.org
+        today = datetime.date.today()
+        ano = int(request.query_params.get("ano", today.year))
+        mes = int(request.query_params.get("mes", today.month))
+
+        # Calculate last day of month
+        if mes == 12:
+            ultimo_dia = datetime.date(ano, 12, 31)
+        else:
+            ultimo_dia = datetime.date(ano, mes + 1, 1) - datetime.timedelta(days=1)
+        num_dias = ultimo_dia.day
+
+        parcelas_org = Parcela.objects.filter(org=org).exclude(status="CANCELADO")
+
+        # PAGO parcelas: group by data_pagamento day
+        pagos = (
+            parcelas_org.filter(
+                status="PAGO",
+                data_pagamento__year=ano,
+                data_pagamento__month=mes,
+            )
+            .values("lancamento__tipo", "data_pagamento")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+
+        # ABERTO parcelas: group by data_vencimento day
+        abertos = (
+            parcelas_org.filter(
+                status="ABERTO",
+                data_vencimento__year=ano,
+                data_vencimento__month=mes,
+            )
+            .values("lancamento__tipo", "data_vencimento")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+
+        # Build daily lookup
+        daily = {}
+        for d in range(1, num_dias + 1):
+            daily[d] = {"receita": Decimal("0"), "despesa": Decimal("0")}
+
+        for row in pagos:
+            dia = row["data_pagamento"].day
+            if row["lancamento__tipo"] == "RECEBER":
+                daily[dia]["receita"] += row["total"]
+            else:
+                daily[dia]["despesa"] += row["total"]
+
+        for row in abertos:
+            dia = row["data_vencimento"].day
+            if row["lancamento__tipo"] == "RECEBER":
+                daily[dia]["receita"] += row["total"]
+            else:
+                daily[dia]["despesa"] += row["total"]
+
+        # Build response with running balance
+        resultado = []
+        saldo_acumulado = Decimal("0")
+        total_receita = Decimal("0")
+        total_despesa = Decimal("0")
+        for d in range(1, num_dias + 1):
+            rec = daily[d]["receita"]
+            desp = daily[d]["despesa"]
+            saldo_dia = rec - desp
+            saldo_acumulado += saldo_dia
+            total_receita += rec
+            total_despesa += desp
+            resultado.append(
+                {
+                    "dia": d,
+                    "data": str(datetime.date(ano, mes, d)),
+                    "receita": float(rec),
+                    "despesa": float(desp),
+                    "saldo_dia": float(saldo_dia),
+                    "saldo_acumulado": float(saldo_acumulado),
+                }
+            )
+
+        dias_negativos = [r for r in resultado if r["saldo_acumulado"] < 0]
+
+        return Response(
+            {
+                "ano": ano,
+                "mes": mes,
+                "dias": resultado,
+                "resumo": {
+                    "total_receita": float(total_receita),
+                    "total_despesa": float(total_despesa),
+                    "saldo_final": float(saldo_acumulado),
+                    "dias_negativos": len(dias_negativos),
+                    "primeiro_dia_negativo": (
+                        dias_negativos[0]["dia"] if dias_negativos else None
+                    ),
+                },
+            }
+        )
 
 
 class EntityFinancialReportView(APIView):

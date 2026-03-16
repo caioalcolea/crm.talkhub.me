@@ -1,7 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { KPICard } from '$lib/components/dashboard';
-  import { CashFlowChart, StatusBadge } from '$lib/components/financeiro';
+  import { CashFlowChart, DailyCashFlowChart, StatusBadge } from '$lib/components/financeiro';
   import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { orgSettings } from '$lib/stores/org.js';
@@ -13,13 +13,17 @@
     TrendingUp,
     TrendingDown,
     CalendarClock,
-    Repeat
+    Repeat,
+    Calendar
   } from '@lucide/svelte';
 
   let { data } = $props();
 
   const d = $derived(data.dashboard);
+  const fd = $derived(data.fluxoDiario);
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth();
+  const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   let cur = $derived($orgSettings.default_currency || 'BRL');
 
   function changeYear(ano) {
@@ -109,9 +113,19 @@
     </KPICard>
 
     <KPICard
-      label="Saldo Projetado ({data.ano})"
-      value={formatCurrency(d.saldo_projetado || 0, cur)}
-      accentColor={(d.saldo_projetado || 0) >= 0 ? 'emerald' : 'rose'}
+      label="Projetado (Mês)"
+      value={formatCurrency(d.saldo_projetado_mes || 0, cur)}
+      accentColor={(d.saldo_projetado_mes || 0) >= 0 ? 'emerald' : 'rose'}
+    >
+      {#snippet icon({ class: cls })}
+        <Calendar class={cls} />
+      {/snippet}
+    </KPICard>
+
+    <KPICard
+      label="Projetado ({data.ano})"
+      value={formatCurrency(d.saldo_projetado_ano || 0, cur)}
+      accentColor={(d.saldo_projetado_ano || 0) >= 0 ? 'emerald' : 'rose'}
     >
       {#snippet icon({ class: cls })}
         <TrendingUp class={cls} />
@@ -131,6 +145,18 @@
           {/snippet}
         </KPICard>
       </button>
+    {/if}
+  </div>
+
+  <!-- Daily Cash Flow Chart -->
+  <div class="rounded-lg border p-4">
+    <h2 class="mb-4 text-lg font-semibold">Fluxo de Caixa Diário — {monthNames[currentMonth]} {currentYear}</h2>
+    <DailyCashFlowChart data={fd?.dias || []} {cur} />
+    {#if fd?.resumo?.dias_negativos > 0}
+      <div class="mt-3 flex items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+        <AlertTriangle class="size-4 shrink-0" />
+        <span>{fd.resumo.dias_negativos} dia(s) com saldo acumulado negativo no mês{fd.resumo.primeiro_dia_negativo ? ` (a partir do dia ${fd.resumo.primeiro_dia_negativo})` : ''}</span>
+      </div>
     {/if}
   </div>
 

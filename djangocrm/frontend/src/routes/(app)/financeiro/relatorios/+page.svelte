@@ -91,7 +91,8 @@
               <th class="hidden px-3 py-2 text-right font-medium sm:table-cell">Recebido</th>
               <th class="hidden px-3 py-2 text-right font-medium sm:table-cell">Pago</th>
               <th class="px-3 py-2 text-right font-medium">Saldo Real</th>
-              <th class="hidden px-3 py-2 text-right font-medium md:table-cell">Saldo Previsto</th>
+              <th class="px-3 py-2 text-right font-medium">Saldo Projetado</th>
+              <th class="hidden px-3 py-2 text-right font-medium md:table-cell">Acumulado</th>
             </tr>
           </thead>
           <tbody>
@@ -113,13 +114,16 @@
                 <td class="px-3 py-2 text-right font-mono text-xs font-bold {m.saldo_pago >= 0 ? 'text-emerald-600' : 'text-rose-600'}">
                   {formatCurrency(m.saldo_pago, cur)}
                 </td>
-                <td class="hidden px-3 py-2 text-right font-mono text-xs md:table-cell {m.saldo_aberto >= 0 ? 'text-emerald-600' : 'text-rose-600'}">
-                  {formatCurrency(m.saldo_aberto, cur)}
+                <td class="px-3 py-2 text-right font-mono text-xs font-bold {(m.saldo_projetado ?? m.saldo_aberto) >= 0 ? 'text-emerald-600' : 'text-rose-600'}">
+                  {formatCurrency(m.saldo_projetado ?? m.saldo_aberto, cur)}
+                </td>
+                <td class="hidden px-3 py-2 text-right font-mono text-xs md:table-cell {(m.saldo_acumulado ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}">
+                  {formatCurrency(m.saldo_acumulado ?? 0, cur)}
                 </td>
               </tr>
             {:else}
               <tr>
-                <td colspan="7" class="text-muted-foreground px-3 py-8 text-center">
+                <td colspan="8" class="text-muted-foreground px-3 py-8 text-center">
                   Nenhum dado encontrado.
                 </td>
               </tr>
