@@ -11,21 +11,16 @@
     social: { channel_type: 'whatsapp', social_event: '', actions: [{ action_type: '', action_params: {} }] },
   };
 
-  let lastType = $state(automationType);
+  let initialized = $state(false);
 
   $effect(() => {
-    if (automationType && automationType !== lastType) {
-      lastType = automationType;
+    if (automationType && !initialized) {
+      initialized = true;
       if (!config || Object.keys(config).length === 0) {
         config = { ...(DEFAULTS[automationType] || {}) };
       }
     }
   });
-
-  // Initialize defaults if config is empty on first render
-  if (automationType && (!config || Object.keys(config).length === 0)) {
-    config = { ...(DEFAULTS[automationType] || {}) };
-  }
 </script>
 
 <input type="hidden" name="config_json" value={JSON.stringify(config)} />

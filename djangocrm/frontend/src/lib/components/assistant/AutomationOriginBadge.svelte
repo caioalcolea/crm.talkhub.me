@@ -27,11 +27,12 @@
   <div class="mb-3 flex flex-wrap gap-2">
     {#each links as link}
       {@const info = SOURCE_MAP[link.source_type] || SOURCE_MAP['automations.automation']}
+      {@const Icon = info.icon}
       <a
         href="/autopilot?tab={info.tab}"
         class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80 {info.color}"
       >
-        <svelte:component this={info.icon} class="size-3" />
+        <Icon class="size-3" />
         {info.label}{link.source_name ? `: ${link.source_name}` : ''}
       </a>
     {/each}

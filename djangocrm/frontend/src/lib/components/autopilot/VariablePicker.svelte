@@ -30,7 +30,7 @@
 
   let open = $state(false);
 
-  let groups = $derived(() => {
+  let groups = $derived.by(() => {
     if (moduleKey && TEMPLATE_VARIABLES[moduleKey]) {
       return { [moduleKey]: TEMPLATE_VARIABLES[moduleKey] };
     }
@@ -54,7 +54,7 @@
   </Popover.Trigger>
   <Popover.Content class="w-72 max-h-64 overflow-y-auto" align="start">
     <div class="space-y-3">
-      {#each Object.entries(groups()) as [group, vars]}
+      {#each Object.entries(groups) as [group, vars]}
         <div>
           <p class="text-muted-foreground mb-1.5 text-xs font-medium">{MODULE_LABELS[group] || group}</p>
           <div class="flex flex-wrap gap-1">

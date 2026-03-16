@@ -84,11 +84,13 @@
           {#each jobs as job (job.id)}
             {@const statusInfo = STATUS_MAP[job.status] || STATUS_MAP.pending}
             {@const typeInfo = TYPE_MAP[job.job_type] || TYPE_MAP.automation}
+            {@const StatusIcon = statusInfo.icon}
+            {@const TypeIcon = typeInfo.icon}
             <div class="flex items-start gap-3 rounded-md border p-2.5">
-              <svelte:component this={statusInfo.icon} class="mt-0.5 size-4 shrink-0 {statusInfo.class}" />
+              <StatusIcon class="mt-0.5 size-4 shrink-0 {statusInfo.class}" />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <svelte:component this={typeInfo.icon} class="text-muted-foreground size-3" />
+                  <TypeIcon class="text-muted-foreground size-3" />
                   <span class="text-xs font-medium">{typeInfo.label}</span>
                   {#if job.label}
                     <span class="text-muted-foreground truncate text-xs">— {job.label}</span>

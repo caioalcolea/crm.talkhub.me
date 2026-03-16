@@ -63,7 +63,6 @@
     config = { ...config, action_type: type, action_params: {} };
   }
 
-  $effect(() => { updateSchedule(); });
 </script>
 
 <div class="space-y-4">

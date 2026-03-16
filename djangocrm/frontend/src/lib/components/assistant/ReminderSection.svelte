@@ -271,10 +271,11 @@
       {#if policies.length > 0}
         <div class="space-y-2">
           {#each policies as policy (policy.id)}
+            {@const ChannelIcon = channelIcon(policy.channel_config?.channel_type)}
             <div class="flex items-start justify-between rounded-md border p-3 {policy.is_active ? 'bg-background' : 'bg-muted/50 opacity-60'}">
               <div class="min-w-0 flex-1 space-y-1">
                 <div class="flex items-center gap-2">
-                  <svelte:component this={channelIcon(policy.channel_config?.channel_type)} class="size-3.5 text-muted-foreground" />
+                  <ChannelIcon class="size-3.5 text-muted-foreground" />
                   <span class="text-sm font-medium">{policy.name}</span>
                   {#if !policy.is_active}
                     <span class="text-xs text-muted-foreground">(pausado)</span>
