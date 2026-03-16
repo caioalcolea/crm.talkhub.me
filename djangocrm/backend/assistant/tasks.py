@@ -568,7 +568,7 @@ def _create_task_for_job(job, task_config, context, module_key):
         description=description,
         priority=priority,
         status="New",
-        created_by=job.assigned_user,
+        created_by=job.assigned_user.user if job.assigned_user else None,
     )
 
     # Assign user if configured

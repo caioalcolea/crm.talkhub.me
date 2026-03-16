@@ -9,7 +9,8 @@ from rest_framework.generics import (
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from common.permissions import HasOrgContext, IsAuthenticated
+from common.permissions import HasOrgContext
+from rest_framework.permissions import IsAuthenticated
 
 from assistant.models import (
     AutopilotTemplate,
