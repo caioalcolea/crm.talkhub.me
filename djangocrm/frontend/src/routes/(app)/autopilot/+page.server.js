@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { apiRequest } from '$lib/api-helpers.js';
 
 /** @type {import('./$types').PageServerLoad} */
@@ -7,9 +7,9 @@ export async function load({ locals, cookies, url }) {
   if (!org) throw error(401, 'Contexto de organização é obrigatório');
 
   const tab = url.searchParams.get('tab') || 'rules';
+  const showCreate = url.searchParams.get('create') === '1';
 
   try {
-    // Load data based on active tab (parallel where possible)
     const promises = {};
 
     if (tab === 'rules') {
@@ -30,6 +30,14 @@ export async function load({ locals, cookies, url }) {
     }
 
     if (tab === 'campaigns') {
+      const campaignId = url.searchParams.get('campaign_id') || '';
+
+      if (campaignId) {
+        // Load campaign detail for drill-down view
+        promises.campaignDetail = apiRequest(`/campaigns/${campaignId}/`, {}, cookies).catch(() => null);
+      }
+
+      // Always load campaign list
       const type = url.searchParams.get('type') || '';
       const status = url.searchParams.get('status') || '';
       const params = new URLSearchParams();
@@ -60,6 +68,7 @@ export async function load({ locals, cookies, url }) {
 
     return {
       tab,
+      showCreate,
       filters: {
         type: url.searchParams.get('type') || '',
         status: url.searchParams.get('status') || '',
@@ -72,7 +81,7 @@ export async function load({ locals, cookies, url }) {
     };
   } catch (err) {
     console.error('Autopilot load error:', err);
-    return { tab, filters: {}, automations: [], reminders: [], campaigns: [], runs: { results: [], count: 0 }, templates: [] };
+    return { tab, showCreate: false, filters: {}, automations: [], reminders: [], campaigns: [], runs: { results: [], count: 0 }, templates: [] };
   }
 }
 
@@ -86,7 +95,6 @@ export const actions = {
       await apiRequest(`/automations/${id}/`, { method: 'PATCH', body: { is_active: !isActive } }, cookies);
       return { success: true, toast: isActive ? 'Automação desativada.' : 'Automação ativada.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao alterar status.' });
     }
   },
@@ -98,8 +106,82 @@ export const actions = {
       await apiRequest(`/automations/${id}/`, { method: 'DELETE' }, cookies);
       return { success: true, toast: 'Automação excluída.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao excluir.' });
+    }
+  },
+
+  createAutomation: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const name = formData.get('name')?.toString().trim();
+    const automationType = formData.get('automation_type')?.toString();
+    const configJsonRaw = formData.get('config_json')?.toString();
+
+    if (!name) return fail(400, { error: 'Nome é obrigatório.' });
+    if (!automationType) return fail(400, { error: 'Tipo de automação é obrigatório.' });
+
+    let configJson = {};
+    if (configJsonRaw) {
+      try {
+        configJson = JSON.parse(configJsonRaw);
+      } catch {
+        return fail(400, { error: 'Configuração JSON inválida.' });
+      }
+    }
+
+    try {
+      await apiRequest('/automations/', {
+        method: 'POST',
+        body: { name, automation_type: automationType, config_json: configJson, is_active: false }
+      }, cookies);
+      return { success: true, toast: 'Automação criada com sucesso.' };
+    } catch (err) {
+      const message = err?.body?.config_json || err?.body?.detail || 'Erro ao criar automação.';
+      return fail(400, { error: typeof message === 'string' ? message : JSON.stringify(message) });
+    }
+  },
+
+  createCampaign: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const name = formData.get('name')?.toString().trim();
+    const campaignType = formData.get('campaign_type')?.toString();
+    const subject = formData.get('subject')?.toString().trim() || null;
+    const bodyTemplate = formData.get('body_template')?.toString() || '';
+    const stepsRaw = formData.get('steps')?.toString();
+
+    if (!name) return fail(400, { error: 'Nome é obrigatório.' });
+    if (!campaignType) return fail(400, { error: 'Tipo de campanha é obrigatório.' });
+
+    try {
+      const campaign = await apiRequest('/campaigns/', {
+        method: 'POST',
+        body: { name, campaign_type: campaignType, subject, body_template: bodyTemplate, status: 'draft' }
+      }, cookies);
+
+      // Create steps for nurture_sequence
+      if (campaignType === 'nurture_sequence' && stepsRaw) {
+        try {
+          const steps = JSON.parse(stepsRaw);
+          for (const step of steps) {
+            await apiRequest(`/campaigns/${campaign.id}/steps/`, {
+              method: 'POST',
+              body: {
+                step_order: step.step_order,
+                channel: step.channel,
+                subject: step.subject || null,
+                body_template: step.body_template || '',
+                delay_hours: step.delay_hours || 0
+              }
+            }, cookies);
+          }
+        } catch (stepErr) {
+          console.error('Error creating steps:', stepErr);
+        }
+      }
+
+      return { success: true, toast: 'Campanha criada com sucesso.' };
+    } catch (err) {
+      const message = err?.body?.detail || err?.message || 'Erro ao criar campanha.';
+      return fail(400, { error: typeof message === 'string' ? message : JSON.stringify(message) });
     }
   },
 
@@ -110,7 +192,6 @@ export const actions = {
       await apiRequest(`/campaigns/${id}/`, { method: 'DELETE' }, cookies);
       return { success: true, toast: 'Campanha excluída.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao excluir.' });
     }
   },
@@ -123,8 +204,72 @@ export const actions = {
       await apiRequest(`/campaigns/${id}/pause-resume/`, { method: 'POST', body: { action } }, cookies);
       return { success: true, toast: action === 'pause' ? 'Campanha pausada.' : 'Campanha retomada.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao alterar status.' });
+    }
+  },
+
+  previewAudience: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const campaignId = formData.get('campaign_id')?.toString();
+    const filterCriteriaRaw = formData.get('filter_criteria')?.toString() || '{}';
+
+    let filterCriteria = {};
+    try {
+      filterCriteria = JSON.parse(filterCriteriaRaw);
+    } catch {
+      return fail(400, { error: 'Critérios de filtro inválidos.' });
+    }
+
+    try {
+      const result = await apiRequest(`/campaigns/${campaignId}/audience/preview/`, {
+        method: 'POST',
+        body: { filter_criteria: filterCriteria }
+      }, cookies);
+      return { previewCount: result.count, filterCriteria };
+    } catch (err) {
+      return fail(400, { error: 'Erro ao calcular preview da audiência.' });
+    }
+  },
+
+  generateAudience: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const campaignId = formData.get('campaign_id')?.toString();
+    const filterCriteriaRaw = formData.get('filter_criteria')?.toString() || '{}';
+    const audienceName = formData.get('audience_name')?.toString() || 'Audiência Principal';
+
+    let filterCriteria = {};
+    try {
+      filterCriteria = JSON.parse(filterCriteriaRaw);
+    } catch {
+      return fail(400, { error: 'Critérios de filtro inválidos.' });
+    }
+
+    try {
+      const result = await apiRequest(`/campaigns/${campaignId}/audience/generate/`, {
+        method: 'POST',
+        body: { filter_criteria: filterCriteria, name: audienceName }
+      }, cookies);
+      return { success: true, toast: `Audiência gerada: ${result.recipients_created} destinatários criados.` };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Erro ao gerar audiência.' });
+    }
+  },
+
+  scheduleCampaign: async ({ request, cookies }) => {
+    const formData = await request.formData();
+    const campaignId = formData.get('campaign_id')?.toString();
+    const scheduledAt = formData.get('scheduled_at')?.toString();
+
+    if (!scheduledAt) return fail(400, { error: 'Data de agendamento é obrigatória.' });
+
+    try {
+      await apiRequest(`/campaigns/${campaignId}/schedule/`, {
+        method: 'POST',
+        body: { scheduled_at: scheduledAt }
+      }, cookies);
+      return { success: true, toast: 'Campanha agendada com sucesso.' };
+    } catch (err) {
+      return fail(400, { error: err?.message || 'Erro ao agendar campanha.' });
     }
   },
 
@@ -137,7 +282,6 @@ export const actions = {
       await apiRequest(`/assistant/reminder-policies/${id}/${endpoint}/`, { method: 'PATCH' }, cookies);
       return { success: true, toast: isActive ? 'Lembrete desativado.' : 'Lembrete ativado.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao alterar status.' });
     }
   },
@@ -149,7 +293,6 @@ export const actions = {
       await apiRequest(`/assistant/reminder-policies/${id}/`, { method: 'DELETE' }, cookies);
       return { success: true, toast: 'Lembrete excluído.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao excluir.' });
     }
   },
@@ -161,7 +304,6 @@ export const actions = {
       await apiRequest(`/assistant/scheduled-jobs/${id}/retry/`, { method: 'POST' }, cookies);
       return { success: true, toast: 'Job reenfileirado.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao retentar.' });
     }
   },
@@ -173,7 +315,6 @@ export const actions = {
       await apiRequest(`/assistant/scheduled-jobs/${id}/cancel/`, { method: 'POST' }, cookies);
       return { success: true, toast: 'Job cancelado.' };
     } catch (err) {
-      const { fail } = await import('@sveltejs/kit');
       return fail(400, { error: 'Erro ao cancelar.' });
     }
   },

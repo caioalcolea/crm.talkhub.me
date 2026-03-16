@@ -2,11 +2,13 @@
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
+  import { slide } from 'svelte/transition';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { PageHeader } from '$lib/components/layout';
+  import { AutomationCreateForm, AutomationEditForm, CampaignCreateForm, CampaignDetail } from '$lib/components/autopilot';
   import {
-    Plus, Zap, Clock, GitBranch, Share2, Power, History, Trash2,
+    Plus, Zap, Clock, GitBranch, Share2, Power, History, Trash2, Pencil,
     Bell, Megaphone, Mail, MessageCircle, BarChart3, Pause, Play,
     FileCode, RefreshCw, CheckCircle, XCircle, AlertTriangle, Timer
   } from '@lucide/svelte';
@@ -15,12 +17,28 @@
 
   let activeTab = $derived(data.tab || 'rules');
 
+  // Inline create panel state
+  let showCreateAutomation = $state(false);
+  let showCreateCampaign = $state(false);
+  let editingAutomationId = $state(null);
+
+  // Auto-open create panels from URL param (redirects)
+  $effect(() => {
+    if (data.showCreate) {
+      if (activeTab === 'rules') showCreateAutomation = true;
+      else if (activeTab === 'campaigns') showCreateCampaign = true;
+    }
+  });
+
   $effect(() => {
     if (form?.toast) toast.success(form.toast);
     if (form?.error) toast.error(form.error);
   });
 
   function switchTab(tab) {
+    showCreateAutomation = false;
+    showCreateCampaign = false;
+    editingAutomationId = null;
     goto(`/autopilot?tab=${tab}`);
   }
 
@@ -68,13 +86,21 @@
 <PageHeader title="Autopilot" subtitle="Central de automações, lembretes e campanhas">
   {#snippet actions()}
     {#if activeTab === 'rules'}
-      <Button href="/automations/new" class="gap-2" size="sm">
-        <Plus class="size-4" /> Nova Regra
-      </Button>
+      {#if !data.campaignDetail}
+        <Button class="gap-2" size="sm" onclick={() => { showCreateAutomation = !showCreateAutomation; }}>
+          <Plus class="size-4" /> Nova Regra
+        </Button>
+      {/if}
     {:else if activeTab === 'campaigns'}
-      <Button href="/campaigns/new" class="gap-2" size="sm">
-        <Plus class="size-4" /> Nova Campanha
-      </Button>
+      {#if data.campaignDetail}
+        <Button variant="outline" size="sm" onclick={() => goto('/autopilot?tab=campaigns')}>
+          Voltar à lista
+        </Button>
+      {:else}
+        <Button class="gap-2" size="sm" onclick={() => { showCreateCampaign = !showCreateCampaign; }}>
+          <Plus class="size-4" /> Nova Campanha
+        </Button>
+      {/if}
     {/if}
   {/snippet}
 </PageHeader>
@@ -100,6 +126,17 @@
   <!-- Tab content: Rules -->
   {#if activeTab === 'rules'}
     {@const automations = data.automations || []}
+
+    <!-- Inline create panel -->
+    {#if showCreateAutomation}
+      <div transition:slide={{ duration: 200 }}>
+        <AutomationCreateForm
+          onCreated={() => { showCreateAutomation = false; }}
+          onCancel={() => { showCreateAutomation = false; }}
+        />
+      </div>
+    {/if}
+
     <!-- Type filters -->
     <div class="flex flex-wrap gap-2">
       <Button variant={!data.filters.type ? 'default' : 'outline'} size="sm" onclick={() => goto('/autopilot?tab=rules')}>Todas</Button>
@@ -118,7 +155,7 @@
       <div class="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
         <Zap class="text-muted-foreground mb-4 size-12" strokeWidth={1} />
         <p class="text-muted-foreground text-lg font-medium">Nenhuma automação encontrada</p>
-        <Button href="/automations/new" class="mt-4 gap-2" variant="outline">
+        <Button class="mt-4 gap-2" variant="outline" onclick={() => { showCreateAutomation = true; }}>
           <Plus class="size-4" /> Nova Automação
         </Button>
       </div>
@@ -127,47 +164,58 @@
         {#each automations as automation (automation.id)}
           {@const TypeIcon = typeIcons[automation.automation_type] || Zap}
           <div class="group rounded-lg border p-4 transition-shadow hover:shadow-md">
-            <div class="flex items-start justify-between">
-              <div class="flex items-center gap-2.5">
-                <div class="bg-muted flex size-9 items-center justify-center rounded-lg">
-                  <TypeIcon class="size-5" strokeWidth={1.75} />
+            {#if editingAutomationId === automation.id}
+              <AutomationEditForm
+                {automation}
+                onSaved={() => { editingAutomationId = null; }}
+                onCancel={() => { editingAutomationId = null; }}
+              />
+            {:else}
+              <div class="flex items-start justify-between">
+                <div class="flex items-center gap-2.5">
+                  <div class="bg-muted flex size-9 items-center justify-center rounded-lg">
+                    <TypeIcon class="size-5" strokeWidth={1.75} />
+                  </div>
+                  <div>
+                    <h3 class="text-sm font-semibold">{automation.name}</h3>
+                    <Badge variant="secondary" class="mt-0.5 text-[10px]">
+                      {typeLabels[automation.automation_type] || automation.automation_type}
+                    </Badge>
+                  </div>
                 </div>
-                <div>
-                  <h3 class="text-sm font-semibold">{automation.name}</h3>
-                  <Badge variant="secondary" class="mt-0.5 text-[10px]">
-                    {typeLabels[automation.automation_type] || automation.automation_type}
-                  </Badge>
-                </div>
+                <Badge variant={automation.is_active ? 'default' : 'outline'} class="text-[10px]">
+                  {automation.is_active ? 'Ativa' : 'Inativa'}
+                </Badge>
               </div>
-              <Badge variant={automation.is_active ? 'default' : 'outline'} class="text-[10px]">
-                {automation.is_active ? 'Ativa' : 'Inativa'}
-              </Badge>
-            </div>
-            <div class="text-muted-foreground mt-3 flex items-center gap-4 text-xs">
-              <span>{automation.run_count} execuções</span>
-              {#if automation.error_count > 0}
-                <span class="text-destructive">{automation.error_count} erros</span>
-              {/if}
-              {#if automation.last_run_at}
-                <span>Última: {formatDate(automation.last_run_at)}</span>
-              {/if}
-            </div>
-            <div class="mt-3 flex items-center gap-1.5 border-t pt-3">
-              <form method="POST" action="?/toggleAutomation" use:enhance>
-                <input type="hidden" name="id" value={automation.id} />
-                <input type="hidden" name="is_active" value={automation.is_active} />
-                <Button type="submit" variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs">
-                  <Power class="size-3" />
-                  {automation.is_active ? 'Desativar' : 'Ativar'}
+              <div class="text-muted-foreground mt-3 flex items-center gap-4 text-xs">
+                <span>{automation.run_count} execuções</span>
+                {#if automation.error_count > 0}
+                  <span class="text-destructive">{automation.error_count} erros</span>
+                {/if}
+                {#if automation.last_run_at}
+                  <span>Última: {formatDate(automation.last_run_at)}</span>
+                {/if}
+              </div>
+              <div class="mt-3 flex items-center gap-1.5 border-t pt-3">
+                <form method="POST" action="?/toggleAutomation" use:enhance>
+                  <input type="hidden" name="id" value={automation.id} />
+                  <input type="hidden" name="is_active" value={automation.is_active} />
+                  <Button type="submit" variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs">
+                    <Power class="size-3" />
+                    {automation.is_active ? 'Desativar' : 'Ativar'}
+                  </Button>
+                </form>
+                <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" onclick={() => { editingAutomationId = automation.id; }}>
+                  <Pencil class="size-3" /> Editar
                 </Button>
-              </form>
-              <form method="POST" action="?/deleteAutomation" use:enhance class="ml-auto">
-                <input type="hidden" name="id" value={automation.id} />
-                <Button type="submit" variant="ghost" size="sm" class="text-destructive h-7 gap-1 px-2 text-xs">
-                  <Trash2 class="size-3" />
-                </Button>
-              </form>
-            </div>
+                <form method="POST" action="?/deleteAutomation" use:enhance class="ml-auto">
+                  <input type="hidden" name="id" value={automation.id} />
+                  <Button type="submit" variant="ghost" size="sm" class="text-destructive h-7 gap-1 px-2 text-xs">
+                    <Trash2 class="size-3" />
+                  </Button>
+                </form>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -243,88 +291,108 @@
 
   <!-- Tab content: Campaigns -->
   {:else if activeTab === 'campaigns'}
-    {@const campaigns = data.campaigns || []}
-    <!-- Type filters -->
-    <div class="flex flex-wrap gap-2">
-      <Button variant={!data.filters.type ? 'default' : 'outline'} size="sm" onclick={() => goto('/autopilot?tab=campaigns')}>Todas</Button>
-      <Button variant={data.filters.type === 'email_blast' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=campaigns&type=email_blast')}>
-        <Mail class="size-3.5" /> Email
-      </Button>
-      <Button variant={data.filters.type === 'whatsapp_broadcast' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=campaigns&type=whatsapp_broadcast')}>
-        <MessageCircle class="size-3.5" /> WhatsApp
-      </Button>
-      <Button variant={data.filters.type === 'nurture_sequence' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=campaigns&type=nurture_sequence')}>
-        <GitBranch class="size-3.5" /> Nurture
-      </Button>
-    </div>
+    <!-- Campaign detail drill-down -->
+    {#if data.campaignDetail}
+      <CampaignDetail
+        campaign={data.campaignDetail}
+        {form}
+        onBack={() => goto('/autopilot?tab=campaigns')}
+      />
+    {:else}
+      {@const campaigns = data.campaigns || []}
 
-    {#if campaigns.length === 0}
-      <div class="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
-        <Megaphone class="text-muted-foreground mb-4 size-12" strokeWidth={1} />
-        <p class="text-muted-foreground text-lg font-medium">Nenhuma campanha encontrada</p>
-        <Button href="/campaigns/new" class="mt-4 gap-2" variant="outline">
-          <Plus class="size-4" /> Nova Campanha
+      <!-- Inline create panel -->
+      {#if showCreateCampaign}
+        <div transition:slide={{ duration: 200 }}>
+          <CampaignCreateForm
+            onCreated={() => { showCreateCampaign = false; }}
+            onCancel={() => { showCreateCampaign = false; }}
+          />
+        </div>
+      {/if}
+
+      <!-- Type filters -->
+      <div class="flex flex-wrap gap-2">
+        <Button variant={!data.filters.type ? 'default' : 'outline'} size="sm" onclick={() => goto('/autopilot?tab=campaigns')}>Todas</Button>
+        <Button variant={data.filters.type === 'email_blast' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=campaigns&type=email_blast')}>
+          <Mail class="size-3.5" /> Email
+        </Button>
+        <Button variant={data.filters.type === 'whatsapp_broadcast' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=campaigns&type=whatsapp_broadcast')}>
+          <MessageCircle class="size-3.5" /> WhatsApp
+        </Button>
+        <Button variant={data.filters.type === 'nurture_sequence' ? 'default' : 'outline'} size="sm" class="gap-1.5" onclick={() => goto('/autopilot?tab=campaigns&type=nurture_sequence')}>
+          <GitBranch class="size-3.5" /> Nurture
         </Button>
       </div>
-    {:else}
-      <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {#each campaigns as campaign (campaign.id)}
-          {@const TypeIcon = campTypeIcons[campaign.campaign_type] || Megaphone}
-          <div class="rounded-lg border p-4 transition-shadow hover:shadow-md">
-            <div class="flex items-start justify-between">
-              <div class="flex items-center gap-2.5">
-                <div class="bg-muted flex size-9 items-center justify-center rounded-lg">
-                  <TypeIcon class="size-5" strokeWidth={1.75} />
+
+      {#if campaigns.length === 0}
+        <div class="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
+          <Megaphone class="text-muted-foreground mb-4 size-12" strokeWidth={1} />
+          <p class="text-muted-foreground text-lg font-medium">Nenhuma campanha encontrada</p>
+          <Button class="mt-4 gap-2" variant="outline" onclick={() => { showCreateCampaign = true; }}>
+            <Plus class="size-4" /> Nova Campanha
+          </Button>
+        </div>
+      {:else}
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {#each campaigns as campaign (campaign.id)}
+            {@const TypeIcon = campTypeIcons[campaign.campaign_type] || Megaphone}
+            <div class="rounded-lg border p-4 transition-shadow hover:shadow-md">
+              <div class="flex items-start justify-between">
+                <div class="flex items-center gap-2.5">
+                  <div class="bg-muted flex size-9 items-center justify-center rounded-lg">
+                    <TypeIcon class="size-5" strokeWidth={1.75} />
+                  </div>
+                  <div>
+                    <h3 class="text-sm font-semibold">{campaign.name}</h3>
+                    <Badge variant="secondary" class="mt-0.5 text-[10px]">
+                      {campTypeLabels[campaign.campaign_type] || campaign.campaign_type}
+                    </Badge>
+                  </div>
                 </div>
-                <div>
-                  <h3 class="text-sm font-semibold">{campaign.name}</h3>
-                  <Badge variant="secondary" class="mt-0.5 text-[10px]">
-                    {campTypeLabels[campaign.campaign_type] || campaign.campaign_type}
-                  </Badge>
-                </div>
+                <Badge variant={statusVariants[campaign.status] || 'secondary'} class="text-[10px]">
+                  {statusLabels[campaign.status] || campaign.status}
+                </Badge>
               </div>
-              <Badge variant={statusVariants[campaign.status] || 'secondary'} class="text-[10px]">
-                {statusLabels[campaign.status] || campaign.status}
-              </Badge>
-            </div>
-            <div class="text-muted-foreground mt-3 flex items-center gap-4 text-xs">
-              <span>{campaign.total_recipients} destinatários</span>
-              <span>{campaign.sent_count} enviados</span>
-              <span>Abertura: {calcOpenRate(campaign.sent_count, campaign.opened_count)}</span>
-            </div>
-            <div class="mt-3 flex items-center gap-1.5 border-t pt-3">
-              <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" href="/campaigns/{campaign.id}/analytics">
-                <BarChart3 class="size-3" /> Analytics
-              </Button>
-              {#if ['running', 'completed', 'paused'].includes(campaign.status)}
-                <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" onclick={() => goto(`/autopilot?tab=runs&source=campaign&campaign_id=${campaign.id}`)}>
-                  <History class="size-3" /> Envios
+              <div class="text-muted-foreground mt-3 flex items-center gap-4 text-xs">
+                <span>{campaign.total_recipients} destinatários</span>
+                <span>{campaign.sent_count} enviados</span>
+                <span>Abertura: {calcOpenRate(campaign.sent_count, campaign.opened_count)}</span>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5 border-t pt-3">
+                <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" onclick={() => goto(`/autopilot?tab=campaigns&campaign_id=${campaign.id}`)}>
+                  <BarChart3 class="size-3" /> Detalhes
                 </Button>
-              {/if}
-              {#if campaign.status === 'running'}
-                <form method="POST" action="?/pauseResumeCampaign" use:enhance>
-                  <input type="hidden" name="id" value={campaign.id} />
-                  <input type="hidden" name="action" value="pause" />
-                  <Button type="submit" variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs"><Pause class="size-3" /> Pausar</Button>
-                </form>
-              {/if}
-              {#if campaign.status === 'paused'}
-                <form method="POST" action="?/pauseResumeCampaign" use:enhance>
-                  <input type="hidden" name="id" value={campaign.id} />
-                  <input type="hidden" name="action" value="resume" />
-                  <Button type="submit" variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs"><Play class="size-3" /> Retomar</Button>
-                </form>
-              {/if}
-              {#if ['draft', 'completed', 'cancelled'].includes(campaign.status)}
-                <form method="POST" action="?/deleteCampaign" use:enhance class="ml-auto">
-                  <input type="hidden" name="id" value={campaign.id} />
-                  <Button type="submit" variant="ghost" size="sm" class="text-destructive h-7 gap-1 px-2 text-xs"><Trash2 class="size-3" /></Button>
-                </form>
-              {/if}
+                {#if ['running', 'completed', 'paused'].includes(campaign.status)}
+                  <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" onclick={() => goto(`/autopilot?tab=runs&source=campaign&campaign_id=${campaign.id}`)}>
+                    <History class="size-3" /> Envios
+                  </Button>
+                {/if}
+                {#if campaign.status === 'running'}
+                  <form method="POST" action="?/pauseResumeCampaign" use:enhance>
+                    <input type="hidden" name="id" value={campaign.id} />
+                    <input type="hidden" name="action" value="pause" />
+                    <Button type="submit" variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs"><Pause class="size-3" /> Pausar</Button>
+                  </form>
+                {/if}
+                {#if campaign.status === 'paused'}
+                  <form method="POST" action="?/pauseResumeCampaign" use:enhance>
+                    <input type="hidden" name="id" value={campaign.id} />
+                    <input type="hidden" name="action" value="resume" />
+                    <Button type="submit" variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs"><Play class="size-3" /> Retomar</Button>
+                  </form>
+                {/if}
+                {#if ['draft', 'completed', 'cancelled'].includes(campaign.status)}
+                  <form method="POST" action="?/deleteCampaign" use:enhance class="ml-auto">
+                    <input type="hidden" name="id" value={campaign.id} />
+                    <Button type="submit" variant="ghost" size="sm" class="text-destructive h-7 gap-1 px-2 text-xs"><Trash2 class="size-3" /></Button>
+                  </form>
+                {/if}
+              </div>
             </div>
-          </div>
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
   <!-- Tab content: Runs -->

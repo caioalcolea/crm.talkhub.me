@@ -732,6 +732,41 @@ export const talkhubOmni = {
 };
 
 /**
+ * Automations API
+ */
+export const automations = createCrudApi('automations');
+
+/**
+ * Campaigns API
+ */
+export const campaigns = {
+  ...createCrudApi('campaigns'),
+
+  async previewAudience(id, filterCriteria) {
+    return apiRequest(`/campaigns/${id}/audience/preview/`, { method: 'POST', body: { filter_criteria: filterCriteria } });
+  },
+  async generateAudience(id, filterCriteria, name) {
+    return apiRequest(`/campaigns/${id}/audience/generate/`, { method: 'POST', body: { filter_criteria: filterCriteria, name } });
+  },
+  async schedule(id, scheduledAt) {
+    return apiRequest(`/campaigns/${id}/schedule/`, { method: 'POST', body: { scheduled_at: scheduledAt } });
+  },
+  async pauseResume(id, action) {
+    return apiRequest(`/campaigns/${id}/pause-resume/`, { method: 'POST', body: { action } });
+  },
+  async analytics(id) {
+    return apiRequest(`/campaigns/${id}/analytics/`);
+  },
+  async recipients(id, params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiRequest(`/campaigns/${id}/recipients/${qs ? '?' + qs : ''}`);
+  },
+  async createStep(id, step) {
+    return apiRequest(`/campaigns/${id}/steps/`, { method: 'POST', body: step });
+  },
+};
+
+/**
  * Export all as default
  */
 export default {
@@ -745,6 +780,8 @@ export default {
   events,
   invoices,
   financeiro,
+  automations,
+  campaigns,
   salesforce,
   talkhubOmni,
   apiRequest,
