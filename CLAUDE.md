@@ -209,7 +209,7 @@ bash docker/debug-traefik.sh
 22. **Secondary email/phone in channel matching**: All lookup chains follow the order: primary → secondary → extra table. Chatwoot connector, SMTP polling, data_unifier, and duplicate detection all include secondary fields.
 23. **Financeiro CANCELADO in reports**: All report views (FluxoPlanoContas, RelatorioMensal, EntityFinancial) exclude `status="CANCELADO"` parcelas from sums. Dashboard already filters by specific statuses.
 24. **Financeiro variable exchange rate**: `exchange_rate_type` field on Lancamento: FIXO (manual) or VARIAVEL (auto-fetch from API). Primary API: open.er-api.com, fallback: BCB PTAX for BRL pairs. Rates cached in Redis (4h TTL).
-25. **Financeiro recurring lancamentos**: `is_recorrente` + `recorrencia_tipo` (MENSAL/QUINZENAL/SEMANAL/ANUAL). Each parcela = full valor_total. Celery Beat generates 3 months ahead on 1st of each month. Stop via `recorrencia_ativa=False`.
+25. **Financeiro recurring lancamentos**: `is_recorrente` + `recorrencia_tipo` (MENSAL/QUINZENAL/SEMANAL/ANUAL). Each parcela = full valor_total. `generate_recurring_parcelas(months_ahead=12)` generates 12 months ahead. Celery Beat extends on 1st AND 15th of each month. Stop via `recorrencia_ativa=False` or set `data_fim_recorrencia`. Frontend disables `numero_parcelas` input when recurring is enabled (auto-managed).
 26. **Lancamento edit rules**: If all parcelas ABERTO → can edit everything (parcelas regenerated). If some PAGO → metadata only. If CANCELADO → read-only (except descricao/observacoes).
 27. **Org currency integration**: All frontend financial pages use `$orgSettings.default_currency` instead of hardcoded 'BRL'. Backend `FormOptionsView` returns `org_currency`. TransactionForm auto-hides exchange rate when currency == org base currency.
 28. **Org settings field mapping**: Frontend sends `website` (NOT `domain`) to match the Org model. The `description` field does not exist on the model — don't add it. All company profile fields (company_name, address_line, city, state, postcode, country, phone, email, website, tax_id) are editable via `PATCH /api/org/settings/`. Logo upload supports PNG/JPG/SVG (max 2MB); removal sends `logo: null`.
@@ -364,6 +364,15 @@ startCoworkSession() → mode='full' → page renders [data-cowork-target]
 | Org settings | `backend/common/serializers.py` (OrgSettingsSerializer), `frontend/src/routes/(app)/settings/organization/` (+page.svelte, +page.server.js) |
 | Org model | `backend/common/models.py` (Org: name, company_name, logo, address, phone, email, website, tax_id, currency, country) |
 | Invoice/Estimate PDF | `backend/invoices/pdf.py` (WeasyPrint), `backend/invoices/templates/invoices/pdf/` (invoice.html, estimate.html) |
+| Invoice → Lancamento signal | `backend/invoices/signals.py` (auto-create RECEBER + COGS on Invoice save) |
+| Opportunity → Lancamento signal | `backend/opportunity/signals.py` (auto-create RECEBER on CLOSED_WON) |
+| Financial summary card | `frontend/src/lib/components/financeiro/FinancialSummaryCard.svelte` (entity drawer widget) |
+| Pipeline management | `frontend/src/lib/components/pipeline/PipelineManager.svelte` (shared CRUD for all modules) |
+| Pipeline visibility | `frontend/src/lib/utils/pipeline-visibility.js` (`filter_visible_pipelines()`) |
+| Autopilot AI tools | `backend/assistant/tools.py` (15 tools: CRUD, search, financial, pipelines) |
+| Autopilot chat | `backend/assistant/views.py` (ChatView, ChatConfirmView) |
+| Notification store | `frontend/src/lib/stores/notifications.svelte.js` (polling, JWT guard) |
+| CRM Dashboard | `frontend/src/routes/(app)/+page.svelte`, `+page.server.js` (KPIs + financial) |
 
 ## Chatwoot Integration
 
@@ -591,9 +600,11 @@ Campaigns integrate with assistant's ScheduledJob via `job_generator.py` (idempo
 
 ### Implementation Status
 ```
-Backend (assistant+automations+campaigns): ~95% complete
-Frontend (autopilot UI):                   ~85% complete
-IA assistida:                              ~80% complete (backend + inline UI done, needs testing with real API key)
+Backend (assistant+automations+campaigns): ~98% complete
+Frontend (autopilot UI):                   ~90% complete
+IA assistida:                              ~85% complete (backend + inline UI done, needs testing with real API key)
+Kanban Pipelines (all 4 modules):          ✅ 100% complete
+CRM-Financeiro integration:               ~90% complete (signals, dashboard KPIs, entity cards)
 ```
 
 ### Roadmap Status
@@ -603,6 +614,14 @@ IA assistida:                              ~80% complete (backend + inline UI do
 | Unified /autopilot UX | ✅ Implementado — 6 tabs (Regras, Lembretes, Campanhas, Aprovações, Execuções, Modelos) |
 | Approval queue UI | ✅ Implementado — tab "Aprovações" com approve/reject + badge count |
 | AI-assisted creation | ✅ Implementado — backend + inline UI (needs real API key testing) |
+| Customizable Kanban Pipelines | ✅ Implementado — Leads, Cases, Tasks, Opportunities com PipelineManager + visibilidade por time/usuário |
+| CRM Dashboard Financial KPIs | ✅ Implementado — A Receber, A Pagar, Saldo, Vencido no dashboard principal |
+| Financial Summary on Entities | ✅ Implementado — FinancialSummaryCard em drawers de Account, Contact, Opportunity |
+| Opportunity Won → Financeiro | ✅ Implementado — auto-create Lancamento RECEBER via post_save signal |
+| Autopilot FK fix (production) | ✅ Corrigido — migration 0007 corrige created_by/updated_by em 9 modelos |
+| Notification JWT guard | ✅ Corrigido — polling espera JWT antes de chamar API |
+| Autopilot AI tools expansion | ✅ Implementado — 15 tools (search, pipelines, financeiro) |
+| Recurring Lancamentos fix | ✅ Corrigido — gera 12 meses (era 3), Celery roda 2x/mês |
 | Visual builders | ⏳ Pendente — Rule builder, step editor, template editor (replace JSON forms) |
 | Cross-module navigation | ⏳ Pendente — Task↔origin bidirectional links |
 
@@ -631,6 +650,10 @@ IA assistida:                              ~80% complete (backend + inline UI do
 | AI copilot service | `backend/assistant/ai_service.py` (OpenAI GPT-4o, 3 generation functions) |
 | AI copilot endpoint | `backend/assistant/views.py` (AIGenerateView at `/api/assistant/ai/generate/`) |
 | AI copilot component | `frontend/src/lib/components/autopilot/AICopilot.svelte` (inline AI form widget) |
+| AI tools registry | `backend/assistant/tools.py` (15 tools: CRUD, search, financial, pipelines) |
+| Audit FK migration | `backend/assistant/migrations/0007_fix_audit_fk.py` (fix created_by/updated_by → User) |
+| Notification store | `frontend/src/lib/stores/notifications.svelte.js` (polling with JWT guard) |
+| Notification bell | `frontend/src/lib/components/layout/NotificationBell.svelte` (popover + badge) |
 
 ## AI Copilot (IA Assistida)
 
@@ -670,6 +693,15 @@ User types natural language prompt → AICopilot.svelte
 38. **Internal dispatch is no-op**: `_dispatch_internal()` in `dispatch.py` only logs — no notifications sent. Presets with `channel_type: "internal"` work because `task_config.enabled=True` creates tasks via `execute_job()`. Internal notifications will be implemented when the notification system is built.
 39. **Campaign tracking RLS bypass**: `TrackingPixelView` and `UnsubscribeView` are public endpoints (no JWT). They use `_set_rls_for_recipient()` with raw SQL to set `app.current_org` from the recipient's org_id before ORM queries. UUID recipient_id serves as the auth token (same pattern as webhook_token). Transaction-scoped config (`true` param) ensures RLS resets after request.
 40. **Template payment_link placeholder**: `payment_link` variable in financeiro context is currently an empty string placeholder. Will be populated when PIX/boleto link generation is implemented.
+41. **Customizable Kanban Pipelines**: All 4 modules (Leads, Cases, Tasks, Opportunities) support multiple pipelines per org with per-team/user visibility. `PipelineManager` shared component handles CRUD. Pipeline stages have `maps_to_stage` for legacy compat. `filter_visible_pipelines()` utility filters by user/team. RLS covers all pipeline tables.
+42. **Pipeline stage org validation**: All modules validate `stage.org_id == self.org_id` in model `save()` to prevent cross-tenant stage assignment.
+43. **Opportunity Won → auto Lancamento**: `post_save` signal on Opportunity (`opportunity/signals.py`) auto-creates Lancamento RECEBER when stage = CLOSED_WON (via `pipeline_stage.maps_to_stage` or legacy `stage` field). Skips if Lancamento already exists. Registered in `OpportunityConfig.ready()`.
+44. **Financial summary on entity drawers**: `FinancialSummaryCard.svelte` fetches from `/financeiro/reports/by-entity/<uuid>/?entity_type=<type>` and shows A Receber/Pagar/Pago/Vencido + last 3 lancamentos. Added to Account, Contact, and Opportunity CrmDrawer `activitySection`.
+45. **Dashboard financial KPIs**: CRM dashboard (`+page.svelte`) fetches `/financeiro/reports/dashboard/` in parallel with `/dashboard/`. Shows 4 KPI cards (A Receber, A Pagar, Saldo do Mês, Vencido) in a dedicated "Financeiro" section. Graceful degradation if financeiro API fails.
+46. **Assistant audit FK fix**: Migration `0007_fix_audit_fk.py` corrects `created_by`/`updated_by` FK on ALL 9 assistant models from `common.profile` → `settings.AUTH_USER_MODEL` (`common.User`). This was the root cause of 500 errors on `/api/assistant/chat/` — `BaseModel.save()` sets `created_by = get_current_user()` (User object), but the DB FK constraint pointed to Profile table.
+47. **Notification polling JWT guard**: `notifications.svelte.js` checks `getAccessToken()` before `pollUnreadCount()`. Prevents 401 on initial page load when `$effect` in `+layout.svelte` hasn't yet called `initClientAuth()`. Next 10s interval tick succeeds after JWT is set.
+48. **Autopilot AI tools**: `assistant/tools.py` has 15 tools: `create_reminder_policy`, `preview_policy_schedule`, `activate_policy`, `deactivate_policy`, `cancel_job`, `retry_job`, `create_automation`, `create_campaign_draft`, `render_template_preview`, `list_entity_reminders`, `search_contacts`, `search_lancamentos`, `search_leads`, `search_opportunities`, `list_pipelines`, `get_financial_summary`. All read-only tools have `risk: "none"`.
+49. **Template engine single-brace warning**: `render_template()` in `template_engine.py` logs a warning when single-brace `{var}` patterns are detected (should be `{{var}}`). Helps diagnose user-created templates with wrong syntax.
 
 ## Security Audit Fixes Applied
 
