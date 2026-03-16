@@ -397,10 +397,10 @@
 
   // Check if user is admin (can manage pipelines)
   let isAdmin = $state(false);
-  onMount(async () => {
+  onMount(() => {
     try {
-      const user = await getUser();
-      isAdmin = user?.is_admin || user?.role === 'ADMIN' || false;
+      const user = getCurrentUser();
+      isAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
     } catch { /* ignore */ }
   });
 

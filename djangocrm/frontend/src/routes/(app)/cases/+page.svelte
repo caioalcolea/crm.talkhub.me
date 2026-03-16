@@ -287,10 +287,10 @@
   }
 
   let isCaseAdmin = $state(false);
-  onMount(async () => {
+  onMount(() => {
     try {
-      const user = await getCurrentUser();
-      isCaseAdmin = user?.is_admin || user?.role === 'ADMIN' || false;
+      const user = getCurrentUser();
+      isCaseAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
     } catch { /* ignore */ }
   });
 

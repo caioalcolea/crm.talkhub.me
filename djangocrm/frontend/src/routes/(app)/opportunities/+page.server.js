@@ -267,7 +267,7 @@ export async function load({ locals, cookies, url }) {
     // Extract pipelines list
     const pipelines = Array.isArray(pipelinesResponse)
       ? pipelinesResponse
-      : pipelinesResponse?.results || [];
+      : pipelinesResponse?.pipelines || pipelinesResponse?.results || [];
 
     return {
       opportunities: transformedOpportunities,

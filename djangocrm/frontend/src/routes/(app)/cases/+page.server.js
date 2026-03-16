@@ -275,7 +275,7 @@ export async function load({ url, locals, cookies }) {
       viewMode,
       pipelineId,
       kanbanData: kanbanResponse,
-      pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.results || [],
+      pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
       statusOptions,
       caseTypeOptions,
       // Dropdown options loaded server-side

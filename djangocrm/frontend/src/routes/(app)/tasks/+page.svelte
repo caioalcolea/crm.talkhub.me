@@ -260,7 +260,7 @@
     }
     currentUser = getCurrentUser();
     if (currentUser) {
-      isTaskAdmin = currentUser.role === 'ADMIN' || currentUser.is_admin;
+      isTaskAdmin = currentUser.organizations?.some((o) => o.role === 'ADMIN') || false;
     }
   });
 

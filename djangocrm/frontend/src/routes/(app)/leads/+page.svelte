@@ -676,10 +676,10 @@
   }
 
   let isLeadAdmin = $state(false);
-  onMount(async () => {
+  onMount(() => {
     try {
-      const user = await getCurrentUser();
-      isLeadAdmin = user?.is_admin || user?.role === 'ADMIN' || false;
+      const user = getCurrentUser();
+      isLeadAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
     } catch { /* ignore */ }
   });
 
