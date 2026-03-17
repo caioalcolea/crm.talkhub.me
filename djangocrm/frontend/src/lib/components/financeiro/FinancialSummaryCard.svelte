@@ -24,7 +24,7 @@
     loading = true;
     error = null;
     try {
-      report = await financeiro.entityFinancialReport(entityId, entityType);
+      report = await financeiro.entityReport(entityId, entityType);
     } catch (e) {
       // 404 = no financial data, not an error
       if (e?.status === 404) {

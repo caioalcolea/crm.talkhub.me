@@ -973,6 +973,12 @@ class EntityFinancialReportView(APIView):
 
         lancamentos = (
             Lancamento.objects.filter(org=org, **{lanc_fk: pk})
+            .select_related(
+                "plano_de_contas", "plano_de_contas__grupo",
+                "account", "contact", "opportunity", "invoice",
+                "forma_pagamento",
+            )
+            .prefetch_related("parcelas")
             .order_by("-created_at")[:10]
         )
 
@@ -1000,9 +1006,9 @@ class FormOptionsView(APIView):
         plano_grupos = PlanoDeContasGrupo.objects.filter(org=org, is_active=True)
         planos = PlanoDeContas.objects.filter(org=org, is_active=True).select_related("grupo")
         formas = FormaPagamento.objects.filter(org=org, is_active=True)
-        accounts = Account.objects.filter(org=org)
-        contacts = Contact.objects.filter(org=org)
-        opportunities = Opportunity.objects.filter(org=org)
+        accounts = Account.objects.filter(org=org).order_by("name").only("id", "name")
+        contacts = Contact.objects.filter(org=org).order_by("first_name", "last_name").only("id", "first_name", "last_name", "email")
+        opportunities = Opportunity.objects.filter(org=org).order_by("name").only("id", "name")
 
         return Response(
             {

@@ -4,6 +4,7 @@ when an Opportunity is moved to CLOSED_WON stage.
 """
 
 import logging
+from decimal import Decimal
 
 from django.db import transaction
 from django.db.models.signals import post_save
@@ -61,12 +62,27 @@ def create_lancamento_on_closed_won(sender, instance, **kwargs):
     with transaction.atomic():
         contact = instance.contacts.first()
 
+        currency = instance.currency or "BRL"
+        exchange_rate = Decimal("1")
+        if currency != instance.org.default_currency:
+            from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
+            try:
+                exchange_rate = get_exchange_rate(
+                    currency, instance.org.default_currency, due_date,
+                )
+            except ExchangeRateError:
+                logger.warning(
+                    "Could not fetch exchange rate for Opportunity %s (%s→%s)",
+                    instance.pk, currency, instance.org.default_currency,
+                )
+
         lancamento = Lancamento(
             org=instance.org,
             tipo="RECEBER",
             descricao=f"Oportunidade ganha: {instance.name}",
-            currency=instance.currency or "BRL",
+            currency=currency,
             valor_total=instance.amount,
+            exchange_rate_to_base=exchange_rate,
             data_primeiro_vencimento=due_date,
             numero_parcelas=1,
             opportunity=instance,

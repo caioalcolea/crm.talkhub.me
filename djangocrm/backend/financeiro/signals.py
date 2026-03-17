@@ -25,7 +25,13 @@ def sync_parcela_to_invoice(sender, instance, **kwargs):
     if not lancamento.invoice_id or lancamento.tipo != "RECEBER":
         return
 
-    invoice = lancamento.invoice
+    # Guard against invoice deleted between FK check and access
+    try:
+        invoice = lancamento.invoice
+    except Exception:
+        return
+    if not invoice:
+        return
 
     # Check all parcelas of this lancamento
     all_parcelas = lancamento.parcelas.all()

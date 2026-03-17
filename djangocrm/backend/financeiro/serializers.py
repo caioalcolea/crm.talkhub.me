@@ -358,6 +358,11 @@ class LancamentoCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Maximo de 120 parcelas.")
         return value
 
+    def validate_exchange_rate_to_base(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Taxa de câmbio deve ser positiva.")
+        return value
+
     def validate(self, data):
         if data.get("is_recorrente") and not data.get("recorrencia_tipo"):
             raise serializers.ValidationError({
@@ -420,6 +425,11 @@ class LancamentoFullUpdateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Numero de parcelas deve ser ao menos 1.")
             if value > 120:
                 raise serializers.ValidationError("Maximo de 120 parcelas.")
+        return value
+
+    def validate_exchange_rate_to_base(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Taxa de câmbio deve ser positiva.")
         return value
 
     def validate(self, data):
