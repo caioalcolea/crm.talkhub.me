@@ -1122,14 +1122,21 @@
    * @param {string} newStatus
    * @param {string} _columnId
    */
-  async function handleKanbanStatusChange(leadId, newStatus, _columnId) {
-    // Convert column ID (status) to proper format
-    // Column IDs are: "assigned", "in process", "recycled", "closed"
-    const status = newStatus;
-
-    // Populate form and submit
+  async function handleKanbanStatusChange(leadId, targetColumnId, _columnId) {
     kanbanFormState.leadId = leadId;
-    kanbanFormState.status = status;
+    kanbanFormState.aboveLeadId = '';
+    kanbanFormState.belowLeadId = '';
+
+    // Determine mode from kanban data
+    // In status-based mode, column.id is a status value (e.g., "assigned", "in process")
+    // In pipeline-based mode, column.id is a stage UUID
+    if (kanbanData?.mode === 'pipeline') {
+      kanbanFormState.status = '';
+      kanbanFormState.stageId = targetColumnId;
+    } else {
+      kanbanFormState.status = targetColumnId;
+      kanbanFormState.stageId = '';
+    }
 
     await tick();
     updateStatusForm.requestSubmit();
@@ -1405,7 +1412,10 @@
   // Kanban form state (for drag-drop status updates)
   let kanbanFormState = $state({
     leadId: '',
-    status: ''
+    status: '',
+    stageId: '',
+    aboveLeadId: '',
+    belowLeadId: ''
   });
   // Form data state
   let formState = $state({
@@ -2177,6 +2187,9 @@
   use:enhance={createEnhanceHandler('Status do lead atualizado com sucesso', false)}
   class="hidden"
 >
-  <input type="hidden" name="leadId" bind:value={kanbanFormState.leadId} />
-  <input type="hidden" name="status" bind:value={kanbanFormState.status} />
+  <input type="hidden" name="leadId" value={kanbanFormState.leadId} />
+  <input type="hidden" name="status" value={kanbanFormState.status} />
+  <input type="hidden" name="stageId" value={kanbanFormState.stageId} />
+  <input type="hidden" name="aboveLeadId" value={kanbanFormState.aboveLeadId} />
+  <input type="hidden" name="belowLeadId" value={kanbanFormState.belowLeadId} />
 </form>

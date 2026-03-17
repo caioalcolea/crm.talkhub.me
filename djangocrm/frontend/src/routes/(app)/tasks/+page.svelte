@@ -1151,12 +1151,22 @@
    * @param {string} newStatus
    * @param {string} _columnId
    */
-  async function handleKanbanStatusChange(taskId, newStatus, _columnId) {
+  async function handleKanbanStatusChange(taskId, targetColumnId, _columnId) {
     kanbanFormState.taskId = taskId;
-    kanbanFormState.status = newStatus;
-    kanbanFormState.stageId = '';
     kanbanFormState.aboveTaskId = '';
     kanbanFormState.belowTaskId = '';
+
+    // Determine mode from kanban data
+    // In status-based mode, column.id is a status value (e.g., "Todo", "In Progress")
+    // In pipeline-based mode, column.id is a stage UUID
+    if (kanbanData?.mode === 'pipeline') {
+      kanbanFormState.status = '';
+      kanbanFormState.stageId = targetColumnId;
+    } else {
+      kanbanFormState.status = targetColumnId;
+      kanbanFormState.stageId = '';
+    }
+
     await tick();
     moveTaskForm.requestSubmit();
   }

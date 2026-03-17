@@ -667,31 +667,38 @@ export const actions = {
    * Update lead status (used for kanban drag-drop)
    */
   updateStatus: async ({ request, locals, cookies }) => {
-    // Valid Django status choices
-    const validStatuses = ['assigned', 'in process', 'converted', 'recycled', 'closed'];
+    const org = locals.org;
 
     try {
       const form = await request.formData();
       const leadId = form.get('leadId')?.toString();
-      const statusRaw =
-        form.get('status')?.toString().trim().toLowerCase().replace(/_/g, ' ') || '';
-      const status = validStatuses.includes(statusRaw) ? statusRaw : null;
+      const status = form.get('status')?.toString().trim() || null;
+      const stageId = form.get('stageId')?.toString() || null;
+      const aboveLeadId = form.get('aboveLeadId')?.toString() || null;
+      const belowLeadId = form.get('belowLeadId')?.toString() || null;
 
       if (!leadId) {
         return fail(400, { error: 'ID do lead é obrigatório.' });
       }
 
-      if (!status) {
-        return fail(400, { error: 'Status válido é obrigatório.' });
+      if (!status && !stageId) {
+        return fail(400, { error: 'Status ou estágio é obrigatório.' });
       }
+
+      /** @type {Record<string, string>} */
+      const moveData = {};
+      if (status) moveData.status = status.toLowerCase().replace(/_/g, ' ');
+      if (stageId) moveData.stage_id = stageId;
+      if (aboveLeadId) moveData.above_lead_id = aboveLeadId;
+      if (belowLeadId) moveData.below_lead_id = belowLeadId;
 
       await apiRequest(
         `/leads/${leadId}/move/`,
         {
           method: 'PATCH',
-          body: { status }
+          body: moveData
         },
-        { cookies, org: locals.org }
+        { cookies, org }
       );
 
       return { success: true };
