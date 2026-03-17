@@ -481,8 +481,15 @@
 
   // Pipeline state
   const taskPipelines = $derived(data.pipelines || []);
-  let activeTaskPipelineId = $state(data.pipelineId || '');
+  let activeTaskPipelineId = $state('');
   let isTaskAdmin = $derived(data.userRole === 'ADMIN');
+
+  $effect(() => {
+    if (data.pipelineId) {
+      const exists = taskPipelines.some(p => p.id === data.pipelineId);
+      activeTaskPipelineId = exists ? data.pipelineId : (taskPipelines[0]?.id || '');
+    }
+  });
 
   async function handleTaskPipelineSelect(id) {
     activeTaskPipelineId = id;
@@ -493,7 +500,7 @@
       url.searchParams.delete('pipeline_id');
     }
     url.searchParams.set('view', 'kanban');
-    await goto(url.toString(), { invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
   async function handleTaskPipelineCreate(pipelineData) {

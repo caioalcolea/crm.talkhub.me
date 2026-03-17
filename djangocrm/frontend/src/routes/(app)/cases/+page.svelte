@@ -214,7 +214,10 @@
   let activeCasePipelineId = $state('');
 
   $effect(() => {
-    if (data.pipelineId) activeCasePipelineId = data.pipelineId;
+    if (data.pipelineId) {
+      const exists = casePipelines.some(p => p.id === data.pipelineId);
+      activeCasePipelineId = exists ? data.pipelineId : (casePipelines[0]?.id || '');
+    }
   });
 
   async function handleCasePipelineSelect(pipelineId) {

@@ -236,6 +236,13 @@ class OpportunityMoveView(APIView):
                     OpportunityStage, pk=data["pipeline_stage_id"], org=org
                 )
 
+                # Validate stage belongs to the same pipeline as current stage
+                if opp.pipeline_stage and opp.pipeline_stage.pipeline_id != stage.pipeline_id:
+                    return Response(
+                        {"error": "Cannot move to a stage from a different pipeline"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # Check WIP limit
                 if stage.wip_limit:
                     current_count = stage.opportunities.exclude(pk=opp.pk).count()
@@ -394,64 +401,65 @@ class OpportunityPipelineListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pipeline = serializer.save(org=org, created_by=request.user)
+        with transaction.atomic():
+            pipeline = serializer.save(org=org, created_by=request.user)
 
-        # Create default stages if requested
-        if request.data.get("create_default_stages", True):
-            default_stages = [
-                {
-                    "name": "Prospecção",
-                    "order": 1,
-                    "color": "#3B82F6",
-                    "stage_type": "open",
-                    "maps_to_stage": "PROSPECTING",
-                    "win_probability": 10,
-                },
-                {
-                    "name": "Qualificação",
-                    "order": 2,
-                    "color": "#8B5CF6",
-                    "stage_type": "open",
-                    "maps_to_stage": "QUALIFICATION",
-                    "win_probability": 25,
-                },
-                {
-                    "name": "Proposta",
-                    "order": 3,
-                    "color": "#F59E0B",
-                    "stage_type": "open",
-                    "maps_to_stage": "PROPOSAL",
-                    "win_probability": 50,
-                },
-                {
-                    "name": "Negociação",
-                    "order": 4,
-                    "color": "#10B981",
-                    "stage_type": "open",
-                    "maps_to_stage": "NEGOTIATION",
-                    "win_probability": 75,
-                },
-                {
-                    "name": "Ganho",
-                    "order": 5,
-                    "color": "#22C55E",
-                    "stage_type": "won",
-                    "maps_to_stage": "CLOSED_WON",
-                    "win_probability": 100,
-                },
-                {
-                    "name": "Perdido",
-                    "order": 6,
-                    "color": "#EF4444",
-                    "stage_type": "lost",
-                    "maps_to_stage": "CLOSED_LOST",
-                    "win_probability": 0,
-                },
-            ]
-            for stage_data in default_stages:
-                OpportunityStage.objects.create(
-                    pipeline=pipeline, org=org, **stage_data
-                )
+            # Create default stages if requested
+            if request.data.get("create_default_stages", True):
+                default_stages = [
+                    {
+                        "name": "Prospecção",
+                        "order": 1,
+                        "color": "#3B82F6",
+                        "stage_type": "open",
+                        "maps_to_stage": "PROSPECTING",
+                        "win_probability": 10,
+                    },
+                    {
+                        "name": "Qualificação",
+                        "order": 2,
+                        "color": "#8B5CF6",
+                        "stage_type": "open",
+                        "maps_to_stage": "QUALIFICATION",
+                        "win_probability": 25,
+                    },
+                    {
+                        "name": "Proposta",
+                        "order": 3,
+                        "color": "#F59E0B",
+                        "stage_type": "open",
+                        "maps_to_stage": "PROPOSAL",
+                        "win_probability": 50,
+                    },
+                    {
+                        "name": "Negociação",
+                        "order": 4,
+                        "color": "#10B981",
+                        "stage_type": "open",
+                        "maps_to_stage": "NEGOTIATION",
+                        "win_probability": 75,
+                    },
+                    {
+                        "name": "Ganho",
+                        "order": 5,
+                        "color": "#22C55E",
+                        "stage_type": "won",
+                        "maps_to_stage": "CLOSED_WON",
+                        "win_probability": 100,
+                    },
+                    {
+                        "name": "Perdido",
+                        "order": 6,
+                        "color": "#EF4444",
+                        "stage_type": "lost",
+                        "maps_to_stage": "CLOSED_LOST",
+                        "win_probability": 0,
+                    },
+                ]
+                for stage_data in default_stages:
+                    OpportunityStage.objects.create(
+                        pipeline=pipeline, org=org, created_by=request.user, **stage_data
+                    )
 
         return Response(
             OpportunityPipelineSerializer(pipeline).data,
@@ -677,6 +685,6 @@ class OpportunityStageReorderView(APIView):
             )
 
         for order, stage_id in enumerate(stage_ids):
-            OpportunityStage.objects.filter(id=stage_id).update(order=order)
+            OpportunityStage.objects.filter(id=stage_id, org=org).update(order=order)
 
         return Response({"message": "Stages reordered successfully"})

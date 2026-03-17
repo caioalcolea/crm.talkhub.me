@@ -251,6 +251,13 @@ class CaseMoveView(APIView):
             if data["stage_id"]:
                 stage = get_object_or_404(CaseStage, pk=data["stage_id"], org=org)
 
+                # Validate stage belongs to the same pipeline as current stage
+                if case.stage and case.stage.pipeline_id != stage.pipeline_id:
+                    return Response(
+                        {"error": "Cannot move to a stage from a different pipeline"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # Check WIP limit
                 if stage.wip_limit:
                     current_count = stage.cases.exclude(pk=case.pk).count()
@@ -398,51 +405,52 @@ class CasePipelineListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pipeline = serializer.save(org=org, created_by=request.user)
+        with transaction.atomic():
+            pipeline = serializer.save(org=org, created_by=request.user)
 
-        # Create default stages if requested
-        if request.data.get("create_default_stages", True):
-            default_stages = [
-                {
-                    "name": "Novo",
-                    "order": 1,
-                    "color": "#3B82F6",
-                    "stage_type": "open",
-                    "maps_to_status": "New",
-                },
-                {
-                    "name": "Atribuído",
-                    "order": 2,
-                    "color": "#8B5CF6",
-                    "stage_type": "open",
-                    "maps_to_status": "Assigned",
-                },
-                {
-                    "name": "Em Andamento",
-                    "order": 3,
-                    "color": "#F59E0B",
-                    "stage_type": "open",
-                    "maps_to_status": "Pending",
-                },
-                {
-                    "name": "Resolvido",
-                    "order": 4,
-                    "color": "#22C55E",
-                    "stage_type": "closed",
-                    "maps_to_status": "Closed",
-                },
-                {
-                    "name": "Rejeitado",
-                    "order": 5,
-                    "color": "#EF4444",
-                    "stage_type": "rejected",
-                    "maps_to_status": "Rejected",
-                },
-            ]
-            for stage_data in default_stages:
-                CaseStage.objects.create(
-                    pipeline=pipeline, org=org, created_by=request.user, **stage_data
-                )
+            # Create default stages if requested
+            if request.data.get("create_default_stages", True):
+                default_stages = [
+                    {
+                        "name": "Novo",
+                        "order": 1,
+                        "color": "#3B82F6",
+                        "stage_type": "open",
+                        "maps_to_status": "New",
+                    },
+                    {
+                        "name": "Atribuído",
+                        "order": 2,
+                        "color": "#8B5CF6",
+                        "stage_type": "open",
+                        "maps_to_status": "Assigned",
+                    },
+                    {
+                        "name": "Em Andamento",
+                        "order": 3,
+                        "color": "#F59E0B",
+                        "stage_type": "open",
+                        "maps_to_status": "Pending",
+                    },
+                    {
+                        "name": "Resolvido",
+                        "order": 4,
+                        "color": "#22C55E",
+                        "stage_type": "closed",
+                        "maps_to_status": "Closed",
+                    },
+                    {
+                        "name": "Rejeitado",
+                        "order": 5,
+                        "color": "#EF4444",
+                        "stage_type": "rejected",
+                        "maps_to_status": "Rejected",
+                    },
+                ]
+                for stage_data in default_stages:
+                    CaseStage.objects.create(
+                        pipeline=pipeline, org=org, created_by=request.user, **stage_data
+                    )
 
         # Refresh to include created stages
         pipeline.refresh_from_db()
@@ -651,6 +659,6 @@ class CaseStageReorderView(APIView):
             )
 
         for order, stage_id in enumerate(stage_ids):
-            CaseStage.objects.filter(id=stage_id).update(order=order)
+            CaseStage.objects.filter(id=stage_id, org=org).update(order=order)
 
         return Response({"message": "Stages reordered successfully"})

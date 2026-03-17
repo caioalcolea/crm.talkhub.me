@@ -237,10 +237,11 @@
   const pipelines = $derived(data.pipelines || []);
   let activePipelineId = $state('');
 
-  // Sync pipeline ID from URL
+  // Sync pipeline ID from URL (validate it exists)
   $effect(() => {
     if (data.pipelineId) {
-      activePipelineId = data.pipelineId;
+      const exists = pipelines.some(p => p.id === data.pipelineId);
+      activePipelineId = exists ? data.pipelineId : (pipelines[0]?.id || '');
     }
   });
 

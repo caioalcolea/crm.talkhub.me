@@ -603,7 +603,11 @@
   let activePipelineId = $state('');
 
   $effect(() => {
-    if (data.pipelineId) activePipelineId = data.pipelineId;
+    if (data.pipelineId) {
+      // Validate pipeline_id exists in available pipelines
+      const exists = leadPipelines.some(p => p.id === data.pipelineId);
+      activePipelineId = exists ? data.pipelineId : (leadPipelines[0]?.id || '');
+    }
   });
 
   async function handleLeadPipelineSelect(pipelineId) {

@@ -280,6 +280,13 @@ class TaskMoveView(APIView):
             if data["stage_id"]:
                 stage = get_object_or_404(TaskStage, pk=data["stage_id"], org=org)
 
+                # Validate stage belongs to the same pipeline as current stage
+                if task.stage and task.stage.pipeline_id != stage.pipeline_id:
+                    return Response(
+                        {"error": "Cannot move to a stage from a different pipeline"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # Check WIP limit
                 if stage.wip_limit:
                     current_count = stage.tasks.exclude(pk=task.pk).count()
@@ -431,42 +438,43 @@ class TaskPipelineListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pipeline = serializer.save(org=org, created_by=request.user)
+        with transaction.atomic():
+            pipeline = serializer.save(org=org, created_by=request.user)
 
-        # Create default stages if requested
-        if request.data.get("create_default_stages", True):
-            default_stages = [
-                {
-                    "name": "A Fazer",
-                    "order": 1,
-                    "color": "#3B82F6",
-                    "stage_type": "open",
-                    "maps_to_status": "New",
-                },
-                {
-                    "name": "Em Andamento",
-                    "order": 2,
-                    "color": "#F59E0B",
-                    "stage_type": "in_progress",
-                    "maps_to_status": "In Progress",
-                },
-                {
-                    "name": "Revisão",
-                    "order": 3,
-                    "color": "#8B5CF6",
-                    "stage_type": "in_progress",
-                    "maps_to_status": "In Progress",
-                },
-                {
-                    "name": "Concluído",
-                    "order": 4,
-                    "color": "#22C55E",
-                    "stage_type": "completed",
-                    "maps_to_status": "Completed",
-                },
-            ]
-            for stage_data in default_stages:
-                TaskStage.objects.create(pipeline=pipeline, org=org, **stage_data)
+            # Create default stages if requested
+            if request.data.get("create_default_stages", True):
+                default_stages = [
+                    {
+                        "name": "A Fazer",
+                        "order": 1,
+                        "color": "#3B82F6",
+                        "stage_type": "open",
+                        "maps_to_status": "New",
+                    },
+                    {
+                        "name": "Em Andamento",
+                        "order": 2,
+                        "color": "#F59E0B",
+                        "stage_type": "in_progress",
+                        "maps_to_status": "In Progress",
+                    },
+                    {
+                        "name": "Revisão",
+                        "order": 3,
+                        "color": "#8B5CF6",
+                        "stage_type": "in_progress",
+                        "maps_to_status": "In Progress",
+                    },
+                    {
+                        "name": "Concluído",
+                        "order": 4,
+                        "color": "#22C55E",
+                        "stage_type": "completed",
+                        "maps_to_status": "Completed",
+                    },
+                ]
+                for stage_data in default_stages:
+                    TaskStage.objects.create(pipeline=pipeline, org=org, created_by=request.user, **stage_data)
 
         return Response(
             TaskPipelineSerializer(pipeline).data, status=status.HTTP_201_CREATED
@@ -685,6 +693,6 @@ class TaskStageReorderView(APIView):
 
         # Update order
         for order, stage_id in enumerate(stage_ids):
-            TaskStage.objects.filter(id=stage_id).update(order=order)
+            TaskStage.objects.filter(id=stage_id, org=org).update(order=order)
 
         return Response({"message": "Stages reordered successfully"})
