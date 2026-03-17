@@ -528,8 +528,20 @@ class OpportunityPipelineDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        was_default = pipeline.is_default
+        pipeline.is_default = False
         pipeline.is_active = False
-        pipeline.save()
+        pipeline.save(update_fields=["is_active", "is_default"])
+
+        # Auto-promote next pipeline if we deleted the default
+        if was_default:
+            next_pipeline = OpportunityPipeline.objects.filter(
+                org=request.profile.org, is_active=True
+            ).first()
+            if next_pipeline:
+                next_pipeline.is_default = True
+                next_pipeline.save(update_fields=["is_default"])
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

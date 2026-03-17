@@ -52,6 +52,10 @@
   let addingStageName = $state('');
   let addingStage = $state(false);
 
+  // Local editing state for stage names — decoupled from reactive props
+  // Prevents Svelte 5 controlled input from resetting mid-edit
+  let editingStageNames = $state({});
+
   // Visibility state
   let selectedTeams = $state(new Set(pipeline?.visible_to_teams?.map(String) || []));
   let selectedUsers = $state(new Set(pipeline?.visible_to_users?.map(String) || []));
@@ -103,6 +107,11 @@
       selectedTeams = new Set(pipeline.visible_to_teams?.map(String) || []);
       selectedUsers = new Set(pipeline.visible_to_users?.map(String) || []);
     }
+  });
+
+  // Clear editing state when dialog closes
+  $effect(() => {
+    if (!open) editingStageNames = {};
   });
 
   async function handleSavePipeline() {
@@ -290,12 +299,20 @@
               ></div>
             </div>
 
-            <!-- Stage name (editable) -->
+            <!-- Stage name (editable via local state to avoid controlled input reset) -->
             <input
               type="text"
-              value={stage.name}
+              value={editingStageNames[stage.id] ?? stage.name}
               class="flex-1 truncate border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 rounded dark:text-gray-100 dark:focus:ring-gray-600"
-              onblur={(e) => handleStageNameChange(stage.id, e.target.value, stage.name)}
+              oninput={(e) => { editingStageNames[stage.id] = e.target.value; }}
+              onblur={() => {
+                const newName = (editingStageNames[stage.id] ?? stage.name).trim();
+                delete editingStageNames[stage.id];
+                editingStageNames = editingStageNames;
+                if (newName && newName !== stage.name) {
+                  handleStageNameChange(stage.id, newName, stage.name);
+                }
+              }}
               onkeydown={(e) => {
                 if (e.key === 'Enter') {
                   e.target.blur();
@@ -457,26 +474,30 @@
         </div>
 
         <!-- Danger zone -->
-        {#if !pipeline.is_default}
-          <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/10">
-            <h4 class="text-sm font-medium text-red-800 dark:text-red-400">Zona de Perigo</h4>
+        <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/10">
+          <h4 class="text-sm font-medium text-red-800 dark:text-red-400">Zona de Perigo</h4>
+          {#if pipeline.is_default}
+            <p class="mt-1 text-xs text-red-600 dark:text-red-400/70">
+              Este é o pipeline padrão. Ao excluí-lo, outro pipeline será promovido a padrão automaticamente.
+            </p>
+          {:else}
             <p class="mt-1 text-xs text-red-600 dark:text-red-400/70">
               Excluir o pipeline removerá todos os estágios. Os itens voltarão para o modo padrão.
             </p>
-            <Button
-              variant="destructive"
-              size="sm"
-              class="mt-2"
-              onclick={() => {
-                open = false;
-                onConfirmDelete?.(pipeline.id);
-              }}
-            >
-              <Trash2 class="mr-1.5 h-3.5 w-3.5" />
-              Excluir Pipeline
-            </Button>
-          </div>
-        {/if}
+          {/if}
+          <Button
+            variant="destructive"
+            size="sm"
+            class="mt-2"
+            onclick={() => {
+              open = false;
+              onConfirmDelete?.(pipeline.id);
+            }}
+          >
+            <Trash2 class="mr-1.5 h-3.5 w-3.5" />
+            Excluir Pipeline
+          </Button>
+        </div>
       </Tabs.Content>
     </Tabs.Root>
 
