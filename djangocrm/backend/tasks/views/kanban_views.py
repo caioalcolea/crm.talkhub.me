@@ -126,11 +126,17 @@ class TaskKanbanView(APIView):
         # Apply search/filters
         queryset = self._apply_filters(queryset, request.query_params)
 
-        if pipeline_id:
-            # Pipeline-based kanban
-            return self._get_pipeline_kanban(queryset, pipeline_id, org)
-        # Status-based kanban
-        return self._get_status_kanban(queryset)
+        if not pipeline_id:
+            # Auto-select default or first active pipeline
+            default_pipeline = TaskPipeline.objects.filter(
+                org=org, is_active=True
+            ).order_by("-is_default", "created_at").first()
+            if default_pipeline:
+                pipeline_id = str(default_pipeline.pk)
+            else:
+                return self._get_status_kanban(queryset)
+
+        return self._get_pipeline_kanban(queryset, pipeline_id, org)
 
     def _apply_filters(self, queryset, params):
         """Apply common filters to queryset."""
@@ -535,6 +541,16 @@ class TaskPipelineDetailView(APIView):
             )
 
         pipeline = self.get_object(pk, request.profile.org)
+
+        # Prevent deleting the last active pipeline
+        active_count = TaskPipeline.objects.filter(
+            org=request.profile.org, is_active=True
+        ).count()
+        if active_count <= 1:
+            return Response(
+                {"error": "Não é possível excluir o último pipeline. Crie outro antes de excluir este."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Check if pipeline has tasks
         task_count = Task.objects.filter(stage__pipeline=pipeline).count()

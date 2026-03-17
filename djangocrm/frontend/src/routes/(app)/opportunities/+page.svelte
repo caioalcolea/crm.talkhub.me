@@ -242,6 +242,8 @@
     if (data.pipelineId) {
       const exists = pipelines.some(p => p.id === data.pipelineId);
       activePipelineId = exists ? data.pipelineId : (pipelines[0]?.id || '');
+    } else if (pipelines.length > 0) {
+      activePipelineId = pipelines[0].id;
     }
   });
 

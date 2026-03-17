@@ -121,7 +121,9 @@
     try {
       await onDelete(deletingPipelineId);
       if (activePipelineId === deletingPipelineId) {
-        onSelect('');
+        // Select first remaining pipeline
+        const remaining = pipelines.filter(p => p.id !== deletingPipelineId);
+        onSelect(remaining[0]?.id || '');
       }
       deleteDialogOpen = false;
       deletingPipelineId = '';
@@ -135,18 +137,6 @@
 
 {#if pipelines.length > 0 || canManage}
 <div class="flex items-center gap-2 overflow-x-auto pb-1">
-  <!-- Default (status-based) tab -->
-  <button
-    type="button"
-    class="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-all
-      {!activePipelineId
-        ? 'bg-gray-900 text-white shadow-sm dark:bg-white dark:text-gray-900'
-        : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/10'}"
-    onclick={() => onSelect('')}
-  >
-    Padrão
-  </button>
-
   <!-- Pipeline tabs -->
   {#each pipelines as pipeline (pipeline.id)}
     <div class="group relative flex shrink-0 items-center">
@@ -245,7 +235,7 @@
     <Dialog.Header>
       <Dialog.Title>Excluir Pipeline</Dialog.Title>
       <Dialog.Description>
-        Tem certeza? Os itens neste pipeline voltarão para o modo padrão. Esta ação não pode ser desfeita.
+        Tem certeza? Os itens neste pipeline perderão o estágio. Esta ação não pode ser desfeita.
       </Dialog.Description>
     </Dialog.Header>
     <Dialog.Footer>

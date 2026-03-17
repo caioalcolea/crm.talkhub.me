@@ -604,9 +604,11 @@
 
   $effect(() => {
     if (data.pipelineId) {
-      // Validate pipeline_id exists in available pipelines
       const exists = leadPipelines.some(p => p.id === data.pipelineId);
       activePipelineId = exists ? data.pipelineId : (leadPipelines[0]?.id || '');
+    } else if (leadPipelines.length > 0) {
+      // Auto-select first pipeline when none specified
+      activePipelineId = leadPipelines[0].id;
     }
   });
 

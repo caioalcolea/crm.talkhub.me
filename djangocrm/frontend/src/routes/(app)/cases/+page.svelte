@@ -217,6 +217,8 @@
     if (data.pipelineId) {
       const exists = casePipelines.some(p => p.id === data.pipelineId);
       activeCasePipelineId = exists ? data.pipelineId : (casePipelines[0]?.id || '');
+    } else if (casePipelines.length > 0) {
+      activeCasePipelineId = casePipelines[0].id;
     }
   });
 

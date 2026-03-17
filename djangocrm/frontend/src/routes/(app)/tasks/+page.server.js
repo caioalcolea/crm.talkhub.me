@@ -257,7 +257,7 @@ export async function load({ locals, cookies, url }) {
       },
       filters,
       viewMode,
-      pipelineId,
+      pipelineId: pipelineId || kanbanResponse?.pipeline?.id || '',
       kanbanData: kanbanResponse,
       pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
       // Dropdown options for drawer form

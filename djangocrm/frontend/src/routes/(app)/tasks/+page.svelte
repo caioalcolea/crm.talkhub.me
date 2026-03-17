@@ -488,6 +488,8 @@
     if (data.pipelineId) {
       const exists = taskPipelines.some(p => p.id === data.pipelineId);
       activeTaskPipelineId = exists ? data.pipelineId : (taskPipelines[0]?.id || '');
+    } else if (taskPipelines.length > 0) {
+      activeTaskPipelineId = taskPipelines[0].id;
     }
   });
 

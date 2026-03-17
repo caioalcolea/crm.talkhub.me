@@ -487,15 +487,10 @@
         <!-- Danger zone -->
         <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/10">
           <h4 class="text-sm font-medium text-red-800 dark:text-red-400">Zona de Perigo</h4>
-          {#if pipeline.is_default}
-            <p class="mt-1 text-xs text-red-600 dark:text-red-400/70">
-              Este é o pipeline padrão. Ao excluí-lo, outro pipeline será promovido a padrão automaticamente.
-            </p>
-          {:else}
-            <p class="mt-1 text-xs text-red-600 dark:text-red-400/70">
-              Excluir o pipeline removerá todos os estágios. Os itens voltarão para o modo padrão.
-            </p>
-          {/if}
+          <p class="mt-1 text-xs text-red-600 dark:text-red-400/70">
+            Excluir o pipeline removerá todos os estágios. Os itens perderão o estágio atual.
+            {#if pipeline.is_default}Outro pipeline será promovido a padrão automaticamente.{/if}
+          </p>
           <Button
             variant="destructive"
             size="sm"

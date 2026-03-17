@@ -273,7 +273,7 @@ export async function load({ url, locals, cookies }) {
       },
       filters,
       viewMode,
-      pipelineId,
+      pipelineId: pipelineId || kanbanResponse?.pipeline?.id || '',
       kanbanData: kanbanResponse,
       pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
       statusOptions,

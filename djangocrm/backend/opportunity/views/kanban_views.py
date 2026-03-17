@@ -83,9 +83,17 @@ class OpportunityKanbanView(APIView):
             for c in StageAgingConfig.objects.filter(org=org)
         }
 
-        if pipeline_id:
-            return self._get_pipeline_kanban(queryset, pipeline_id, org, aging_configs)
-        return self._get_stage_kanban(queryset, aging_configs)
+        if not pipeline_id:
+            # Auto-select default or first active pipeline
+            default_pipeline = OpportunityPipeline.objects.filter(
+                org=org, is_active=True
+            ).order_by("-is_default", "created_at").first()
+            if default_pipeline:
+                pipeline_id = str(default_pipeline.pk)
+            else:
+                return self._get_stage_kanban(queryset, aging_configs)
+
+        return self._get_pipeline_kanban(queryset, pipeline_id, org, aging_configs)
 
     def _apply_filters(self, queryset, params):
         """Apply common filters to queryset."""
@@ -526,6 +534,16 @@ class OpportunityPipelineDetailView(APIView):
             )
 
         pipeline = self.get_object(pk, request.profile.org)
+
+        # Prevent deleting the last active pipeline
+        active_count = OpportunityPipeline.objects.filter(
+            org=request.profile.org, is_active=True
+        ).count()
+        if active_count <= 1:
+            return Response(
+                {"error": "Não é possível excluir o último pipeline. Crie outro antes de excluir este."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         opp_count = Opportunity.objects.filter(pipeline_stage__pipeline=pipeline).count()
         if opp_count > 0:
