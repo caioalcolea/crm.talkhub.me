@@ -245,7 +245,10 @@ export async function apiRequest(endpoint, options = {}) {
       throw err;
     }
 
-    // Return JSON response
+    // Handle empty responses (204 No Content, etc.)
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      return null;
+    }
     return await response.json();
   } catch (error) {
     console.error(`API request failed: ${method} ${endpoint}`, error);
