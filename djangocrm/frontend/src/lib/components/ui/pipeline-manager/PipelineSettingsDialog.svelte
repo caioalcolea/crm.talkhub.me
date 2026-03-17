@@ -41,7 +41,8 @@
     onStageUpdate,
     onStageDelete,
     onStageReorder,
-    onConfirmDelete
+    onConfirmDelete,
+    module = 'leads'
   } = $props();
 
   // Local state
@@ -63,12 +64,29 @@
   let draggedIndex = $state(-1);
   let dragOverIndex = $state(-1);
 
-  // Stage type colors
-  const stageTypeOptions = [
-    { value: 'open', label: 'Aberto', color: 'text-blue-600' },
-    { value: 'won', label: 'Ganho', color: 'text-emerald-600' },
-    { value: 'lost', label: 'Perdido', color: 'text-rose-600' }
-  ];
+  // Stage type options — varies by module
+  const stageTypeOptions = $derived.by(() => {
+    if (module === 'cases') {
+      return [
+        { value: 'open', label: 'Aberto' },
+        { value: 'closed', label: 'Fechado' },
+        { value: 'rejected', label: 'Rejeitado' }
+      ];
+    }
+    if (module === 'tasks') {
+      return [
+        { value: 'open', label: 'Aberto' },
+        { value: 'in_progress', label: 'Em Andamento' },
+        { value: 'completed', label: 'Concluído' }
+      ];
+    }
+    // leads, opportunities
+    return [
+      { value: 'open', label: 'Aberto' },
+      { value: 'won', label: 'Ganho' },
+      { value: 'lost', label: 'Perdido' }
+    ];
+  });
 
   // Preset colors for stages
   const colorPresets = [

@@ -260,6 +260,7 @@
     pipeline={settingsPipeline}
     {teams}
     {users}
+    {module}
     bind:open={settingsDialogOpen}
     {onUpdate}
     {onDelete}

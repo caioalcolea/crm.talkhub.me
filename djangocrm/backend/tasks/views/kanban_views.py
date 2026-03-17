@@ -437,28 +437,28 @@ class TaskPipelineListCreateView(APIView):
         if request.data.get("create_default_stages", True):
             default_stages = [
                 {
-                    "name": "To Do",
+                    "name": "A Fazer",
                     "order": 1,
                     "color": "#3B82F6",
                     "stage_type": "open",
                     "maps_to_status": "New",
                 },
                 {
-                    "name": "In Progress",
+                    "name": "Em Andamento",
                     "order": 2,
                     "color": "#F59E0B",
                     "stage_type": "in_progress",
                     "maps_to_status": "In Progress",
                 },
                 {
-                    "name": "Review",
+                    "name": "Revisão",
                     "order": 3,
                     "color": "#8B5CF6",
                     "stage_type": "in_progress",
                     "maps_to_status": "In Progress",
                 },
                 {
-                    "name": "Done",
+                    "name": "Concluído",
                     "order": 4,
                     "color": "#22C55E",
                     "stage_type": "completed",

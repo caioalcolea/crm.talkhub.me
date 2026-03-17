@@ -400,7 +400,7 @@ class OpportunityPipelineListCreateView(APIView):
         if request.data.get("create_default_stages", True):
             default_stages = [
                 {
-                    "name": "Prospecting",
+                    "name": "Prospecção",
                     "order": 1,
                     "color": "#3B82F6",
                     "stage_type": "open",
@@ -408,7 +408,7 @@ class OpportunityPipelineListCreateView(APIView):
                     "win_probability": 10,
                 },
                 {
-                    "name": "Qualification",
+                    "name": "Qualificação",
                     "order": 2,
                     "color": "#8B5CF6",
                     "stage_type": "open",
@@ -416,7 +416,7 @@ class OpportunityPipelineListCreateView(APIView):
                     "win_probability": 25,
                 },
                 {
-                    "name": "Proposal",
+                    "name": "Proposta",
                     "order": 3,
                     "color": "#F59E0B",
                     "stage_type": "open",
@@ -424,7 +424,7 @@ class OpportunityPipelineListCreateView(APIView):
                     "win_probability": 50,
                 },
                 {
-                    "name": "Negotiation",
+                    "name": "Negociação",
                     "order": 4,
                     "color": "#10B981",
                     "stage_type": "open",
@@ -432,7 +432,7 @@ class OpportunityPipelineListCreateView(APIView):
                     "win_probability": 75,
                 },
                 {
-                    "name": "Closed Won",
+                    "name": "Ganho",
                     "order": 5,
                     "color": "#22C55E",
                     "stage_type": "won",
@@ -440,7 +440,7 @@ class OpportunityPipelineListCreateView(APIView):
                     "win_probability": 100,
                 },
                 {
-                    "name": "Closed Lost",
+                    "name": "Perdido",
                     "order": 6,
                     "color": "#EF4444",
                     "stage_type": "lost",

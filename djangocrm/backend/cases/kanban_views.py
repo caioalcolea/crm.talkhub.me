@@ -404,35 +404,35 @@ class CasePipelineListCreateView(APIView):
         if request.data.get("create_default_stages", True):
             default_stages = [
                 {
-                    "name": "New",
+                    "name": "Novo",
                     "order": 1,
                     "color": "#3B82F6",
                     "stage_type": "open",
                     "maps_to_status": "New",
                 },
                 {
-                    "name": "Assigned",
+                    "name": "Atribuído",
                     "order": 2,
                     "color": "#8B5CF6",
                     "stage_type": "open",
                     "maps_to_status": "Assigned",
                 },
                 {
-                    "name": "In Progress",
+                    "name": "Em Andamento",
                     "order": 3,
                     "color": "#F59E0B",
                     "stage_type": "open",
                     "maps_to_status": "Pending",
                 },
                 {
-                    "name": "Resolved",
+                    "name": "Resolvido",
                     "order": 4,
                     "color": "#22C55E",
                     "stage_type": "closed",
                     "maps_to_status": "Closed",
                 },
                 {
-                    "name": "Rejected",
+                    "name": "Rejeitado",
                     "order": 5,
                     "color": "#EF4444",
                     "stage_type": "rejected",
