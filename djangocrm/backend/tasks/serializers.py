@@ -176,6 +176,8 @@ class TaskSerializer(serializers.ModelSerializer):
             "tags",
             "task_attachment",
             "task_comments",
+            # Kanban
+            "stage",
         )
 
 
@@ -232,6 +234,8 @@ class TaskCreateSerializer(serializers.ModelSerializer):
             "lead",
             "created_by",
             "created_at",
+            # Kanban
+            "stage",
         )
 
 

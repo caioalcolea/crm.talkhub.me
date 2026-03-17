@@ -58,6 +58,8 @@ class CaseSerializer(serializers.ModelSerializer):
             "is_sla_resolution_breached",
             "sla_indicators",
             "linked_tasks_count",
+            # Kanban
+            "stage",
         )
 
     def get_sla_indicators(self, obj):
@@ -106,6 +108,8 @@ class CaseCreateSerializer(serializers.ModelSerializer):
             "is_active",
             "account",
             "org",
+            # Kanban
+            "stage",
         )
         read_only_fields = ("org",)
 
