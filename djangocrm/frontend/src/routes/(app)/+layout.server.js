@@ -3,6 +3,7 @@ export async function load({ locals, cookies }) {
   // console.log("locals", locals.user);
   return {
     user: locals.user,
+    userRole: locals.profile?.role || 'USER',
     org_name: locals.org_name || 'TalkHub CRM',
     org_settings: locals.org_settings || {
       default_currency: 'BRL',

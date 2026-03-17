@@ -59,7 +59,7 @@
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser, apiRequest } from '$lib/api.js';
+  import { apiRequest } from '$lib/api.js';
   import { browser } from '$app/environment';
   import { orgSettings } from '$lib/stores/org.js';
   import { ViewToggle } from '$lib/components/ui/view-toggle';
@@ -567,7 +567,6 @@
 
   onMount(() => {
     loadColumnVisibility();
-    currentUser = getCurrentUser();
   });
 
   // Save to localStorage when column visibility changes
@@ -710,13 +709,7 @@
     }
   }
 
-  let isLeadAdmin = $state(false);
-  onMount(() => {
-    try {
-      const user = getCurrentUser();
-      isLeadAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
-    } catch { /* ignore */ }
-  });
+  let isLeadAdmin = $derived(data.userRole === 'ADMIN');
 
   // Total lead count - use kanban data when in kanban mode for accurate count
   const totalLeadCount = $derived(
@@ -792,7 +785,7 @@
   let drawerData = $state(null);
   let drawerLoading = $state(false);
   let isSaving = $state(false);
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // ContactAutocomplete state for create mode
   /** @type {any} */

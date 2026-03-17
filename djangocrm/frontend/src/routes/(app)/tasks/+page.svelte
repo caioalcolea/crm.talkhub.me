@@ -32,7 +32,7 @@
   } from '@lucide/svelte';
   import { TaskKanban } from '$lib/components/ui/task-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
-  import { apiRequest as clientApiRequest, getCurrentUser } from '$lib/api.js';
+  import { apiRequest as clientApiRequest } from '$lib/api.js';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
@@ -243,7 +243,7 @@
   // Column visibility state - use defaults
   const STORAGE_KEY = 'tasks-table-columns';
   let visibleColumns = $state([...DEFAULT_VISIBLE_COLUMNS]);
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // Load column visibility from localStorage
   onMount(() => {
@@ -258,10 +258,7 @@
         console.error('Failed to parse saved columns:', e);
       }
     }
-    currentUser = getCurrentUser();
-    if (currentUser) {
-      isTaskAdmin = currentUser.organizations?.some((o) => o.role === 'ADMIN') || false;
-    }
+    // currentUser and isTaskAdmin are now $derived from server data
   });
 
   // Save column visibility when changed
@@ -485,7 +482,7 @@
   // Pipeline state
   const taskPipelines = $derived(data.pipelines || []);
   let activeTaskPipelineId = $state(data.pipelineId || '');
-  let isTaskAdmin = $state(false);
+  let isTaskAdmin = $derived(data.userRole === 'ADMIN');
 
   async function handleTaskPipelineSelect(id) {
     activeTaskPipelineId = id;

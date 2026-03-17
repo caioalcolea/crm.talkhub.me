@@ -38,7 +38,7 @@
   import FinancialSummaryCard from '$lib/components/financeiro/FinancialSummaryCard.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser } from '$lib/api.js';
+  // getCurrentUser removed — using data.userRole from server instead
   import { CrmTable } from '$lib/components/ui/crm-table';
   import {
     FilterBar,
@@ -431,13 +431,7 @@
   }
 
   // Check if user is admin (can manage pipelines)
-  let isAdmin = $state(false);
-  onMount(() => {
-    try {
-      const user = getCurrentUser();
-      isAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
-    } catch { /* ignore */ }
-  });
+  let isAdmin = $derived(data.userRole === 'ADMIN');
 
   // Options for form
   const formOptions = $derived({
@@ -839,7 +833,7 @@
     opportunities.filter((/** @type {any} */ o) => o.agingStatus === 'red').length
   );
 
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // Load column visibility from localStorage
   onMount(() => {
@@ -851,7 +845,7 @@
         console.error('Failed to parse saved columns:', e);
       }
     }
-    currentUser = getCurrentUser();
+    // currentUser is now $derived from server data
   });
 
   // Save column visibility when changed

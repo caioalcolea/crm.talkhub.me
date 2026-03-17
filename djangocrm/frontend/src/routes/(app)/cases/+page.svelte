@@ -25,7 +25,7 @@
   } from '@lucide/svelte';
   import { CaseKanban } from '$lib/components/ui/case-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
-  import { apiRequest as clientApiRequest, getCurrentUser } from '$lib/api.js';
+  import { apiRequest as clientApiRequest } from '$lib/api.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { PageHeader } from '$lib/components/layout';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -104,7 +104,7 @@
   // Column visibility state
   const STORAGE_KEY = 'cases-column-config';
   let visibleColumns = $state(columns.map((c) => c.key));
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // Load column visibility from localStorage
   onMount(() => {
@@ -119,7 +119,6 @@
         console.error('Failed to parse saved columns:', e);
       }
     }
-    currentUser = getCurrentUser();
   });
 
   // Save column visibility when changed
@@ -321,13 +320,7 @@
     }
   }
 
-  let isCaseAdmin = $state(false);
-  onMount(() => {
-    try {
-      const user = getCurrentUser();
-      isCaseAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
-    } catch { /* ignore */ }
-  });
+  let isCaseAdmin = $derived(data.userRole === 'ADMIN');
 
   // Dropdown options from server (loaded with page data)
   const formOptions = $derived(data.formOptions || {});
