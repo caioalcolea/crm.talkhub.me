@@ -126,11 +126,17 @@ class TaskKanbanView(APIView):
         # Apply search/filters
         queryset = self._apply_filters(queryset, request.query_params)
 
-        if pipeline_id:
-            # Pipeline-based kanban
-            return self._get_pipeline_kanban(queryset, pipeline_id, org)
-        # Status-based kanban
-        return self._get_status_kanban(queryset)
+        if not pipeline_id:
+            # Auto-select default or first active pipeline
+            default_pipeline = TaskPipeline.objects.filter(
+                org=org, is_active=True
+            ).order_by("-is_default", "created_at").first()
+            if default_pipeline:
+                pipeline_id = str(default_pipeline.pk)
+            else:
+                return self._get_status_kanban(queryset)
+
+        return self._get_pipeline_kanban(queryset, pipeline_id, org)
 
     def _apply_filters(self, queryset, params):
         """Apply common filters to queryset."""
@@ -280,6 +286,13 @@ class TaskMoveView(APIView):
             if data["stage_id"]:
                 stage = get_object_or_404(TaskStage, pk=data["stage_id"], org=org)
 
+                # Validate stage belongs to the same pipeline as current stage
+                if task.stage and task.stage.pipeline_id != stage.pipeline_id:
+                    return Response(
+                        {"error": "Cannot move to a stage from a different pipeline"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # Check WIP limit
                 if stage.wip_limit:
                     current_count = stage.tasks.exclude(pk=task.pk).count()
@@ -403,7 +416,7 @@ class TaskPipelineListCreateView(APIView):
         from common.pipeline_visibility import filter_visible_pipelines
 
         org = request.profile.org
-        pipelines = TaskPipeline.objects.filter(org=org, is_active=True)
+        pipelines = TaskPipeline.objects.filter(org=org, is_active=True).prefetch_related("stages")
         pipelines = filter_visible_pipelines(pipelines, request.profile)
         serializer = TaskPipelineListSerializer(pipelines, many=True)
         return Response({"pipelines": serializer.data})
@@ -431,42 +444,43 @@ class TaskPipelineListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pipeline = serializer.save(org=org, created_by=request.user)
+        with transaction.atomic():
+            pipeline = serializer.save(org=org, created_by=request.user)
 
-        # Create default stages if requested
-        if request.data.get("create_default_stages", True):
-            default_stages = [
-                {
-                    "name": "To Do",
-                    "order": 1,
-                    "color": "#3B82F6",
-                    "stage_type": "open",
-                    "maps_to_status": "New",
-                },
-                {
-                    "name": "In Progress",
-                    "order": 2,
-                    "color": "#F59E0B",
-                    "stage_type": "in_progress",
-                    "maps_to_status": "In Progress",
-                },
-                {
-                    "name": "Review",
-                    "order": 3,
-                    "color": "#8B5CF6",
-                    "stage_type": "in_progress",
-                    "maps_to_status": "In Progress",
-                },
-                {
-                    "name": "Done",
-                    "order": 4,
-                    "color": "#22C55E",
-                    "stage_type": "completed",
-                    "maps_to_status": "Completed",
-                },
-            ]
-            for stage_data in default_stages:
-                TaskStage.objects.create(pipeline=pipeline, org=org, **stage_data)
+            # Create default stages if requested
+            if request.data.get("create_default_stages", True):
+                default_stages = [
+                    {
+                        "name": "A Fazer",
+                        "order": 1,
+                        "color": "#3B82F6",
+                        "stage_type": "open",
+                        "maps_to_status": "New",
+                    },
+                    {
+                        "name": "Em Andamento",
+                        "order": 2,
+                        "color": "#F59E0B",
+                        "stage_type": "in_progress",
+                        "maps_to_status": "In Progress",
+                    },
+                    {
+                        "name": "Revisão",
+                        "order": 3,
+                        "color": "#8B5CF6",
+                        "stage_type": "in_progress",
+                        "maps_to_status": "In Progress",
+                    },
+                    {
+                        "name": "Concluído",
+                        "order": 4,
+                        "color": "#22C55E",
+                        "stage_type": "completed",
+                        "maps_to_status": "Completed",
+                    },
+                ]
+                for stage_data in default_stages:
+                    TaskStage.objects.create(pipeline=pipeline, org=org, created_by=request.user, **stage_data)
 
         return Response(
             TaskPipelineSerializer(pipeline).data, status=status.HTTP_201_CREATED
@@ -494,6 +508,13 @@ class TaskPipelineDetailView(APIView):
     )
     def put(self, request, pk):
         """Update pipeline."""
+        return self._update_pipeline(request, pk)
+
+    def patch(self, request, pk):
+        """Partial update pipeline."""
+        return self._update_pipeline(request, pk)
+
+    def _update_pipeline(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -521,6 +542,16 @@ class TaskPipelineDetailView(APIView):
 
         pipeline = self.get_object(pk, request.profile.org)
 
+        # Prevent deleting the last active pipeline
+        active_count = TaskPipeline.objects.filter(
+            org=request.profile.org, is_active=True
+        ).count()
+        if active_count <= 1:
+            return Response(
+                {"error": "Não é possível excluir o último pipeline. Crie outro antes de excluir este."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Check if pipeline has tasks
         task_count = Task.objects.filter(stage__pipeline=pipeline).count()
         if task_count > 0:
@@ -531,8 +562,20 @@ class TaskPipelineDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        was_default = pipeline.is_default
+        pipeline.is_default = False
         pipeline.is_active = False
-        pipeline.save()
+        pipeline.save(update_fields=["is_active", "is_default"])
+
+        # Auto-promote next pipeline if we deleted the default
+        if was_default:
+            next_pipeline = TaskPipeline.objects.filter(
+                org=request.profile.org, is_active=True
+            ).first()
+            if next_pipeline:
+                next_pipeline.is_default = True
+                next_pipeline.save(update_fields=["is_default"])
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -556,7 +599,7 @@ class TaskStageCreateView(APIView):
         org = request.profile.org
         pipeline = get_object_or_404(TaskPipeline, pk=pipeline_pk, org=org)
 
-        serializer = TaskStageSerializer(data=request.data)
+        serializer = TaskStageSerializer(data=request.data, context={"pipeline": pipeline})
         if not serializer.is_valid():
             return Response(
                 {"error": True, "errors": serializer.errors},
@@ -579,6 +622,13 @@ class TaskStageDetailView(APIView):
     )
     def put(self, request, pk):
         """Update stage."""
+        return self._update_stage(request, pk)
+
+    def patch(self, request, pk):
+        """Partial update stage."""
+        return self._update_stage(request, pk)
+
+    def _update_stage(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -645,16 +695,20 @@ class TaskStageReorderView(APIView):
 
         stage_ids = request.data.get("stage_ids", [])
 
-        # Validate all stages belong to this pipeline
-        stages = TaskStage.objects.filter(pipeline=pipeline, id__in=stage_ids)
-        if stages.count() != len(stage_ids):
+        # Validate all stages belong to this pipeline AND cover all stages
+        existing_ids = set(
+            str(sid) for sid in
+            TaskStage.objects.filter(pipeline=pipeline).values_list("id", flat=True)
+        )
+        provided_ids = set(str(sid) for sid in stage_ids)
+        if provided_ids != existing_ids:
             return Response(
-                {"error": "Invalid stage IDs provided"},
+                {"error": "Stage IDs must match all stages in this pipeline"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Update order
         for order, stage_id in enumerate(stage_ids):
-            TaskStage.objects.filter(id=stage_id).update(order=order)
+            TaskStage.objects.filter(id=stage_id, org=org).update(order=order)
 
         return Response({"message": "Stages reordered successfully"})

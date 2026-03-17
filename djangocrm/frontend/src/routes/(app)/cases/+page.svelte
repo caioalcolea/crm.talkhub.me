@@ -25,7 +25,7 @@
   } from '@lucide/svelte';
   import { CaseKanban } from '$lib/components/ui/case-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
-  import { apiRequest as clientApiRequest, getCurrentUser } from '$lib/api.js';
+  import { apiRequest as clientApiRequest } from '$lib/api.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { PageHeader } from '$lib/components/layout';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -104,7 +104,7 @@
   // Column visibility state
   const STORAGE_KEY = 'cases-column-config';
   let visibleColumns = $state(columns.map((c) => c.key));
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // Load column visibility from localStorage
   onMount(() => {
@@ -119,7 +119,6 @@
         console.error('Failed to parse saved columns:', e);
       }
     }
-    currentUser = getCurrentUser();
   });
 
   // Save column visibility when changed
@@ -215,7 +214,12 @@
   let activeCasePipelineId = $state('');
 
   $effect(() => {
-    if (data.pipelineId) activeCasePipelineId = data.pipelineId;
+    if (data.pipelineId) {
+      const exists = casePipelines.some(p => p.id === data.pipelineId);
+      activeCasePipelineId = exists ? data.pipelineId : (casePipelines[0]?.id || '');
+    } else if (casePipelines.length > 0) {
+      activeCasePipelineId = casePipelines[0].id;
+    }
   });
 
   async function handleCasePipelineSelect(pipelineId) {
@@ -231,68 +235,97 @@
   }
 
   async function handleCasePipelineCreate(pipelineData) {
-    await clientApiRequest('/cases/pipelines/', {
-      method: 'POST',
-      body: pipelineData
-    });
-    toast.success('Pipeline criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest('/cases/pipelines/', {
+        method: 'POST',
+        body: pipelineData
+      });
+      toast.success('Pipeline criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar pipeline');
+      throw err;
+    }
   }
 
   async function handleCasePipelineDelete(pipelineId) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/`, { method: 'DELETE' });
-    toast.success('Pipeline excluído');
-    if (activeCasePipelineId === pipelineId) activeCasePipelineId = '';
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/`, { method: 'DELETE' });
+      toast.success('Pipeline excluído');
+      if (activeCasePipelineId === pipelineId) activeCasePipelineId = '';
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao excluir pipeline');
+      throw err;
+    }
   }
 
   async function handleCasePipelineUpdate(pipelineId, pipelineData) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/`, {
-      method: 'PUT',
-      body: pipelineData
-    });
-    toast.success('Pipeline atualizado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/`, {
+        method: 'PUT',
+        body: pipelineData
+      });
+      toast.success('Pipeline atualizado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar pipeline');
+      throw err;
+    }
   }
 
   async function handleCaseStageCreate(pipelineId, stageData) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/`, {
-      method: 'POST',
-      body: stageData
-    });
-    toast.success('Estágio criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/`, {
+        method: 'POST',
+        body: stageData
+      });
+      toast.success('Estágio criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar estágio');
+      throw err;
+    }
   }
 
   async function handleCaseStageUpdate(stageId, stageData) {
-    await clientApiRequest(`/cases/stages/${stageId}/`, {
-      method: 'PUT',
-      body: stageData
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/stages/${stageId}/`, {
+        method: 'PATCH',
+        body: stageData
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar estágio');
+      throw err;
+    }
   }
 
   async function handleCaseStageDelete(stageId) {
-    await clientApiRequest(`/cases/stages/${stageId}/`, { method: 'DELETE' });
-    toast.success('Estágio removido');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/stages/${stageId}/`, { method: 'DELETE' });
+      toast.success('Estágio removido');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao remover estágio');
+      throw err;
+    }
   }
 
   async function handleCaseStageReorder(pipelineId, stageOrder) {
-    await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/reorder/`, {
-      method: 'POST',
-      body: { stage_ids: stageOrder }
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/cases/pipelines/${pipelineId}/stages/reorder/`, {
+        method: 'POST',
+        body: { stage_ids: stageOrder }
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao reordenar estágios');
+      throw err;
+    }
   }
 
-  let isCaseAdmin = $state(false);
-  onMount(() => {
-    try {
-      const user = getCurrentUser();
-      isCaseAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
-    } catch { /* ignore */ }
-  });
+  let isCaseAdmin = $derived(data.userRole === 'ADMIN');
 
   // Dropdown options from server (loaded with page data)
   const formOptions = $derived(data.formOptions || {});

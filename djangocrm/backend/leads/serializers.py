@@ -293,6 +293,16 @@ class LeadStageSerializer(serializers.ModelSerializer):
             return obj._lead_count
         return obj.leads.count()
 
+    def validate_name(self, value):
+        pipeline = self.context.get("pipeline") or (self.instance.pipeline if self.instance else None)
+        if pipeline:
+            qs = LeadStage.objects.filter(pipeline=pipeline, name=value)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("Já existe um estágio com este nome neste pipeline.")
+        return value
+
 
 class LeadPipelineSerializer(serializers.ModelSerializer):
     """Serializer for lead pipelines with nested stages."""
@@ -331,8 +341,9 @@ class LeadPipelineSerializer(serializers.ModelSerializer):
 
 
 class LeadPipelineListSerializer(serializers.ModelSerializer):
-    """Simplified pipeline serializer for lists."""
+    """Pipeline serializer for lists — includes nested stages for settings dialog."""
 
+    stages = LeadStageSerializer(many=True, read_only=True)
     stage_count = serializers.SerializerMethodField()
     lead_count = serializers.SerializerMethodField()
 
@@ -344,6 +355,7 @@ class LeadPipelineListSerializer(serializers.ModelSerializer):
             "description",
             "is_default",
             "is_active",
+            "stages",
             "stage_count",
             "lead_count",
             "visible_to_teams",

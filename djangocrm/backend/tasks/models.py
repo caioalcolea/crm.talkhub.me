@@ -324,12 +324,12 @@ class TaskStage(OrgScopedMixin, BaseModel):
 
 class Task(AssignableMixin, OrgScopedMixin, BaseModel):
     STATUS_CHOICES = (
-        ("New", "New"),
-        ("In Progress", "In Progress"),
-        ("Completed", "Completed"),
+        ("New", "Novo"),
+        ("In Progress", "Em Andamento"),
+        ("Completed", "Concluído"),
     )
 
-    PRIORITY_CHOICES = (("Low", "Low"), ("Medium", "Medium"), ("High", "High"))
+    PRIORITY_CHOICES = (("Low", "Baixa"), ("Medium", "Média"), ("High", "Alta"))
 
     title = models.CharField(_("title"), max_length=200)
     status = models.CharField(_("status"), max_length=50, choices=STATUS_CHOICES)

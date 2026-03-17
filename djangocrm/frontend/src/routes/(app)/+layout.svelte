@@ -23,6 +23,19 @@
   $effect(() => {
     initClientAuth(data.accessToken);
   });
+
+  // Populate localStorage with user data (including role) so getCurrentUser()
+  // works for components that need it (e.g. CommentSection).
+  $effect(() => {
+    if (data.user && data.userRole) {
+      try {
+        localStorage.setItem('user', JSON.stringify({
+          ...data.user,
+          organizations: [{ role: data.userRole }]
+        }));
+      } catch { /* ignore in SSR / private browsing */ }
+    }
+  });
 </script>
 
 <AppShell user={data.user} org_name={data.org_name}>

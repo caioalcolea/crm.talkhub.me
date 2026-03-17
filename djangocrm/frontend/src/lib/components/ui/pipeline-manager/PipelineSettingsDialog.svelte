@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import {
     GripVertical,
     Plus,
@@ -41,7 +42,8 @@
     onStageUpdate,
     onStageDelete,
     onStageReorder,
-    onConfirmDelete
+    onConfirmDelete,
+    module = 'leads'
   } = $props();
 
   // Local state
@@ -51,6 +53,10 @@
   let addingStageName = $state('');
   let addingStage = $state(false);
 
+  // Local editing state for stage names — decoupled from reactive props
+  // Prevents Svelte 5 controlled input from resetting mid-edit
+  let editingStageNames = $state({});
+
   // Visibility state
   let selectedTeams = $state(new Set(pipeline?.visible_to_teams?.map(String) || []));
   let selectedUsers = $state(new Set(pipeline?.visible_to_users?.map(String) || []));
@@ -59,16 +65,36 @@
   const stages = $derived(pipeline?.stages || []);
   const sortedStages = $derived([...stages].sort((a, b) => a.order - b.order));
 
+  // Tab state
+  let activeTab = $state('stages');
+
   // Drag-and-drop state
   let draggedIndex = $state(-1);
   let dragOverIndex = $state(-1);
 
-  // Stage type colors
-  const stageTypeOptions = [
-    { value: 'open', label: 'Aberto', color: 'text-blue-600' },
-    { value: 'won', label: 'Ganho', color: 'text-emerald-600' },
-    { value: 'lost', label: 'Perdido', color: 'text-rose-600' }
-  ];
+  // Stage type options — varies by module
+  const stageTypeOptions = $derived.by(() => {
+    if (module === 'cases') {
+      return [
+        { value: 'open', label: 'Aberto' },
+        { value: 'closed', label: 'Fechado' },
+        { value: 'rejected', label: 'Rejeitado' }
+      ];
+    }
+    if (module === 'tasks') {
+      return [
+        { value: 'open', label: 'Aberto' },
+        { value: 'in_progress', label: 'Em Andamento' },
+        { value: 'completed', label: 'Concluído' }
+      ];
+    }
+    // leads, opportunities
+    return [
+      { value: 'open', label: 'Aberto' },
+      { value: 'won', label: 'Ganho' },
+      { value: 'lost', label: 'Perdido' }
+    ];
+  });
 
   // Preset colors for stages
   const colorPresets = [
@@ -77,13 +103,25 @@
     '#F97316', '#14B8A6'
   ];
 
-  // Sync local state when pipeline prop changes (after invalidateAll)
+  // Sync local state when pipeline prop changes (after invalidateAll).
+  // Only track `pipeline` — write to local state inside untrack to avoid loops.
   $effect(() => {
-    if (pipeline) {
-      pipelineName = pipeline.name || '';
-      pipelineDescription = pipeline.description || '';
-      selectedTeams = new Set(pipeline.visible_to_teams?.map(String) || []);
-      selectedUsers = new Set(pipeline.visible_to_users?.map(String) || []);
+    const p = pipeline;
+    untrack(() => {
+      if (p) {
+        pipelineName = p.name || '';
+        pipelineDescription = p.description || '';
+        selectedTeams = new Set(p.visible_to_teams?.map(String) || []);
+        selectedUsers = new Set(p.visible_to_users?.map(String) || []);
+      }
+    });
+  });
+
+  // Reset local state when dialog closes
+  $effect(() => {
+    if (!open) {
+      editingStageNames = {};
+      activeTab = 'stages';
     }
   });
 
@@ -216,7 +254,7 @@
     selectedUsers = new Set(selectedUsers);
   }
 
-  const visibilityMode = $derived(() => {
+  const visibilityMode = $derived.by(() => {
     if (selectedTeams.size === 0 && selectedUsers.size === 0) return 'all';
     return 'restricted';
   });
@@ -231,7 +269,7 @@
       </Dialog.Description>
     </Dialog.Header>
 
-    <Tabs.Root value="stages" class="mt-4">
+    <Tabs.Root bind:value={activeTab} class="mt-4">
       <Tabs.List class="w-full">
         <Tabs.Trigger value="stages" class="flex-1">Estágios</Tabs.Trigger>
         <Tabs.Trigger value="visibility" class="flex-1">Visibilidade</Tabs.Trigger>
@@ -272,12 +310,20 @@
               ></div>
             </div>
 
-            <!-- Stage name (editable) -->
+            <!-- Stage name (editable via local state to avoid controlled input reset) -->
             <input
               type="text"
-              value={stage.name}
+              value={editingStageNames[stage.id] ?? stage.name}
               class="flex-1 truncate border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 rounded dark:text-gray-100 dark:focus:ring-gray-600"
-              onblur={(e) => handleStageNameChange(stage.id, e.target.value, stage.name)}
+              oninput={(e) => { editingStageNames[stage.id] = e.target.value; }}
+              onblur={() => {
+                const newName = (editingStageNames[stage.id] ?? stage.name).trim();
+                delete editingStageNames[stage.id];
+                editingStageNames = editingStageNames;
+                if (newName && newName !== stage.name) {
+                  handleStageNameChange(stage.id, newName, stage.name);
+                }
+              }}
               onkeydown={(e) => {
                 if (e.key === 'Enter') {
                   e.target.blur();
@@ -341,7 +387,7 @@
       <Tabs.Content value="visibility" class="mt-4 space-y-4">
         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/50">
           <div class="flex items-center gap-2 text-sm">
-            {#if visibilityMode() === 'all'}
+            {#if visibilityMode === 'all'}
               <Eye class="h-4 w-4 text-emerald-600" />
               <span class="font-medium text-emerald-700 dark:text-emerald-400">
                 Visível para todos
@@ -439,26 +485,25 @@
         </div>
 
         <!-- Danger zone -->
-        {#if !pipeline.is_default}
-          <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/10">
-            <h4 class="text-sm font-medium text-red-800 dark:text-red-400">Zona de Perigo</h4>
-            <p class="mt-1 text-xs text-red-600 dark:text-red-400/70">
-              Excluir o pipeline removerá todos os estágios. Os itens voltarão para o modo padrão.
-            </p>
-            <Button
-              variant="destructive"
-              size="sm"
-              class="mt-2"
-              onclick={() => {
-                open = false;
-                onConfirmDelete?.(pipeline.id);
-              }}
-            >
-              <Trash2 class="mr-1.5 h-3.5 w-3.5" />
-              Excluir Pipeline
-            </Button>
-          </div>
-        {/if}
+        <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/10">
+          <h4 class="text-sm font-medium text-red-800 dark:text-red-400">Zona de Perigo</h4>
+          <p class="mt-1 text-xs text-red-600 dark:text-red-400/70">
+            Excluir o pipeline removerá todos os estágios. Os itens perderão o estágio atual.
+            {#if pipeline.is_default}Outro pipeline será promovido a padrão automaticamente.{/if}
+          </p>
+          <Button
+            variant="destructive"
+            size="sm"
+            class="mt-2"
+            onclick={() => {
+              open = false;
+              onConfirmDelete?.(pipeline.id);
+            }}
+          >
+            <Trash2 class="mr-1.5 h-3.5 w-3.5" />
+            Excluir Pipeline
+          </Button>
+        </div>
       </Tabs.Content>
     </Tabs.Root>
 

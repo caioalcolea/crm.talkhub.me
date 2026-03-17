@@ -83,9 +83,17 @@ class OpportunityKanbanView(APIView):
             for c in StageAgingConfig.objects.filter(org=org)
         }
 
-        if pipeline_id:
-            return self._get_pipeline_kanban(queryset, pipeline_id, org, aging_configs)
-        return self._get_stage_kanban(queryset, aging_configs)
+        if not pipeline_id:
+            # Auto-select default or first active pipeline
+            default_pipeline = OpportunityPipeline.objects.filter(
+                org=org, is_active=True
+            ).order_by("-is_default", "created_at").first()
+            if default_pipeline:
+                pipeline_id = str(default_pipeline.pk)
+            else:
+                return self._get_stage_kanban(queryset, aging_configs)
+
+        return self._get_pipeline_kanban(queryset, pipeline_id, org, aging_configs)
 
     def _apply_filters(self, queryset, params):
         """Apply common filters to queryset."""
@@ -236,6 +244,13 @@ class OpportunityMoveView(APIView):
                     OpportunityStage, pk=data["pipeline_stage_id"], org=org
                 )
 
+                # Validate stage belongs to the same pipeline as current stage
+                if opp.pipeline_stage and opp.pipeline_stage.pipeline_id != stage.pipeline_id:
+                    return Response(
+                        {"error": "Cannot move to a stage from a different pipeline"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # Check WIP limit
                 if stage.wip_limit:
                     current_count = stage.opportunities.exclude(pk=opp.pk).count()
@@ -362,6 +377,7 @@ class OpportunityPipelineListCreateView(APIView):
         org = request.profile.org
         pipelines = (
             OpportunityPipeline.objects.filter(org=org, is_active=True)
+            .prefetch_related("stages")
             .annotate(
                 _stage_count=Count("stages"),
                 _opportunity_count=Count("stages__opportunities"),
@@ -393,64 +409,65 @@ class OpportunityPipelineListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pipeline = serializer.save(org=org, created_by=request.user)
+        with transaction.atomic():
+            pipeline = serializer.save(org=org, created_by=request.user)
 
-        # Create default stages if requested
-        if request.data.get("create_default_stages", True):
-            default_stages = [
-                {
-                    "name": "Prospecting",
-                    "order": 1,
-                    "color": "#3B82F6",
-                    "stage_type": "open",
-                    "maps_to_stage": "PROSPECTING",
-                    "win_probability": 10,
-                },
-                {
-                    "name": "Qualification",
-                    "order": 2,
-                    "color": "#8B5CF6",
-                    "stage_type": "open",
-                    "maps_to_stage": "QUALIFICATION",
-                    "win_probability": 25,
-                },
-                {
-                    "name": "Proposal",
-                    "order": 3,
-                    "color": "#F59E0B",
-                    "stage_type": "open",
-                    "maps_to_stage": "PROPOSAL",
-                    "win_probability": 50,
-                },
-                {
-                    "name": "Negotiation",
-                    "order": 4,
-                    "color": "#10B981",
-                    "stage_type": "open",
-                    "maps_to_stage": "NEGOTIATION",
-                    "win_probability": 75,
-                },
-                {
-                    "name": "Closed Won",
-                    "order": 5,
-                    "color": "#22C55E",
-                    "stage_type": "won",
-                    "maps_to_stage": "CLOSED_WON",
-                    "win_probability": 100,
-                },
-                {
-                    "name": "Closed Lost",
-                    "order": 6,
-                    "color": "#EF4444",
-                    "stage_type": "lost",
-                    "maps_to_stage": "CLOSED_LOST",
-                    "win_probability": 0,
-                },
-            ]
-            for stage_data in default_stages:
-                OpportunityStage.objects.create(
-                    pipeline=pipeline, org=org, **stage_data
-                )
+            # Create default stages if requested
+            if request.data.get("create_default_stages", True):
+                default_stages = [
+                    {
+                        "name": "Prospecção",
+                        "order": 1,
+                        "color": "#3B82F6",
+                        "stage_type": "open",
+                        "maps_to_stage": "PROSPECTING",
+                        "win_probability": 10,
+                    },
+                    {
+                        "name": "Qualificação",
+                        "order": 2,
+                        "color": "#8B5CF6",
+                        "stage_type": "open",
+                        "maps_to_stage": "QUALIFICATION",
+                        "win_probability": 25,
+                    },
+                    {
+                        "name": "Proposta",
+                        "order": 3,
+                        "color": "#F59E0B",
+                        "stage_type": "open",
+                        "maps_to_stage": "PROPOSAL",
+                        "win_probability": 50,
+                    },
+                    {
+                        "name": "Negociação",
+                        "order": 4,
+                        "color": "#10B981",
+                        "stage_type": "open",
+                        "maps_to_stage": "NEGOTIATION",
+                        "win_probability": 75,
+                    },
+                    {
+                        "name": "Ganho",
+                        "order": 5,
+                        "color": "#22C55E",
+                        "stage_type": "won",
+                        "maps_to_stage": "CLOSED_WON",
+                        "win_probability": 100,
+                    },
+                    {
+                        "name": "Perdido",
+                        "order": 6,
+                        "color": "#EF4444",
+                        "stage_type": "lost",
+                        "maps_to_stage": "CLOSED_LOST",
+                        "win_probability": 0,
+                    },
+                ]
+                for stage_data in default_stages:
+                    OpportunityStage.objects.create(
+                        pipeline=pipeline, org=org, created_by=request.user, **stage_data
+                    )
 
         return Response(
             OpportunityPipelineSerializer(pipeline).data,
@@ -482,6 +499,13 @@ class OpportunityPipelineDetailView(APIView):
     )
     def put(self, request, pk):
         """Update pipeline."""
+        return self._update_pipeline(request, pk)
+
+    def patch(self, request, pk):
+        """Partial update pipeline."""
+        return self._update_pipeline(request, pk)
+
+    def _update_pipeline(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -511,6 +535,16 @@ class OpportunityPipelineDetailView(APIView):
 
         pipeline = self.get_object(pk, request.profile.org)
 
+        # Prevent deleting the last active pipeline
+        active_count = OpportunityPipeline.objects.filter(
+            org=request.profile.org, is_active=True
+        ).count()
+        if active_count <= 1:
+            return Response(
+                {"error": "Não é possível excluir o último pipeline. Crie outro antes de excluir este."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         opp_count = Opportunity.objects.filter(pipeline_stage__pipeline=pipeline).count()
         if opp_count > 0:
             return Response(
@@ -520,8 +554,20 @@ class OpportunityPipelineDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        was_default = pipeline.is_default
+        pipeline.is_default = False
         pipeline.is_active = False
-        pipeline.save()
+        pipeline.save(update_fields=["is_active", "is_default"])
+
+        # Auto-promote next pipeline if we deleted the default
+        if was_default:
+            next_pipeline = OpportunityPipeline.objects.filter(
+                org=request.profile.org, is_active=True
+            ).first()
+            if next_pipeline:
+                next_pipeline.is_default = True
+                next_pipeline.save(update_fields=["is_default"])
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -545,7 +591,7 @@ class OpportunityStageCreateView(APIView):
         org = request.profile.org
         pipeline = get_object_or_404(OpportunityPipeline, pk=pipeline_pk, org=org)
 
-        serializer = OpportunityStageSerializer(data=request.data)
+        serializer = OpportunityStageSerializer(data=request.data, context={"pipeline": pipeline})
         if not serializer.is_valid():
             return Response(
                 {"error": True, "errors": serializer.errors},
@@ -570,6 +616,13 @@ class OpportunityStageDetailView(APIView):
     )
     def put(self, request, pk):
         """Update stage."""
+        return self._update_stage(request, pk)
+
+    def patch(self, request, pk):
+        """Partial update stage."""
+        return self._update_stage(request, pk)
+
+    def _update_stage(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -637,14 +690,19 @@ class OpportunityStageReorderView(APIView):
 
         stage_ids = request.data.get("stage_ids", [])
 
-        stages = OpportunityStage.objects.filter(pipeline=pipeline, id__in=stage_ids)
-        if stages.count() != len(stage_ids):
+        # Validate all stages belong to this pipeline AND cover all stages
+        existing_ids = set(
+            str(sid) for sid in
+            OpportunityStage.objects.filter(pipeline=pipeline).values_list("id", flat=True)
+        )
+        provided_ids = set(str(sid) for sid in stage_ids)
+        if provided_ids != existing_ids:
             return Response(
-                {"error": "Invalid stage IDs provided"},
+                {"error": "Stage IDs must match all stages in this pipeline"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         for order, stage_id in enumerate(stage_ids):
-            OpportunityStage.objects.filter(id=stage_id).update(order=order)
+            OpportunityStage.objects.filter(id=stage_id, org=org).update(order=order)
 
         return Response({"message": "Stages reordered successfully"})

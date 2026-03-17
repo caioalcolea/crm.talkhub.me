@@ -288,7 +288,7 @@ export async function load({ locals, cookies, url }) {
       },
       filters,
       viewMode,
-      pipelineId,
+      pipelineId: pipelineId || kanbanResponse?.pipeline?.id || '',
       kanbanData: kanbanResponse,
       pipelines
     };

@@ -294,6 +294,16 @@ class TaskStageSerializer(serializers.ModelSerializer):
     def get_task_count(self, obj):
         return obj.tasks.count()
 
+    def validate_name(self, value):
+        pipeline = self.context.get("pipeline") or (self.instance.pipeline if self.instance else None)
+        if pipeline:
+            qs = TaskStage.objects.filter(pipeline=pipeline, name=value)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("Já existe um estágio com este nome neste pipeline.")
+        return value
+
 
 class TaskPipelineSerializer(serializers.ModelSerializer):
     """Serializer for task pipelines with nested stages."""
@@ -330,8 +340,9 @@ class TaskPipelineSerializer(serializers.ModelSerializer):
 
 
 class TaskPipelineListSerializer(serializers.ModelSerializer):
-    """Simplified pipeline serializer for lists."""
+    """Pipeline serializer for lists — includes nested stages for settings dialog."""
 
+    stages = TaskStageSerializer(many=True, read_only=True)
     stage_count = serializers.SerializerMethodField()
     task_count = serializers.SerializerMethodField()
 
@@ -343,6 +354,7 @@ class TaskPipelineListSerializer(serializers.ModelSerializer):
             "description",
             "is_default",
             "is_active",
+            "stages",
             "stage_count",
             "task_count",
             "visible_to_teams",

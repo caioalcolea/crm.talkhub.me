@@ -67,36 +67,36 @@ LEAD_SOURCE = (
 )
 
 STATUS_CHOICE = (
-    ("New", "New"),
-    ("Assigned", "Assigned"),
-    ("Pending", "Pending"),
-    ("Closed", "Closed"),
-    ("Rejected", "Rejected"),
-    ("Duplicate", "Duplicate"),
+    ("New", "Novo"),
+    ("Assigned", "Atribuído"),
+    ("Pending", "Pendente"),
+    ("Closed", "Fechado"),
+    ("Rejected", "Rejeitado"),
+    ("Duplicate", "Duplicado"),
 )
 
 PRIORITY_CHOICE = (
-    ("Low", "Low"),
+    ("Low", "Baixa"),
     ("Normal", "Normal"),
-    ("High", "High"),
-    ("Urgent", "Urgent"),
+    ("High", "Alta"),
+    ("Urgent", "Urgente"),
 )
 
-CASE_TYPE = (("Question", "Question"), ("Incident", "Incident"), ("Problem", "Problem"))
+CASE_TYPE = (("Question", "Pergunta"), ("Incident", "Incidente"), ("Problem", "Problema"))
 
 STAGES = (
-    ("PROSPECTING", "Prospecting"),
-    ("QUALIFICATION", "Qualification"),
-    ("PROPOSAL", "Proposal"),
-    ("NEGOTIATION", "Negotiation"),
-    ("CLOSED_WON", "Closed Won"),
-    ("CLOSED_LOST", "Closed Lost"),
+    ("PROSPECTING", "Prospecção"),
+    ("QUALIFICATION", "Qualificação"),
+    ("PROPOSAL", "Proposta"),
+    ("NEGOTIATION", "Negociação"),
+    ("CLOSED_WON", "Ganho"),
+    ("CLOSED_LOST", "Perdido"),
 )
 
 OPPORTUNITY_TYPES = (
-    ("NEW_BUSINESS", "New Business"),
-    ("EXISTING_BUSINESS", "Existing Business"),
-    ("RENEWAL", "Renewal"),
+    ("NEW_BUSINESS", "Novo Negócio"),
+    ("EXISTING_BUSINESS", "Negócio Existente"),
+    ("RENEWAL", "Renovação"),
     ("UPSELL", "Upsell"),
     ("CROSS_SELL", "Cross-sell"),
 )

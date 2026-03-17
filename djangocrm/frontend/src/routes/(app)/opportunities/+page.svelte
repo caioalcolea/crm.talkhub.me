@@ -38,7 +38,7 @@
   import FinancialSummaryCard from '$lib/components/financeiro/FinancialSummaryCard.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser } from '$lib/api.js';
+  // getCurrentUser removed — using data.userRole from server instead
   import { CrmTable } from '$lib/components/ui/crm-table';
   import {
     FilterBar,
@@ -237,10 +237,13 @@
   const pipelines = $derived(data.pipelines || []);
   let activePipelineId = $state('');
 
-  // Sync pipeline ID from URL
+  // Sync pipeline ID from URL (validate it exists)
   $effect(() => {
     if (data.pipelineId) {
-      activePipelineId = data.pipelineId;
+      const exists = pipelines.some(p => p.id === data.pipelineId);
+      activePipelineId = exists ? data.pipelineId : (pipelines[0]?.id || '');
+    } else if (pipelines.length > 0) {
+      activePipelineId = pipelines[0].id;
     }
   });
 
@@ -306,12 +309,17 @@
    * @param {{ name: string, create_default_stages: boolean }} pipelineData
    */
   async function handleCreatePipeline(pipelineData) {
-    await clientApiRequest('/opportunities/pipelines/', {
-      method: 'POST',
-      body: pipelineData
-    });
-    toast.success('Pipeline criado com sucesso');
-    await invalidateAll();
+    try {
+      await clientApiRequest('/opportunities/pipelines/', {
+        method: 'POST',
+        body: pipelineData
+      });
+      toast.success('Pipeline criado com sucesso');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar pipeline');
+      throw err;
+    }
   }
 
   /**
@@ -319,14 +327,19 @@
    * @param {string} pipelineId
    */
   async function handleDeletePipeline(pipelineId) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
-      method: 'DELETE'
-    });
-    toast.success('Pipeline excluído');
-    if (activePipelineId === pipelineId) {
-      activePipelineId = '';
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
+        method: 'DELETE'
+      });
+      toast.success('Pipeline excluído');
+      if (activePipelineId === pipelineId) {
+        activePipelineId = '';
+      }
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao excluir pipeline');
+      throw err;
     }
-    await invalidateAll();
   }
 
   /**
@@ -335,12 +348,17 @@
    * @param {any} pipelineData
    */
   async function handleUpdatePipeline(pipelineId, pipelineData) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
-      method: 'PUT',
-      body: pipelineData
-    });
-    toast.success('Pipeline atualizado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/`, {
+        method: 'PUT',
+        body: pipelineData
+      });
+      toast.success('Pipeline atualizado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar pipeline');
+      throw err;
+    }
   }
 
   /**
@@ -349,12 +367,17 @@
    * @param {any} stageData
    */
   async function handleStageCreate(pipelineId, stageData) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/`, {
-      method: 'POST',
-      body: stageData
-    });
-    toast.success('Estágio criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/`, {
+        method: 'POST',
+        body: stageData
+      });
+      toast.success('Estágio criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar estágio');
+      throw err;
+    }
   }
 
   /**
@@ -363,11 +386,16 @@
    * @param {any} stageData
    */
   async function handleStageUpdate(stageId, stageData) {
-    await clientApiRequest(`/opportunities/stages/${stageId}/`, {
-      method: 'PUT',
-      body: stageData
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/stages/${stageId}/`, {
+        method: 'PATCH',
+        body: stageData
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar estágio');
+      throw err;
+    }
   }
 
   /**
@@ -375,11 +403,16 @@
    * @param {string} stageId
    */
   async function handleStageDelete(stageId) {
-    await clientApiRequest(`/opportunities/stages/${stageId}/`, {
-      method: 'DELETE'
-    });
-    toast.success('Estágio removido');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/stages/${stageId}/`, {
+        method: 'DELETE'
+      });
+      toast.success('Estágio removido');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao remover estágio');
+      throw err;
+    }
   }
 
   /**
@@ -388,21 +421,20 @@
    * @param {string[]} stageOrder
    */
   async function handleStageReorder(pipelineId, stageOrder) {
-    await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/reorder/`, {
-      method: 'POST',
-      body: { stage_ids: stageOrder }
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/opportunities/pipelines/${pipelineId}/stages/reorder/`, {
+        method: 'POST',
+        body: { stage_ids: stageOrder }
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao reordenar estágios');
+      throw err;
+    }
   }
 
   // Check if user is admin (can manage pipelines)
-  let isAdmin = $state(false);
-  onMount(() => {
-    try {
-      const user = getCurrentUser();
-      isAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
-    } catch { /* ignore */ }
-  });
+  let isAdmin = $derived(data.userRole === 'ADMIN');
 
   // Options for form
   const formOptions = $derived({
@@ -804,7 +836,7 @@
     opportunities.filter((/** @type {any} */ o) => o.agingStatus === 'red').length
   );
 
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // Load column visibility from localStorage
   onMount(() => {
@@ -816,7 +848,7 @@
         console.error('Failed to parse saved columns:', e);
       }
     }
-    currentUser = getCurrentUser();
+    // currentUser is now $derived from server data
   });
 
   // Save column visibility when changed

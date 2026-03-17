@@ -153,8 +153,12 @@ else:
     python manage.py collectstatic --noinput
 
     # 6. Criar admin padrão
-    echo "[6/6] Creating default admin user (if needed)..."
+    echo "[6/7] Creating default admin user (if needed)..."
     python manage.py create_default_admin
+
+    # 7. Seed default pipeline data
+    echo "[7/7] Seeding default pipeline data (if needed)..."
+    python manage.py seed_pipeline_defaults --all-orgs
 fi
 
 # Determine what to run based on SERVICE_ROLE

@@ -101,9 +101,17 @@ class CaseKanbanView(APIView):
         # Apply search/filters
         queryset = self._apply_filters(queryset, request.query_params)
 
-        if pipeline_id:
-            return self._get_pipeline_kanban(queryset, pipeline_id, org)
-        return self._get_status_kanban(queryset)
+        if not pipeline_id:
+            # Auto-select default or first active pipeline
+            default_pipeline = CasePipeline.objects.filter(
+                org=org, is_active=True
+            ).order_by("-is_default", "created_at").first()
+            if default_pipeline:
+                pipeline_id = str(default_pipeline.pk)
+            else:
+                return self._get_status_kanban(queryset)
+
+        return self._get_pipeline_kanban(queryset, pipeline_id, org)
 
     def _apply_filters(self, queryset, params):
         """Apply common filters to queryset."""
@@ -251,6 +259,13 @@ class CaseMoveView(APIView):
             if data["stage_id"]:
                 stage = get_object_or_404(CaseStage, pk=data["stage_id"], org=org)
 
+                # Validate stage belongs to the same pipeline as current stage
+                if case.stage and case.stage.pipeline_id != stage.pipeline_id:
+                    return Response(
+                        {"error": "Cannot move to a stage from a different pipeline"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # Check WIP limit
                 if stage.wip_limit:
                     current_count = stage.cases.exclude(pk=case.pk).count()
@@ -371,7 +386,7 @@ class CasePipelineListCreateView(APIView):
         from common.pipeline_visibility import filter_visible_pipelines
 
         org = request.profile.org
-        pipelines = CasePipeline.objects.filter(org=org, is_active=True)
+        pipelines = CasePipeline.objects.filter(org=org, is_active=True).prefetch_related("stages")
         pipelines = filter_visible_pipelines(pipelines, request.profile)
         serializer = CasePipelineListSerializer(pipelines, many=True)
         return Response({"pipelines": serializer.data})
@@ -398,51 +413,52 @@ class CasePipelineListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pipeline = serializer.save(org=org, created_by=request.user)
+        with transaction.atomic():
+            pipeline = serializer.save(org=org, created_by=request.user)
 
-        # Create default stages if requested
-        if request.data.get("create_default_stages", True):
-            default_stages = [
-                {
-                    "name": "New",
-                    "order": 1,
-                    "color": "#3B82F6",
-                    "stage_type": "open",
-                    "maps_to_status": "New",
-                },
-                {
-                    "name": "Assigned",
-                    "order": 2,
-                    "color": "#8B5CF6",
-                    "stage_type": "open",
-                    "maps_to_status": "Assigned",
-                },
-                {
-                    "name": "In Progress",
-                    "order": 3,
-                    "color": "#F59E0B",
-                    "stage_type": "open",
-                    "maps_to_status": "Pending",
-                },
-                {
-                    "name": "Resolved",
-                    "order": 4,
-                    "color": "#22C55E",
-                    "stage_type": "closed",
-                    "maps_to_status": "Closed",
-                },
-                {
-                    "name": "Rejected",
-                    "order": 5,
-                    "color": "#EF4444",
-                    "stage_type": "rejected",
-                    "maps_to_status": "Rejected",
-                },
-            ]
-            for stage_data in default_stages:
-                CaseStage.objects.create(
-                    pipeline=pipeline, org=org, created_by=request.user, **stage_data
-                )
+            # Create default stages if requested
+            if request.data.get("create_default_stages", True):
+                default_stages = [
+                    {
+                        "name": "Novo",
+                        "order": 1,
+                        "color": "#3B82F6",
+                        "stage_type": "open",
+                        "maps_to_status": "New",
+                    },
+                    {
+                        "name": "Atribuído",
+                        "order": 2,
+                        "color": "#8B5CF6",
+                        "stage_type": "open",
+                        "maps_to_status": "Assigned",
+                    },
+                    {
+                        "name": "Em Andamento",
+                        "order": 3,
+                        "color": "#F59E0B",
+                        "stage_type": "open",
+                        "maps_to_status": "Pending",
+                    },
+                    {
+                        "name": "Resolvido",
+                        "order": 4,
+                        "color": "#22C55E",
+                        "stage_type": "closed",
+                        "maps_to_status": "Closed",
+                    },
+                    {
+                        "name": "Rejeitado",
+                        "order": 5,
+                        "color": "#EF4444",
+                        "stage_type": "rejected",
+                        "maps_to_status": "Rejected",
+                    },
+                ]
+                for stage_data in default_stages:
+                    CaseStage.objects.create(
+                        pipeline=pipeline, org=org, created_by=request.user, **stage_data
+                    )
 
         # Refresh to include created stages
         pipeline.refresh_from_db()
@@ -470,6 +486,12 @@ class CasePipelineDetailView(APIView):
         responses={200: CasePipelineSerializer},
     )
     def put(self, request, pk):
+        return self._update_pipeline(request, pk)
+
+    def patch(self, request, pk):
+        return self._update_pipeline(request, pk)
+
+    def _update_pipeline(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -496,6 +518,16 @@ class CasePipelineDetailView(APIView):
 
         pipeline = self.get_object(pk, request.profile.org)
 
+        # Prevent deleting the last active pipeline
+        active_count = CasePipeline.objects.filter(
+            org=request.profile.org, is_active=True
+        ).count()
+        if active_count <= 1:
+            return Response(
+                {"error": "Não é possível excluir o último pipeline. Crie outro antes de excluir este."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         case_count = Case.objects.filter(stage__pipeline=pipeline).count()
         if case_count > 0:
             return Response(
@@ -505,8 +537,20 @@ class CasePipelineDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        was_default = pipeline.is_default
+        pipeline.is_default = False
         pipeline.is_active = False
-        pipeline.save()
+        pipeline.save(update_fields=["is_active", "is_default"])
+
+        # Auto-promote next pipeline if we deleted the default
+        if was_default:
+            next_pipeline = CasePipeline.objects.filter(
+                org=request.profile.org, is_active=True
+            ).first()
+            if next_pipeline:
+                next_pipeline.is_default = True
+                next_pipeline.save(update_fields=["is_default"])
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -529,7 +573,7 @@ class CaseStageCreateView(APIView):
         org = request.profile.org
         pipeline = get_object_or_404(CasePipeline, pk=pipeline_pk, org=org)
 
-        serializer = CaseStageSerializer(data=request.data)
+        serializer = CaseStageSerializer(data=request.data, context={"pipeline": pipeline})
         if not serializer.is_valid():
             return Response(
                 {"error": True, "errors": serializer.errors},
@@ -551,6 +595,12 @@ class CaseStageDetailView(APIView):
         responses={200: CaseStageSerializer},
     )
     def put(self, request, pk):
+        return self._update_stage(request, pk)
+
+    def patch(self, request, pk):
+        return self._update_stage(request, pk)
+
+    def _update_stage(self, request, pk):
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             return Response(
                 {"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN
@@ -614,14 +664,19 @@ class CaseStageReorderView(APIView):
 
         stage_ids = request.data.get("stage_ids", [])
 
-        stages = CaseStage.objects.filter(pipeline=pipeline, id__in=stage_ids)
-        if stages.count() != len(stage_ids):
+        # Validate all stages belong to this pipeline AND cover all stages
+        existing_ids = set(
+            str(sid) for sid in
+            CaseStage.objects.filter(pipeline=pipeline).values_list("id", flat=True)
+        )
+        provided_ids = set(str(sid) for sid in stage_ids)
+        if provided_ids != existing_ids:
             return Response(
-                {"error": "Invalid stage IDs provided"},
+                {"error": "Stage IDs must match all stages in this pipeline"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         for order, stage_id in enumerate(stage_ids):
-            CaseStage.objects.filter(id=stage_id).update(order=order)
+            CaseStage.objects.filter(id=stage_id, org=org).update(order=order)
 
         return Response({"message": "Stages reordered successfully"})

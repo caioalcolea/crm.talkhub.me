@@ -1,18 +1,25 @@
 import datetime
 import logging
+import uuid as uuid_mod
 from decimal import Decimal
 
+from django.db import transaction
 from django.db.models import Case, Count, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.exceptions import MethodNotAllowed, ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
+from accounts.models import Account
+from common.permissions import HasOrgContext
+from contacts.models import Contact
 from financeiro.constants import FINANCEIRO_CURRENCY_CODES, FINANCEIRO_CURRENCY_SYMBOLS
+from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
 from financeiro.models import (
     FormaPagamento,
     Lancamento,
@@ -22,7 +29,6 @@ from financeiro.models import (
     PlanoDeContasGrupo,
 )
 from financeiro.permissions import HasFinancialAccess
-from common.permissions import HasOrgContext
 from financeiro.serializers import (
     FormaPagamentoSerializer,
     LancamentoCreateSerializer,
@@ -41,8 +47,47 @@ from financeiro.serializers import (
     PlanoDeContasGrupoTreeSerializer,
     PlanoDeContasSerializer,
 )
+from invoices.models import Invoice
+from opportunity.models import Opportunity
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helper utilities
+# ---------------------------------------------------------------------------
+
+def _parse_int_param(params, name, default):
+    """Parse integer query param with safe fallback."""
+    try:
+        return int(params.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _valid_uuid(value):
+    """Return a valid UUID or None."""
+    if not value:
+        return None
+    try:
+        return uuid_mod.UUID(str(value))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _parse_date(value):
+    """Parse ISO date string, return None on invalid."""
+    if not value:
+        return None
+    try:
+        return datetime.date.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def _d(val):
+    """Decimal → float for JSON serialisation."""
+    return float(val) if val else 0.0
 
 
 class FinanceiroMixin:
@@ -156,6 +201,12 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         "forma_pagamento",
     ).prefetch_related("parcelas")
 
+    def get_object(self):
+        # Cache the object to avoid repeated DB hits (get_serializer_class + view).
+        if not hasattr(self, "_cached_object"):
+            self._cached_object = super().get_object()
+        return self._cached_object
+
     def get_serializer_class(self):
         if self.action == "create":
             return LancamentoCreateSerializer
@@ -171,74 +222,68 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        params = self.request.query_params
 
-        # Filters
-        tipo = self.request.query_params.get("tipo")
-        if tipo:
+        tipo = params.get("tipo")
+        if tipo in ("RECEBER", "PAGAR"):
             qs = qs.filter(tipo=tipo)
 
-        status_filter = self.request.query_params.get("status")
-        if status_filter:
+        status_filter = params.get("status")
+        if status_filter in ("ABERTO", "PAGO", "CANCELADO"):
             qs = qs.filter(status=status_filter)
 
-        plano = self.request.query_params.get("plano_de_contas")
+        plano = _valid_uuid(params.get("plano_de_contas"))
         if plano:
             qs = qs.filter(plano_de_contas_id=plano)
 
-        account = self.request.query_params.get("account")
+        account = _valid_uuid(params.get("account"))
         if account:
             qs = qs.filter(account_id=account)
 
-        contact = self.request.query_params.get("contact")
+        contact = _valid_uuid(params.get("contact"))
         if contact:
             qs = qs.filter(contact_id=contact)
 
-        search = self.request.query_params.get("search")
+        search = params.get("search")
         if search:
             qs = qs.filter(descricao__icontains=search)
 
-        date_from = self.request.query_params.get("date_from")
+        date_from = _parse_date(params.get("date_from"))
         if date_from:
             qs = qs.filter(data_primeiro_vencimento__gte=date_from)
 
-        date_to = self.request.query_params.get("date_to")
+        date_to = _parse_date(params.get("date_to"))
         if date_to:
             qs = qs.filter(data_primeiro_vencimento__lte=date_to)
 
         return qs
 
+    def _fetch_exchange_rate(self, currency, org, date):
+        """Fetch exchange rate, raising DRF ValidationError on failure."""
+        if currency == org.default_currency:
+            return Decimal("1")
+        try:
+            return get_exchange_rate(currency, org.default_currency, date)
+        except ExchangeRateError as e:
+            raise DRFValidationError({"exchange_rate_to_base": str(e)})
+
     def perform_create(self, serializer):
         org = self.get_org()
         data = serializer.validated_data
 
-        # Auto-fetch exchange rate for VARIAVEL type
+        extra = {}
         if data.get("exchange_rate_type") == "VARIAVEL":
-            if data.get("currency", "BRL") != org.default_currency:
-                from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
+            extra["exchange_rate_to_base"] = self._fetch_exchange_rate(
+                data.get("currency", "BRL"), org, data.get("data_primeiro_vencimento"),
+            )
 
-                try:
-                    rate = get_exchange_rate(
-                        data["currency"],
-                        org.default_currency,
-                        data.get("data_primeiro_vencimento"),
-                    )
-                    lancamento = serializer.save(org=org, exchange_rate_to_base=rate)
-                except ExchangeRateError as e:
-                    from rest_framework.exceptions import ValidationError as DRFValidationError
-
-                    raise DRFValidationError({"exchange_rate_to_base": str(e)})
-            else:
-                lancamento = serializer.save(org=org, exchange_rate_to_base=Decimal("1"))
-        else:
-            lancamento = serializer.save(org=org)
-
+        lancamento = serializer.save(org=org, **extra)
         lancamento.generate_parcelas()
 
     def perform_update(self, serializer):
         instance = serializer.instance
         data = serializer.validated_data
 
-        # Check if financial fields changed (only possible with LancamentoFullUpdateSerializer)
         financial_fields = {
             "valor_total", "numero_parcelas", "data_primeiro_vencimento",
             "currency", "exchange_rate_to_base", "exchange_rate_type",
@@ -246,32 +291,20 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         }
         financials_changed = bool(financial_fields & set(data.keys()))
 
-        # If switching to VARIAVEL, fetch rate
         if data.get("exchange_rate_type") == "VARIAVEL":
             currency = data.get("currency", instance.currency)
-            org = self.get_org()
-            if currency != org.default_currency:
-                from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
-
-                try:
-                    rate = get_exchange_rate(
-                        currency,
-                        org.default_currency,
-                        data.get("data_primeiro_vencimento", instance.data_primeiro_vencimento),
-                    )
-                    data["exchange_rate_to_base"] = rate
-                except ExchangeRateError as e:
-                    from rest_framework.exceptions import ValidationError as DRFValidationError
-
-                    raise DRFValidationError({"exchange_rate_to_base": str(e)})
+            data["exchange_rate_to_base"] = self._fetch_exchange_rate(
+                currency, self.get_org(),
+                data.get("data_primeiro_vencimento", instance.data_primeiro_vencimento),
+            )
 
         instance = serializer.save()
 
-        # If financial fields changed and no paid parcelas, regenerate
         if financials_changed and not instance.parcelas.filter(status="PAGO").exists():
-            instance.parcelas.all().delete()
-            instance.generate_parcelas()
-            instance.update_status()
+            with transaction.atomic():
+                instance.parcelas.all().delete()
+                instance.generate_parcelas()
+                instance.update_status()
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -281,9 +314,10 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
                 {"detail": "Lançamento já está cancelado."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Cancel all open parcelas
-        lancamento.parcelas.filter(status="ABERTO").update(status="CANCELADO")
-        lancamento.update_status()
+        with transaction.atomic():
+            lancamento.parcelas.filter(status="ABERTO").update(status="CANCELADO")
+            lancamento.update_status()
+        lancamento.refresh_from_db()
         return Response(
             LancamentoDetailSerializer(lancamento).data, status=status.HTTP_200_OK
         )
@@ -366,52 +400,50 @@ class ParcelaViewSet(FinanceiroMixin, ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        params = self.request.query_params
 
-        tipo = self.request.query_params.get("tipo")
-        if tipo:
+        tipo = params.get("tipo")
+        if tipo in ("RECEBER", "PAGAR"):
             qs = qs.filter(lancamento__tipo=tipo)
 
-        status_filter = self.request.query_params.get("status")
+        status_filter = params.get("status")
         if status_filter == "all":
             pass  # Show everything including CANCELADO
-        elif status_filter:
+        elif status_filter in ("ABERTO", "PAGO", "CANCELADO"):
             qs = qs.filter(status=status_filter)
         else:
             qs = qs.exclude(status="CANCELADO")
 
-        account = self.request.query_params.get("account")
+        account = _valid_uuid(params.get("account"))
         if account:
             qs = qs.filter(lancamento__account_id=account)
 
-        contact = self.request.query_params.get("contact")
+        contact = _valid_uuid(params.get("contact"))
         if contact:
             qs = qs.filter(lancamento__contact_id=contact)
 
-        plano = self.request.query_params.get("plano_de_contas")
+        plano = _valid_uuid(params.get("plano_de_contas"))
         if plano:
             qs = qs.filter(lancamento__plano_de_contas_id=plano)
 
-        venc_from = self.request.query_params.get("vencimento_from")
+        venc_from = _parse_date(params.get("vencimento_from"))
         if venc_from:
             qs = qs.filter(data_vencimento__gte=venc_from)
 
-        venc_to = self.request.query_params.get("vencimento_to")
+        venc_to = _parse_date(params.get("vencimento_to"))
         if venc_to:
             qs = qs.filter(data_vencimento__lte=venc_to)
 
-        search = self.request.query_params.get("search")
+        search = params.get("search")
         if search:
             qs = qs.filter(lancamento__descricao__icontains=search)
 
-        # Ordering
-        ordering = self.request.query_params.get("ordering", "data_vencimento")
-        if ordering in (
-            "data_vencimento",
-            "-data_vencimento",
-            "valor_parcela",
-            "-valor_parcela",
-            "status",
-        ):
+        ordering = params.get("ordering", "data_vencimento")
+        allowed_ordering = {
+            "data_vencimento", "-data_vencimento",
+            "valor_parcela", "-valor_parcela", "status",
+        }
+        if ordering in allowed_ordering:
             qs = qs.order_by(ordering)
 
         return qs
@@ -428,28 +460,40 @@ class ParcelaViewSet(FinanceiroMixin, ModelViewSet):
                 {"detail": "Parcela não está aberta."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if parcela.lancamento.status == "CANCELADO":
+            return Response(
+                {"detail": "Não é possível pagar parcela de lançamento cancelado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         ser = ParcelaPaySerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        parcela.data_pagamento = ser.validated_data.get(
-            "data_pagamento", datetime.date.today()
-        )
-        parcela.save()
-        parcela.lancamento.update_status()
+        with transaction.atomic():
+            parcela.data_pagamento = ser.validated_data.get(
+                "data_pagamento", datetime.date.today()
+            )
+            parcela.save()
+            parcela.lancamento.update_status()
 
         return Response(ParcelaSerializer(parcela).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         parcela = self.get_object()
+        if parcela.status == "PAGO":
+            return Response(
+                {"detail": "Não é possível cancelar parcela já paga."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if parcela.status == "CANCELADO":
             return Response(
                 {"detail": "Parcela já está cancelada."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        parcela.status = "CANCELADO"
-        parcela.save()
-        parcela.lancamento.update_status()
+        with transaction.atomic():
+            parcela.status = "CANCELADO"
+            parcela.save()
+            parcela.lancamento.update_status()
         return Response(ParcelaSerializer(parcela).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["post"], url_path="bulk-pay")
@@ -462,22 +506,24 @@ class ParcelaViewSet(FinanceiroMixin, ModelViewSet):
         )
         parcela_ids = ser.validated_data["parcela_ids"]
 
-        parcelas = self.get_queryset().filter(
-            id__in=parcela_ids, status="ABERTO"
-        )
+        with transaction.atomic():
+            parcelas = list(
+                self.get_queryset()
+                .filter(id__in=parcela_ids, status="ABERTO")
+                .select_for_update()
+            )
 
-        updated_lancamentos = set()
-        for parcela in parcelas:
-            parcela.data_pagamento = data_pagamento
-            parcela.save()
-            updated_lancamentos.add(parcela.lancamento_id)
+            updated_lancamentos = set()
+            for parcela in parcelas:
+                parcela.data_pagamento = data_pagamento
+                parcela.save()
+                updated_lancamentos.add(parcela.lancamento_id)
 
-        # Update parent status
-        for lanc in Lancamento.objects.filter(id__in=updated_lancamentos):
-            lanc.update_status()
+            for lanc in Lancamento.objects.filter(id__in=updated_lancamentos):
+                lanc.update_status()
 
         return Response(
-            {"detail": f"{parcelas.count()} parcelas marcadas como pagas."},
+            {"detail": f"{len(parcelas)} parcelas marcadas como pagas."},
             status=status.HTTP_200_OK,
         )
 
@@ -488,152 +534,135 @@ class ParcelaViewSet(FinanceiroMixin, ModelViewSet):
 
 
 class DashboardReportView(APIView):
-    """
-    Dashboard KPIs: total a receber, total a pagar, pago no mês,
-    total vencido, % vencidas, saldo.
-    """
+    """Dashboard KPIs, monthly cash flow, next due date, and recent transactions."""
 
     permission_classes = [IsAuthenticated, HasOrgContext, HasFinancialAccess]
 
-    def get(self, request):
-        org = request.profile.org
-        today = datetime.date.today()
-        ano = int(request.query_params.get("ano", today.year))
-        mes = request.query_params.get("mes")
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
 
-        # Base querysets
-        parcelas_org = Parcela.objects.filter(org=org)
-
-        # Filter by competencia year
-        parcelas_ano = parcelas_org.filter(competencia_ano=ano)
-
-        if mes:
-            mes = int(mes)
-            parcelas_ano = parcelas_ano.filter(competencia_mes=mes)
-
-        # KPIs
-        total_receber = (
-            parcelas_ano.filter(
-                lancamento__tipo="RECEBER", status="ABERTO"
-            ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+    def _get_kpis(self, parcelas_ano, parcelas_org, today):
+        """Compute main KPIs using conditional aggregation (single query per scope)."""
+        _SUM = lambda flt: Coalesce(  # noqa: E731
+            Sum("valor_parcela_convertido", filter=flt), Decimal("0")
         )
 
-        total_pagar = (
-            parcelas_ano.filter(
-                lancamento__tipo="PAGAR", status="ABERTO"
-            ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        year_agg = parcelas_ano.aggregate(
+            total_receber=_SUM(Q(lancamento__tipo="RECEBER", status="ABERTO")),
+            total_pagar=_SUM(Q(lancamento__tipo="PAGAR", status="ABERTO")),
+            total_abertas=Count("id", filter=Q(status="ABERTO")),
         )
 
-        recebido_no_mes = (
-            parcelas_org.filter(
-                lancamento__tipo="RECEBER",
-                data_pagamento__year=today.year,
-                data_pagamento__month=today.month,
-                status="PAGO",
-            ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        month_agg = parcelas_org.filter(
+            data_pagamento__year=today.year, data_pagamento__month=today.month, status="PAGO",
+        ).aggregate(
+            recebido_no_mes=_SUM(Q(lancamento__tipo="RECEBER")),
+            pago_no_mes=_SUM(Q(lancamento__tipo="PAGAR")),
         )
 
-        pago_no_mes = (
-            parcelas_org.filter(
-                lancamento__tipo="PAGAR",
-                data_pagamento__year=today.year,
-                data_pagamento__month=today.month,
-                status="PAGO",
-            ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
+        overdue_agg = parcelas_org.filter(
+            status="ABERTO", data_vencimento__lt=today,
+        ).aggregate(
+            total_vencido=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")),
+            total_vencidas_count=Count("id"),
         )
 
-        total_vencido = (
-            parcelas_org.filter(
-                status="ABERTO", data_vencimento__lt=today
-            ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
-        )
-
-        total_abertas = parcelas_ano.filter(status="ABERTO").count()
-        total_vencidas_count = parcelas_org.filter(
-            status="ABERTO", data_vencimento__lt=today
-        ).count()
+        total_abertas = year_agg["total_abertas"]
+        total_vencidas_count = overdue_agg["total_vencidas_count"]
         pct_vencidas = (
             round((total_vencidas_count / total_abertas) * 100, 1)
-            if total_abertas > 0
-            else 0
+            if total_abertas > 0 else 0
         )
 
-        saldo = recebido_no_mes - pago_no_mes
+        recebido = month_agg["recebido_no_mes"]
+        pago = month_agg["pago_no_mes"]
 
-        # Saldo projetado Mês: ALL RECEBER (PAGO+ABERTO) - ALL PAGAR (PAGO+ABERTO) current month
-        parcelas_mes_atual = parcelas_org.filter(
-            competencia_ano=today.year, competencia_mes=today.month
-        ).exclude(status="CANCELADO")
-        receber_mes_total = parcelas_mes_atual.filter(
-            lancamento__tipo="RECEBER"
-        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
-        pagar_mes_total = parcelas_mes_atual.filter(
-            lancamento__tipo="PAGAR"
-        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
-        saldo_projetado_mes = float(receber_mes_total - pagar_mes_total)
+        return {
+            "total_receber": year_agg["total_receber"],
+            "total_pagar": year_agg["total_pagar"],
+            "recebido_no_mes": recebido,
+            "pago_no_mes": pago,
+            "total_vencido": overdue_agg["total_vencido"],
+            "pct_vencidas": pct_vencidas,
+            "saldo": recebido - pago,
+        }
 
-        # Saldo projetado Ano: ALL RECEBER (PAGO+ABERTO) - ALL PAGAR (PAGO+ABERTO) year
-        parcelas_ano_nc = parcelas_org.filter(competencia_ano=ano).exclude(status="CANCELADO")
-        receber_ano_total = parcelas_ano_nc.filter(
-            lancamento__tipo="RECEBER"
-        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
-        pagar_ano_total = parcelas_ano_nc.filter(
-            lancamento__tipo="PAGAR"
-        ).aggregate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))["total"]
-        saldo_projetado_ano = float(receber_ano_total - pagar_ano_total)
+    def _get_saldo_projetado(self, parcelas_org, ano, today):
+        """Saldo projetado: ALL (PAGO+ABERTO) RECEBER - PAGAR, excludes CANCELADO."""
+        _SUM = lambda flt: Coalesce(  # noqa: E731
+            Sum("valor_parcela_convertido", filter=flt), Decimal("0")
+        )
 
-        # Monthly cash flow for the year (realized + projected)
-        fluxo_mensal = []
+        mes_agg = parcelas_org.filter(
+            competencia_ano=today.year, competencia_mes=today.month,
+        ).exclude(status="CANCELADO").aggregate(
+            receber=_SUM(Q(lancamento__tipo="RECEBER")),
+            pagar=_SUM(Q(lancamento__tipo="PAGAR")),
+        )
+
+        ano_agg = parcelas_org.filter(
+            competencia_ano=ano,
+        ).exclude(status="CANCELADO").aggregate(
+            receber=_SUM(Q(lancamento__tipo="RECEBER")),
+            pagar=_SUM(Q(lancamento__tipo="PAGAR")),
+        )
+
+        saldo_mes = mes_agg["receber"] - mes_agg["pagar"]
+        saldo_ano = ano_agg["receber"] - ano_agg["pagar"]
+        return {"saldo_projetado_mes": saldo_mes, "saldo_projetado_ano": saldo_ano}
+
+    def _get_fluxo_mensal(self, parcelas_org, ano):
+        """Monthly cash flow built from a single annotated query."""
         fluxo_qs = (
             parcelas_org.filter(competencia_ano=ano)
             .exclude(status="CANCELADO")
             .values("lancamento__tipo", "competencia_mes", "status")
             .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
         )
-        # Build lookup: (tipo, mes, status) -> total
-        fluxo_lookup = {}
+        lookup = {}
         for row in fluxo_qs:
             key = (row["lancamento__tipo"], row["competencia_mes"], row["status"])
-            fluxo_lookup[key] = float(row["total"])
+            lookup[key] = _d(row["total"])
 
+        fluxo_mensal = []
         saldo_acumulado = Decimal("0")
         for m in range(1, 13):
-            receber_realizado = fluxo_lookup.get(("RECEBER", m, "PAGO"), 0)
-            pagar_realizado = fluxo_lookup.get(("PAGAR", m, "PAGO"), 0)
-            receber_projetado = fluxo_lookup.get(("RECEBER", m, "ABERTO"), 0)
-            pagar_projetado = fluxo_lookup.get(("PAGAR", m, "ABERTO"), 0)
-            saldo_mes = receber_realizado - pagar_realizado
+            rec_real = lookup.get(("RECEBER", m, "PAGO"), 0)
+            pag_real = lookup.get(("PAGAR", m, "PAGO"), 0)
+            rec_proj = lookup.get(("RECEBER", m, "ABERTO"), 0)
+            pag_proj = lookup.get(("PAGAR", m, "ABERTO"), 0)
+            saldo_mes = rec_real - pag_real
             saldo_acumulado += Decimal(str(saldo_mes))
-            fluxo_mensal.append(
-                {
-                    "mes": m,
-                    "receber": receber_realizado,
-                    "pagar": pagar_realizado,
-                    "receber_projetado": receber_projetado,
-                    "pagar_projetado": pagar_projetado,
-                    "saldo": saldo_mes,
-                    "saldo_projetado": receber_projetado - pagar_projetado,
-                    "saldo_acumulado": float(saldo_acumulado),
-                }
-            )
+            fluxo_mensal.append({
+                "mes": m,
+                "receber": rec_real,
+                "pagar": pag_real,
+                "receber_projetado": rec_proj,
+                "pagar_projetado": pag_proj,
+                "saldo": saldo_mes,
+                "saldo_projetado": rec_proj - pag_proj,
+                "saldo_acumulado": _d(saldo_acumulado),
+            })
+        return fluxo_mensal
 
-        # Próximo vencimento (next ABERTO parcela >= today)
-        proximo_vencimento = None
+    def _get_proximo_vencimento(self, parcelas_org, today):
         prox = (
             parcelas_org.filter(status="ABERTO", data_vencimento__gte=today)
             .select_related("lancamento")
             .order_by("data_vencimento")
             .first()
         )
-        if prox:
-            proximo_vencimento = {
-                "data": str(prox.data_vencimento),
-                "descricao": prox.lancamento.descricao,
-                "valor": float(prox.valor_parcela_convertido),
-                "tipo": prox.lancamento.tipo,
-            }
+        if not prox:
+            return None
+        return {
+            "data": str(prox.data_vencimento),
+            "descricao": prox.lancamento.descricao,
+            "valor": _d(prox.valor_parcela_convertido),
+            "tipo": prox.lancamento.tipo,
+        }
 
-        # Last 10 transactions
+    def _get_ultimas_transacoes(self, org):
         ultimas = (
             Lancamento.objects.filter(org=org)
             .select_related(
@@ -643,26 +672,42 @@ class DashboardReportView(APIView):
             .prefetch_related("parcelas")
             .order_by("-created_at")[:10]
         )
-        ultimas_data = LancamentoListSerializer(ultimas, many=True).data
+        return LancamentoListSerializer(ultimas, many=True).data
 
-        return Response(
-            {
-                "ano": ano,
-                "total_receber": float(total_receber),
-                "total_pagar": float(total_pagar),
-                "recebido_no_mes": float(recebido_no_mes),
-                "pago_no_mes": float(pago_no_mes),
-                "total_vencido": float(total_vencido),
-                "pct_vencidas": pct_vencidas,
-                "saldo": float(saldo),
-                "saldo_projetado": saldo_projetado_ano,
-                "saldo_projetado_mes": saldo_projetado_mes,
-                "saldo_projetado_ano": saldo_projetado_ano,
-                "proximo_vencimento": proximo_vencimento,
-                "fluxo_mensal": fluxo_mensal,
-                "ultimas_transacoes": ultimas_data,
-            }
-        )
+    # ------------------------------------------------------------------
+    # GET handler
+    # ------------------------------------------------------------------
+
+    def get(self, request):
+        org = request.profile.org
+        today = datetime.date.today()
+        ano = _parse_int_param(request.query_params, "ano", today.year)
+        mes = _parse_int_param(request.query_params, "mes", None)
+
+        parcelas_org = Parcela.objects.filter(org=org)
+        parcelas_ano = parcelas_org.filter(competencia_ano=ano)
+        if mes:
+            parcelas_ano = parcelas_ano.filter(competencia_mes=mes)
+
+        kpis = self._get_kpis(parcelas_ano, parcelas_org, today)
+        saldos = self._get_saldo_projetado(parcelas_org, ano, today)
+
+        return Response({
+            "ano": ano,
+            "total_receber": _d(kpis["total_receber"]),
+            "total_pagar": _d(kpis["total_pagar"]),
+            "recebido_no_mes": _d(kpis["recebido_no_mes"]),
+            "pago_no_mes": _d(kpis["pago_no_mes"]),
+            "total_vencido": _d(kpis["total_vencido"]),
+            "pct_vencidas": kpis["pct_vencidas"],
+            "saldo": _d(kpis["saldo"]),
+            "saldo_projetado": _d(saldos["saldo_projetado_ano"]),
+            "saldo_projetado_mes": _d(saldos["saldo_projetado_mes"]),
+            "saldo_projetado_ano": _d(saldos["saldo_projetado_ano"]),
+            "proximo_vencimento": self._get_proximo_vencimento(parcelas_org, today),
+            "fluxo_mensal": self._get_fluxo_mensal(parcelas_org, ano),
+            "ultimas_transacoes": self._get_ultimas_transacoes(org),
+        })
 
 
 class FluxoPlanoContasReportView(APIView):
@@ -675,17 +720,29 @@ class FluxoPlanoContasReportView(APIView):
 
     def get(self, request):
         org = request.profile.org
-        ano = int(request.query_params.get("ano", datetime.date.today().year))
+        ano = _parse_int_param(request.query_params, "ano", datetime.date.today().year)
         tipo = request.query_params.get("tipo")
 
-        parcelas = Parcela.objects.filter(
-            org=org, competencia_ano=ano
-        ).exclude(status="CANCELADO").select_related("lancamento__plano_de_contas__grupo")
+        # Single aggregated query instead of N×12 individual queries
+        parcelas_qs = Parcela.objects.filter(
+            org=org, competencia_ano=ano,
+        ).exclude(status="CANCELADO")
 
-        if tipo:
-            parcelas = parcelas.filter(lancamento__tipo=tipo)
+        if tipo in ("RECEBER", "PAGAR"):
+            parcelas_qs = parcelas_qs.filter(lancamento__tipo=tipo)
 
-        # Build pivot
+        agg_data = (
+            parcelas_qs
+            .values("lancamento__plano_de_contas_id", "competencia_mes")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+
+        # Build lookup: (plano_id, mes) → total
+        lookup = {}
+        for row in agg_data:
+            key = (str(row["lancamento__plano_de_contas_id"]), row["competencia_mes"])
+            lookup[key] = row["total"]
+
         planos = (
             PlanoDeContas.objects.filter(org=org, is_active=True)
             .select_related("grupo")
@@ -694,8 +751,9 @@ class FluxoPlanoContasReportView(APIView):
 
         result = []
         for plano in planos:
+            plano_id = str(plano.id)
             row = {
-                "plano_id": str(plano.id),
+                "plano_id": plano_id,
                 "plano_nome": plano.nome,
                 "grupo_codigo": plano.grupo.codigo,
                 "grupo_nome": plano.grupo.nome,
@@ -703,18 +761,9 @@ class FluxoPlanoContasReportView(APIView):
                 "total": 0,
             }
             for m in range(1, 13):
-                val = (
-                    parcelas.filter(
-                        lancamento__plano_de_contas=plano, competencia_mes=m
-                    ).aggregate(
-                        total=Coalesce(
-                            Sum("valor_parcela_convertido"), Decimal("0")
-                        )
-                    )["total"]
-                )
-                row["meses"][str(m)] = float(val)
-                row["total"] += float(val)
-
+                val = _d(lookup.get((plano_id, m), Decimal("0")))
+                row["meses"][str(m)] = val
+                row["total"] += val
             result.append(row)
 
         return Response({"ano": ano, "tipo": tipo, "planos": result})
@@ -729,55 +778,47 @@ class RelatorioMensalReportView(APIView):
 
     def get(self, request):
         org = request.profile.org
-        ano = int(request.query_params.get("ano", datetime.date.today().year))
+        ano = _parse_int_param(request.query_params, "ano", datetime.date.today().year)
 
-        parcelas = Parcela.objects.filter(org=org, competencia_ano=ano).exclude(status="CANCELADO")
+        # Single aggregated query instead of 48 individual queries
+        agg_data = (
+            Parcela.objects.filter(org=org, competencia_ano=ano)
+            .exclude(status="CANCELADO")
+            .values("competencia_mes", "lancamento__tipo", "status")
+            .annotate(total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0")))
+        )
+
+        # Build lookup: (mes, tipo, status) → total
+        lookup = {}
+        for row in agg_data:
+            key = (row["competencia_mes"], row["lancamento__tipo"], row["status"])
+            lookup[key] = row["total"]
+
+        def _get(mes, tipo, st):
+            return lookup.get((mes, tipo, st), Decimal("0"))
 
         meses = []
         saldo_acumulado = Decimal("0")
         for m in range(1, 13):
-            p_mes = parcelas.filter(competencia_mes=m)
+            rec_aberto = _get(m, "RECEBER", "ABERTO")
+            pag_aberto = _get(m, "PAGAR", "ABERTO")
+            rec_pago = _get(m, "RECEBER", "PAGO")
+            pag_pago = _get(m, "PAGAR", "PAGO")
 
-            receber_aberto = (
-                p_mes.filter(lancamento__tipo="RECEBER", status="ABERTO").aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
-            pagar_aberto = (
-                p_mes.filter(lancamento__tipo="PAGAR", status="ABERTO").aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
-            receber_pago = (
-                p_mes.filter(lancamento__tipo="RECEBER", status="PAGO").aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
-            pagar_pago = (
-                p_mes.filter(lancamento__tipo="PAGAR", status="PAGO").aggregate(
-                    total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-                )["total"]
-            )
-
-            # Saldo projetado = all revenues - all expenses (PAGO + ABERTO)
-            receber_total_mes = receber_aberto + receber_pago
-            pagar_total_mes = pagar_aberto + pagar_pago
-            saldo_projetado = receber_total_mes - pagar_total_mes
+            saldo_projetado = (rec_aberto + rec_pago) - (pag_aberto + pag_pago)
             saldo_acumulado += saldo_projetado
 
-            meses.append(
-                {
-                    "mes": m,
-                    "receber_aberto": float(receber_aberto),
-                    "pagar_aberto": float(pagar_aberto),
-                    "receber_pago": float(receber_pago),
-                    "pagar_pago": float(pagar_pago),
-                    "saldo_pago": float(receber_pago - pagar_pago),
-                    "saldo_aberto": float(receber_aberto - pagar_aberto),
-                    "saldo_projetado": float(saldo_projetado),
-                    "saldo_acumulado": float(saldo_acumulado),
-                }
-            )
+            meses.append({
+                "mes": m,
+                "receber_aberto": _d(rec_aberto),
+                "pagar_aberto": _d(pag_aberto),
+                "receber_pago": _d(rec_pago),
+                "pagar_pago": _d(pag_pago),
+                "saldo_pago": _d(rec_pago - pag_pago),
+                "saldo_aberto": _d(rec_aberto - pag_aberto),
+                "saldo_projetado": _d(saldo_projetado),
+                "saldo_acumulado": _d(saldo_acumulado),
+            })
 
         return Response({"ano": ano, "meses": meses})
 
@@ -794,8 +835,8 @@ class FluxoDiarioReportView(APIView):
     def get(self, request):
         org = request.profile.org
         today = datetime.date.today()
-        ano = int(request.query_params.get("ano", today.year))
-        mes = int(request.query_params.get("mes", today.month))
+        ano = _parse_int_param(request.query_params, "ano", today.year)
+        mes = _parse_int_param(request.query_params, "mes", today.month)
 
         # Calculate last day of month
         if mes == 12:
@@ -859,16 +900,14 @@ class FluxoDiarioReportView(APIView):
             saldo_acumulado += saldo_dia
             total_receita += rec
             total_despesa += desp
-            resultado.append(
-                {
-                    "dia": d,
-                    "data": str(datetime.date(ano, mes, d)),
-                    "receita": float(rec),
-                    "despesa": float(desp),
-                    "saldo_dia": float(saldo_dia),
-                    "saldo_acumulado": float(saldo_acumulado),
-                }
-            )
+            resultado.append({
+                "dia": d,
+                "data": str(datetime.date(ano, mes, d)),
+                "receita": _d(rec),
+                "despesa": _d(desp),
+                "saldo_dia": _d(saldo_dia),
+                "saldo_acumulado": _d(saldo_acumulado),
+            })
 
         dias_negativos = [r for r in resultado if r["saldo_acumulado"] < 0]
 
@@ -878,9 +917,9 @@ class FluxoDiarioReportView(APIView):
                 "mes": mes,
                 "dias": resultado,
                 "resumo": {
-                    "total_receita": float(total_receita),
-                    "total_despesa": float(total_despesa),
-                    "saldo_final": float(saldo_acumulado),
+                    "total_receita": _d(total_receita),
+                    "total_despesa": _d(total_despesa),
+                    "saldo_final": _d(saldo_acumulado),
                     "dias_negativos": len(dias_negativos),
                     "primeiro_dia_negativo": (
                         dias_negativos[0]["dia"] if dias_negativos else None
@@ -897,78 +936,63 @@ class EntityFinancialReportView(APIView):
 
     permission_classes = [IsAuthenticated, HasOrgContext, HasFinancialAccess]
 
+    # Mapping entity_type → (parcela FK path, lancamento FK field)
+    _ENTITY_FIELD_MAP = {
+        "account": ("lancamento__account_id", "account_id"),
+        "contact": ("lancamento__contact_id", "contact_id"),
+        "opportunity": ("lancamento__opportunity_id", "opportunity_id"),
+    }
+
     def get(self, request, pk):
         org = request.profile.org
         entity_type = request.query_params.get("entity_type", "account")
 
-        filter_kwargs = {"org": org}
-        if entity_type == "account":
-            filter_kwargs["lancamento__account_id"] = pk
-        elif entity_type == "contact":
-            filter_kwargs["lancamento__contact_id"] = pk
-        elif entity_type == "opportunity":
-            filter_kwargs["lancamento__opportunity_id"] = pk
-        else:
+        if entity_type not in self._ENTITY_FIELD_MAP:
             return Response(
                 {"detail": "entity_type must be account, contact, or opportunity"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        parcelas = Parcela.objects.filter(**filter_kwargs).exclude(status="CANCELADO")
+        parcela_fk, lanc_fk = self._ENTITY_FIELD_MAP[entity_type]
 
-        total_receber = (
-            parcelas.filter(lancamento__tipo="RECEBER").aggregate(
-                total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-            )["total"]
+        # Consolidated aggregation (single query instead of 5)
+        _SUM = lambda flt: Coalesce(  # noqa: E731
+            Sum("valor_parcela_convertido", filter=flt), Decimal("0")
         )
-        total_pagar = (
-            parcelas.filter(lancamento__tipo="PAGAR").aggregate(
-                total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-            )["total"]
-        )
-        total_pago = (
-            parcelas.filter(status="PAGO").aggregate(
-                total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-            )["total"]
-        )
-        total_aberto = (
-            parcelas.filter(status="ABERTO").aggregate(
-                total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-            )["total"]
-        )
-        total_vencido = (
-            parcelas.filter(
-                status="ABERTO", data_vencimento__lt=datetime.date.today()
-            ).aggregate(
-                total=Coalesce(Sum("valor_parcela_convertido"), Decimal("0"))
-            )["total"]
+        parcelas = Parcela.objects.filter(
+            org=org, **{parcela_fk: pk}
+        ).exclude(status="CANCELADO")
+
+        agg = parcelas.aggregate(
+            total_receber=_SUM(Q(lancamento__tipo="RECEBER")),
+            total_pagar=_SUM(Q(lancamento__tipo="PAGAR")),
+            total_pago=_SUM(Q(status="PAGO")),
+            total_aberto=_SUM(Q(status="ABERTO")),
+            total_vencido=_SUM(Q(status="ABERTO", data_vencimento__lt=datetime.date.today())),
         )
 
-        # Recent lancamentos for this entity
-        lanc_filter = {"org": org}
-        if entity_type == "account":
-            lanc_filter["account_id"] = pk
-        elif entity_type == "contact":
-            lanc_filter["contact_id"] = pk
-        elif entity_type == "opportunity":
-            lanc_filter["opportunity_id"] = pk
-
-        lancamentos = Lancamento.objects.filter(**lanc_filter).order_by("-created_at")[:10]
-        lancamentos_data = LancamentoListSerializer(lancamentos, many=True).data
-
-        return Response(
-            {
-                "entity_type": entity_type,
-                "entity_id": str(pk),
-                "total_receber": float(total_receber),
-                "total_pagar": float(total_pagar),
-                "total_pago": float(total_pago),
-                "total_aberto": float(total_aberto),
-                "total_vencido": float(total_vencido),
-                "saldo": float(total_receber - total_pagar),
-                "lancamentos": lancamentos_data,
-            }
+        lancamentos = (
+            Lancamento.objects.filter(org=org, **{lanc_fk: pk})
+            .select_related(
+                "plano_de_contas", "plano_de_contas__grupo",
+                "account", "contact", "opportunity", "invoice",
+                "forma_pagamento",
+            )
+            .prefetch_related("parcelas")
+            .order_by("-created_at")[:10]
         )
+
+        return Response({
+            "entity_type": entity_type,
+            "entity_id": str(pk),
+            "total_receber": _d(agg["total_receber"]),
+            "total_pagar": _d(agg["total_pagar"]),
+            "total_pago": _d(agg["total_pago"]),
+            "total_aberto": _d(agg["total_aberto"]),
+            "total_vencido": _d(agg["total_vencido"]),
+            "saldo": _d(agg["total_receber"] - agg["total_pagar"]),
+            "lancamentos": LancamentoListSerializer(lancamentos, many=True).data,
+        })
 
 
 class FormOptionsView(APIView):
@@ -979,17 +1003,12 @@ class FormOptionsView(APIView):
     def get(self, request):
         org = request.profile.org
 
-        from accounts.models import Account
-        from contacts.models import Contact
-        from opportunity.models import Opportunity
-        from invoices.models import Invoice
-
         plano_grupos = PlanoDeContasGrupo.objects.filter(org=org, is_active=True)
         planos = PlanoDeContas.objects.filter(org=org, is_active=True).select_related("grupo")
         formas = FormaPagamento.objects.filter(org=org, is_active=True)
-        accounts = Account.objects.filter(org=org)
-        contacts = Contact.objects.filter(org=org)
-        opportunities = Opportunity.objects.filter(org=org)
+        accounts = Account.objects.filter(org=org).order_by("name").only("id", "name")
+        contacts = Contact.objects.filter(org=org).order_by("first_name", "last_name").only("id", "first_name", "last_name", "email")
+        opportunities = Opportunity.objects.filter(org=org).order_by("name").only("id", "name")
 
         return Response(
             {
@@ -1046,34 +1065,37 @@ class PaymentTransactionViewSet(FinanceiroMixin, ModelViewSet):
             return PaymentTransactionDetailSerializer
         return PaymentTransactionListSerializer
 
+    ordering = ["-created_at"]
+
     def get_queryset(self):
         qs = super().get_queryset()
+        params = self.request.query_params
 
-        status_filter = self.request.query_params.get("status")
-        if status_filter:
+        status_filter = params.get("status")
+        if status_filter in ("pending", "confirmed", "failed", "expired", "refunded"):
             qs = qs.filter(status=status_filter)
 
-        tx_type = self.request.query_params.get("transaction_type")
-        if tx_type:
+        tx_type = params.get("transaction_type")
+        if tx_type in ("pix_qrcode", "pix_manual", "gateway"):
             qs = qs.filter(transaction_type=tx_type)
 
-        date_from = self.request.query_params.get("date_from")
+        date_from = _parse_date(params.get("date_from"))
         if date_from:
             qs = qs.filter(created_at__date__gte=date_from)
 
-        date_to = self.request.query_params.get("date_to")
+        date_to = _parse_date(params.get("date_to"))
         if date_to:
             qs = qs.filter(created_at__date__lte=date_to)
 
-        invoice_id = self.request.query_params.get("invoice")
+        invoice_id = _valid_uuid(params.get("invoice"))
         if invoice_id:
             qs = qs.filter(invoice_id=invoice_id)
 
-        lancamento_id = self.request.query_params.get("lancamento")
+        lancamento_id = _valid_uuid(params.get("lancamento"))
         if lancamento_id:
             qs = qs.filter(lancamento_id=lancamento_id)
 
-        search = self.request.query_params.get("search")
+        search = params.get("search")
         if search:
             qs = qs.filter(
                 Q(pix_txid__icontains=search)
@@ -1166,7 +1188,6 @@ class PixGenerateView(APIView):
             },
         )
         if invoice_id:
-            from invoices.models import Invoice
             if not Invoice.objects.filter(id=invoice_id, org=org).exists():
                 return Response(
                     {"error": True, "errors": "Invoice não encontrada"},
@@ -1181,7 +1202,6 @@ class PixGenerateView(APIView):
                 )
             transaction.lancamento_id = lancamento_id
         if contact_id:
-            from contacts.models import Contact
             if not Contact.objects.filter(id=contact_id, org=org).exists():
                 return Response(
                     {"error": True, "errors": "Contato não encontrado"},

@@ -32,7 +32,7 @@
   } from '@lucide/svelte';
   import { TaskKanban } from '$lib/components/ui/task-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
-  import { apiRequest as clientApiRequest, getCurrentUser } from '$lib/api.js';
+  import { apiRequest as clientApiRequest } from '$lib/api.js';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
@@ -243,7 +243,7 @@
   // Column visibility state - use defaults
   const STORAGE_KEY = 'tasks-table-columns';
   let visibleColumns = $state([...DEFAULT_VISIBLE_COLUMNS]);
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // Load column visibility from localStorage
   onMount(() => {
@@ -258,10 +258,7 @@
         console.error('Failed to parse saved columns:', e);
       }
     }
-    currentUser = getCurrentUser();
-    if (currentUser) {
-      isTaskAdmin = currentUser.organizations?.some((o) => o.role === 'ADMIN') || false;
-    }
+    // currentUser and isTaskAdmin are now $derived from server data
   });
 
   // Save column visibility when changed
@@ -484,8 +481,17 @@
 
   // Pipeline state
   const taskPipelines = $derived(data.pipelines || []);
-  let activeTaskPipelineId = $state(data.pipelineId || '');
-  let isTaskAdmin = $state(false);
+  let activeTaskPipelineId = $state('');
+  let isTaskAdmin = $derived(data.userRole === 'ADMIN');
+
+  $effect(() => {
+    if (data.pipelineId) {
+      const exists = taskPipelines.some(p => p.id === data.pipelineId);
+      activeTaskPipelineId = exists ? data.pipelineId : (taskPipelines[0]?.id || '');
+    } else if (taskPipelines.length > 0) {
+      activeTaskPipelineId = taskPipelines[0].id;
+    }
+  });
 
   async function handleTaskPipelineSelect(id) {
     activeTaskPipelineId = id;
@@ -496,64 +502,100 @@
       url.searchParams.delete('pipeline_id');
     }
     url.searchParams.set('view', 'kanban');
-    await goto(url.toString(), { invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
   async function handleTaskPipelineCreate(pipelineData) {
-    const result = await clientApiRequest('/tasks/pipelines/', {
-      method: 'POST',
-      body: pipelineData
-    });
-    await invalidateAll();
-    return result;
+    try {
+      await clientApiRequest('/tasks/pipelines/', {
+        method: 'POST',
+        body: pipelineData
+      });
+      toast.success('Pipeline criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar pipeline');
+      throw err;
+    }
   }
 
   async function handleTaskPipelineDelete(id) {
-    await clientApiRequest(`/tasks/pipelines/${id}/`, { method: 'DELETE' });
-    if (activeTaskPipelineId === id) {
-      activeTaskPipelineId = '';
+    try {
+      await clientApiRequest(`/tasks/pipelines/${id}/`, { method: 'DELETE' });
+      toast.success('Pipeline excluído');
+      if (activeTaskPipelineId === id) {
+        activeTaskPipelineId = '';
+      }
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao excluir pipeline');
+      throw err;
     }
-    await invalidateAll();
   }
 
   async function handleTaskPipelineUpdate(id, pipelineData) {
-    const result = await clientApiRequest(`/tasks/pipelines/${id}/`, {
-      method: 'PUT',
-      body: pipelineData
-    });
-    await invalidateAll();
-    return result;
+    try {
+      await clientApiRequest(`/tasks/pipelines/${id}/`, {
+        method: 'PUT',
+        body: pipelineData
+      });
+      toast.success('Pipeline atualizado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar pipeline');
+      throw err;
+    }
   }
 
   async function handleTaskStageCreate(pipelineId, stageData) {
-    const result = await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/`, {
-      method: 'POST',
-      body: stageData
-    });
-    await invalidateAll();
-    return result;
+    try {
+      await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/`, {
+        method: 'POST',
+        body: stageData
+      });
+      toast.success('Estágio criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar estágio');
+      throw err;
+    }
   }
 
   async function handleTaskStageUpdate(stageId, stageData) {
-    const result = await clientApiRequest(`/tasks/stages/${stageId}/`, {
-      method: 'PUT',
-      body: stageData
-    });
-    await invalidateAll();
-    return result;
+    try {
+      await clientApiRequest(`/tasks/stages/${stageId}/`, {
+        method: 'PATCH',
+        body: stageData
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar estágio');
+      throw err;
+    }
   }
 
   async function handleTaskStageDelete(stageId) {
-    await clientApiRequest(`/tasks/stages/${stageId}/`, { method: 'DELETE' });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/tasks/stages/${stageId}/`, { method: 'DELETE' });
+      toast.success('Estágio removido');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao remover estágio');
+      throw err;
+    }
   }
 
   async function handleTaskStageReorder(pipelineId, stageOrder) {
-    await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/reorder/`, {
-      method: 'POST',
-      body: { stage_ids: stageOrder }
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/tasks/pipelines/${pipelineId}/stages/reorder/`, {
+        method: 'POST',
+        body: { stage_ids: stageOrder }
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao reordenar estágios');
+      throw err;
+    }
   }
 
   // Form references for server actions

@@ -10,6 +10,7 @@ from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from financeiro.exchange_rates import ExchangeRateError, get_exchange_rate
 from invoices.models import Invoice, Payment
 
 logger = logging.getLogger(__name__)
@@ -60,13 +61,28 @@ def create_lancamento_from_invoice(sender, instance, created, **kwargs):
                 if plano_receita and plano_custo:
                     break
 
+        # Resolve exchange rate for multi-currency invoices
+        currency = instance.currency or "BRL"
+        exchange_rate = Decimal("1")
+        if currency != instance.org.default_currency:
+            try:
+                exchange_rate = get_exchange_rate(
+                    currency, instance.org.default_currency, due_date,
+                )
+            except ExchangeRateError:
+                logger.warning(
+                    "Could not fetch exchange rate for Invoice %s (%s→%s)",
+                    instance.pk, currency, instance.org.default_currency,
+                )
+
         # 1. Create RECEBER Lancamento (revenue)
         lancamento_receber = Lancamento(
             org=instance.org,
             tipo="RECEBER",
-            descricao=f"Fatura {instance.invoice_number} — {instance.invoice_title}",
-            currency=instance.currency or "BRL",
+            descricao=f"Fatura {instance.invoice_number or 'S/N'} — {instance.invoice_title or ''}",
+            currency=currency,
             valor_total=instance.total_amount,
+            exchange_rate_to_base=exchange_rate,
             data_primeiro_vencimento=due_date,
             numero_parcelas=1,
             invoice=instance,
@@ -130,8 +146,9 @@ def create_lancamento_from_invoice(sender, instance, created, **kwargs):
                 org=instance.org,
                 tipo="PAGAR",
                 descricao=f"CMV — Fatura {instance.invoice_number}",
-                currency=instance.currency or "BRL",
+                currency=currency,
                 valor_total=total_cogs,
+                exchange_rate_to_base=exchange_rate,
                 data_primeiro_vencimento=due_date,
                 numero_parcelas=1,
                 invoice=instance,
@@ -173,37 +190,31 @@ def sync_payment_to_parcela(sender, instance, created, **kwargs):
 
     from django.utils import timezone
 
-    # Find unpaid parcelas and pay them proportionally
-    parcelas = lancamento.parcelas.filter(status="ABERTO").order_by("data_vencimento")
-    remaining = instance.amount
+    with transaction.atomic():
+        # Lock unpaid parcelas to prevent concurrent payment race conditions
+        parcelas = list(
+            lancamento.parcelas.filter(status="ABERTO")
+            .order_by("data_vencimento")
+            .select_for_update()
+        )
+        remaining = instance.amount
 
-    for parcela in parcelas:
-        if remaining <= 0:
-            break
+        for parcela in parcelas:
+            if remaining <= 0:
+                break
 
-        if remaining >= parcela.valor_parcela:
-            # Fully pay this parcela
-            parcela.status = "PAGO"
-            parcela.data_pagamento = instance.payment_date or timezone.now().date()
-            parcela.save(update_fields=["status", "data_pagamento"])
-            remaining -= parcela.valor_parcela
-        # Partial payment: leave as ABERTO (the parcela has a fixed value)
+            if remaining >= parcela.valor_parcela:
+                parcela.status = "PAGO"
+                parcela.data_pagamento = instance.payment_date or timezone.now().date()
+                parcela.save(update_fields=["status", "data_pagamento"])
+                remaining -= parcela.valor_parcela
+            # Partial payment: leave as ABERTO (the parcela has a fixed value)
 
-    # Update lancamento status based on parcela states
-    all_parcelas = lancamento.parcelas.all()
-    paid_count = all_parcelas.filter(status="PAGO").count()
-    total_count = all_parcelas.count()
-
-    if paid_count == total_count:
-        lancamento.status = "PAGO"
-    elif paid_count > 0:
-        lancamento.status = "ABERTO"  # Partially paid stays ABERTO
-    lancamento.save(update_fields=["status"])
+        # Recalculate lancamento status atomically
+        lancamento.update_status()
 
     logger.info(
-        "Synced Payment to Parcela: Invoice %s, Lancamento %s (%d/%d parcelas paid)",
+        "Synced Payment to Parcela: Invoice %s, Lancamento %s",
         invoice.invoice_number,
         lancamento.pk,
-        paid_count,
-        total_count,
     )

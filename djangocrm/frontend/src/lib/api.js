@@ -214,6 +214,9 @@ export async function apiRequest(endpoint, options = {}) {
         requestHeaders['Authorization'] = `Bearer ${newAccessToken}`;
         fetchOptions.headers = requestHeaders;
         response = await fetch(url, fetchOptions);
+      } else {
+        // Refresh failed — clear stale access token to stop further 401 loops
+        _accessToken = null;
       }
     }
 
@@ -237,10 +240,15 @@ export async function apiRequest(endpoint, options = {}) {
           : errorData.non_field_errors;
       }
 
-      throw new Error(errorMessage);
+      const err = new Error(errorMessage);
+      err.status = response.status;
+      throw err;
     }
 
-    // Return JSON response
+    // Handle empty responses (204 No Content, etc.)
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      return null;
+    }
     return await response.json();
   } catch (error) {
     console.error(`API request failed: ${method} ${endpoint}`, error);

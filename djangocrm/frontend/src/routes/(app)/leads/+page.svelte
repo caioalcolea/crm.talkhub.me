@@ -59,7 +59,7 @@
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
-  import { getCurrentUser, apiRequest } from '$lib/api.js';
+  import { apiRequest } from '$lib/api.js';
   import { browser } from '$app/environment';
   import { orgSettings } from '$lib/stores/org.js';
   import { ViewToggle } from '$lib/components/ui/view-toggle';
@@ -567,7 +567,6 @@
 
   onMount(() => {
     loadColumnVisibility();
-    currentUser = getCurrentUser();
   });
 
   // Save to localStorage when column visibility changes
@@ -604,7 +603,13 @@
   let activePipelineId = $state('');
 
   $effect(() => {
-    if (data.pipelineId) activePipelineId = data.pipelineId;
+    if (data.pipelineId) {
+      const exists = leadPipelines.some(p => p.id === data.pipelineId);
+      activePipelineId = exists ? data.pipelineId : (leadPipelines[0]?.id || '');
+    } else if (leadPipelines.length > 0) {
+      // Auto-select first pipeline when none specified
+      activePipelineId = leadPipelines[0].id;
+    }
   });
 
   async function handleLeadPipelineSelect(pipelineId) {
@@ -620,68 +625,97 @@
   }
 
   async function handleLeadPipelineCreate(pipelineData) {
-    await clientApiRequest('/leads/pipelines/', {
-      method: 'POST',
-      body: pipelineData
-    });
-    toast.success('Pipeline criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest('/leads/pipelines/', {
+        method: 'POST',
+        body: pipelineData
+      });
+      toast.success('Pipeline criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar pipeline');
+      throw err;
+    }
   }
 
   async function handleLeadPipelineDelete(pipelineId) {
-    await clientApiRequest(`/leads/pipelines/${pipelineId}/`, { method: 'DELETE' });
-    toast.success('Pipeline excluído');
-    if (activePipelineId === pipelineId) activePipelineId = '';
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/leads/pipelines/${pipelineId}/`, { method: 'DELETE' });
+      toast.success('Pipeline excluído');
+      if (activePipelineId === pipelineId) activePipelineId = '';
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao excluir pipeline');
+      throw err;
+    }
   }
 
   async function handleLeadPipelineUpdate(pipelineId, pipelineData) {
-    await clientApiRequest(`/leads/pipelines/${pipelineId}/`, {
-      method: 'PUT',
-      body: pipelineData
-    });
-    toast.success('Pipeline atualizado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/leads/pipelines/${pipelineId}/`, {
+        method: 'PUT',
+        body: pipelineData
+      });
+      toast.success('Pipeline atualizado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar pipeline');
+      throw err;
+    }
   }
 
   async function handleLeadStageCreate(pipelineId, stageData) {
-    await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/`, {
-      method: 'POST',
-      body: stageData
-    });
-    toast.success('Estágio criado');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/`, {
+        method: 'POST',
+        body: stageData
+      });
+      toast.success('Estágio criado');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao criar estágio');
+      throw err;
+    }
   }
 
   async function handleLeadStageUpdate(stageId, stageData) {
-    await clientApiRequest(`/leads/stages/${stageId}/`, {
-      method: 'PUT',
-      body: stageData
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/leads/stages/${stageId}/`, {
+        method: 'PATCH',
+        body: stageData
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar estágio');
+      throw err;
+    }
   }
 
   async function handleLeadStageDelete(stageId) {
-    await clientApiRequest(`/leads/stages/${stageId}/`, { method: 'DELETE' });
-    toast.success('Estágio removido');
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/leads/stages/${stageId}/`, { method: 'DELETE' });
+      toast.success('Estágio removido');
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao remover estágio');
+      throw err;
+    }
   }
 
   async function handleLeadStageReorder(pipelineId, stageOrder) {
-    await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/reorder/`, {
-      method: 'POST',
-      body: { stage_ids: stageOrder }
-    });
-    await invalidateAll();
+    try {
+      await clientApiRequest(`/leads/pipelines/${pipelineId}/stages/reorder/`, {
+        method: 'POST',
+        body: { stage_ids: stageOrder }
+      });
+      await invalidateAll();
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao reordenar estágios');
+      throw err;
+    }
   }
 
-  let isLeadAdmin = $state(false);
-  onMount(() => {
-    try {
-      const user = getCurrentUser();
-      isLeadAdmin = user?.organizations?.some((o) => o.role === 'ADMIN') || false;
-    } catch { /* ignore */ }
-  });
+  let isLeadAdmin = $derived(data.userRole === 'ADMIN');
 
   // Total lead count - use kanban data when in kanban mode for accurate count
   const totalLeadCount = $derived(
@@ -757,7 +791,7 @@
   let drawerData = $state(null);
   let drawerLoading = $state(false);
   let isSaving = $state(false);
-  let currentUser = $state(null);
+  let currentUser = $derived(data.user ? { ...data.user, organizations: [{ role: data.userRole }] } : null);
 
   // ContactAutocomplete state for create mode
   /** @type {any} */

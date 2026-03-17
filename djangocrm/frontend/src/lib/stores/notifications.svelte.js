@@ -12,6 +12,8 @@ let notifications = $state([]);
 let unreadCount = $state(0);
 let isLoading = $state(false);
 let _pollTimer = null;
+let _consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 3;
 
 async function loadNotifications(params = {}) {
   if (!browser) return;
@@ -37,10 +39,12 @@ async function pollUnreadCount() {
     if (res && typeof res.count === 'number') {
       unreadCount = res.count;
     }
+    _consecutiveErrors = 0;
   } catch (e) {
-    // Stop polling on auth errors to avoid infinite 401s
+    _consecutiveErrors++;
+    // Stop polling on auth errors or repeated failures
     const status = e?.status || e?.response?.status;
-    if (status === 401 || status === 403) {
+    if (status === 401 || status === 403 || _consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
       stopPolling();
     }
   }
@@ -72,6 +76,7 @@ async function markAllRead() {
 
 function startPolling() {
   if (_pollTimer || !browser) return;
+  _consecutiveErrors = 0;
   pollUnreadCount();
   _pollTimer = setInterval(pollUnreadCount, 10_000);
 }

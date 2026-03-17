@@ -490,6 +490,16 @@ class OpportunityStageSerializer(serializers.ModelSerializer):
     def get_opportunity_count(self, obj):
         return obj.opportunities.count()
 
+    def validate_name(self, value):
+        pipeline = self.context.get("pipeline") or (self.instance.pipeline if self.instance else None)
+        if pipeline:
+            qs = OpportunityStage.objects.filter(pipeline=pipeline, name=value)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("Já existe um estágio com este nome neste pipeline.")
+        return value
+
 
 class OpportunityPipelineSerializer(serializers.ModelSerializer):
     """Serializer for opportunity pipelines with nested stages."""
@@ -528,8 +538,9 @@ class OpportunityPipelineSerializer(serializers.ModelSerializer):
 
 
 class OpportunityPipelineListSerializer(serializers.ModelSerializer):
-    """Simplified pipeline serializer for lists."""
+    """Pipeline serializer for lists — includes nested stages for settings dialog."""
 
+    stages = OpportunityStageSerializer(many=True, read_only=True)
     stage_count = serializers.SerializerMethodField()
     opportunity_count = serializers.SerializerMethodField()
 
@@ -541,6 +552,7 @@ class OpportunityPipelineListSerializer(serializers.ModelSerializer):
             "description",
             "is_default",
             "is_active",
+            "stages",
             "stage_count",
             "opportunity_count",
             "visible_to_teams",
