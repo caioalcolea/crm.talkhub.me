@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import {
     GripVertical,
     Plus,
@@ -64,6 +65,9 @@
   const stages = $derived(pipeline?.stages || []);
   const sortedStages = $derived([...stages].sort((a, b) => a.order - b.order));
 
+  // Tab state
+  let activeTab = $state('stages');
+
   // Drag-and-drop state
   let draggedIndex = $state(-1);
   let dragOverIndex = $state(-1);
@@ -99,19 +103,26 @@
     '#F97316', '#14B8A6'
   ];
 
-  // Sync local state when pipeline prop changes (after invalidateAll)
+  // Sync local state when pipeline prop changes (after invalidateAll).
+  // Only track `pipeline` — write to local state inside untrack to avoid loops.
   $effect(() => {
-    if (pipeline) {
-      pipelineName = pipeline.name || '';
-      pipelineDescription = pipeline.description || '';
-      selectedTeams = new Set(pipeline.visible_to_teams?.map(String) || []);
-      selectedUsers = new Set(pipeline.visible_to_users?.map(String) || []);
-    }
+    const p = pipeline;
+    untrack(() => {
+      if (p) {
+        pipelineName = p.name || '';
+        pipelineDescription = p.description || '';
+        selectedTeams = new Set(p.visible_to_teams?.map(String) || []);
+        selectedUsers = new Set(p.visible_to_users?.map(String) || []);
+      }
+    });
   });
 
-  // Clear editing state when dialog closes
+  // Reset local state when dialog closes
   $effect(() => {
-    if (!open) editingStageNames = {};
+    if (!open) {
+      editingStageNames = {};
+      activeTab = 'stages';
+    }
   });
 
   async function handleSavePipeline() {
@@ -243,7 +254,7 @@
     selectedUsers = new Set(selectedUsers);
   }
 
-  const visibilityMode = $derived(() => {
+  const visibilityMode = $derived.by(() => {
     if (selectedTeams.size === 0 && selectedUsers.size === 0) return 'all';
     return 'restricted';
   });
@@ -258,7 +269,7 @@
       </Dialog.Description>
     </Dialog.Header>
 
-    <Tabs.Root value="stages" class="mt-4">
+    <Tabs.Root bind:value={activeTab} class="mt-4">
       <Tabs.List class="w-full">
         <Tabs.Trigger value="stages" class="flex-1">Estágios</Tabs.Trigger>
         <Tabs.Trigger value="visibility" class="flex-1">Visibilidade</Tabs.Trigger>
@@ -376,7 +387,7 @@
       <Tabs.Content value="visibility" class="mt-4 space-y-4">
         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/50">
           <div class="flex items-center gap-2 text-sm">
-            {#if visibilityMode() === 'all'}
+            {#if visibilityMode === 'all'}
               <Eye class="h-4 w-4 text-emerald-600" />
               <span class="font-medium text-emerald-700 dark:text-emerald-400">
                 Visível para todos

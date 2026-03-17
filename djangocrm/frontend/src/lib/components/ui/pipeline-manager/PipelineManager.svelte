@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import { Plus, Settings, Trash2, Loader2 } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -71,12 +72,19 @@
     pipelines.find((p) => p.id === activePipelineId) || null
   );
 
-  // Keep settings dialog in sync when pipelines data refreshes (after invalidateAll)
+  // Keep settings dialog in sync when pipelines data refreshes (after invalidateAll).
+  // Use untrack for settingsPipeline reads to avoid read/write loop —
+  // pipelines.find() returns different proxy wrappers each call, which
+  // would re-trigger this effect infinitely without untrack.
   $effect(() => {
-    if (settingsDialogOpen && settingsPipeline) {
-      const fresh = pipelines.find((p) => p.id === settingsPipeline.id);
-      if (fresh) settingsPipeline = fresh;
-    }
+    const currentPipelines = pipelines;
+    const isOpen = settingsDialogOpen;
+    untrack(() => {
+      if (isOpen && settingsPipeline) {
+        const fresh = currentPipelines.find((p) => p.id === settingsPipeline.id);
+        if (fresh) settingsPipeline = fresh;
+      }
+    });
   });
 
   async function handleCreate() {
