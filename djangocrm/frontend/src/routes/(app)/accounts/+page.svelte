@@ -625,7 +625,17 @@
         drawerFormData = { ...drawerFormData, cnpj: formatCnpj(clean) };
         const company = await fetchCompanyByCnpj(clean);
         if (company) {
-          drawerFormData = { ...drawerFormData, ...company };
+          // Only fill empty fields — never overwrite user-entered data
+          const updates = { cnpj: company.cnpj };
+          if (!drawerFormData.name) updates.name = company.name;
+          if (!drawerFormData.addressLine) updates.addressLine = company.addressLine;
+          if (!drawerFormData.city) updates.city = company.city;
+          if (!drawerFormData.state) updates.state = company.state;
+          if (!drawerFormData.postcode) updates.postcode = company.postcode;
+          if (!drawerFormData.country) updates.country = company.country;
+          if (!drawerFormData.phone) updates.phone = company.phone;
+          if (!drawerFormData.email) updates.email = company.email;
+          drawerFormData = { ...drawerFormData, ...updates };
           toast.success('Dados da empresa preenchidos automaticamente');
         } else {
           toast.error('CNPJ não encontrado na base de dados');

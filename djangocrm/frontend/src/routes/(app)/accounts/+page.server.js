@@ -108,7 +108,9 @@ export async function load({ locals, url, cookies }) {
         email: account.email,
         phone: account.phone,
         website: account.website,
-        cnpj: account.cnpj || '',
+        cnpj: account.cnpj?.length === 14
+          ? account.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+          : account.cnpj || '',
         industry: account.industry,
         description: account.description,
         isActive: account.is_active === true,
