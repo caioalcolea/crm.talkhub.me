@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -368,6 +369,25 @@ class Task(AssignableMixin, OrgScopedMixin, BaseModel):
 
     contacts = models.ManyToManyField(Contact, related_name="task_contacts")
 
+    # Priority scoring
+    effort = models.PositiveSmallIntegerField(
+        _("effort"), null=True, blank=True,
+        choices=[(1, "Baixo"), (2, "Médio"), (3, "Alto")],
+    )
+    impact = models.PositiveSmallIntegerField(
+        _("impact"), null=True, blank=True,
+        choices=[(1, "Baixo"), (2, "Médio"), (3, "Alto")],
+    )
+
+    # Project grouping
+    project = models.ForeignKey(
+        "Project",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tasks",
+    )
+
     assigned_to = models.ManyToManyField(Profile, related_name="task_assigned_users")
     teams = models.ManyToManyField(Teams, related_name="tasks_teams")
     tags = models.ManyToManyField(Tags, related_name="task_tags", blank=True)
@@ -454,3 +474,174 @@ class Task(AssignableMixin, OrgScopedMixin, BaseModel):
         if not self.due_date:
             return None
         return (self.due_date - timezone.now().date()).days
+
+    @property
+    def priority_score(self) -> int:
+        """Computed priority score (higher = more urgent). 0-10 range."""
+        score = 0
+        priority_map = {"High": 3, "Medium": 2, "Low": 1}
+        score += priority_map.get(self.priority, 0)
+        if self.impact:
+            score += self.impact
+        if self.effort:
+            score += (4 - self.effort)  # Lower effort = higher score
+        if self.is_overdue:
+            score += 3
+        elif self.due_date == timezone.now().date():
+            score += 1
+        return min(score, 10)
+
+    @property
+    def is_blocked(self) -> bool:
+        """True if any blocking dependency is not completed."""
+        return self.dependencies.filter(
+            dependency_type="blocks"
+        ).exclude(
+            depends_on__status="Completed"
+        ).exists()
+
+    @property
+    def subtask_progress(self) -> str:
+        """Return subtask completion progress as 'completed/total'."""
+        total = self.subtasks.count()
+        if total == 0:
+            return ""
+        completed = self.subtasks.filter(is_completed=True).count()
+        return f"{completed}/{total}"
+
+
+class Subtask(OrgScopedMixin, BaseModel):
+    """Checklist item within a Task or Case."""
+
+    task = models.ForeignKey(
+        Task,
+        related_name="subtasks",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    case = models.ForeignKey(
+        "cases.Case",
+        related_name="subtasks",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    title = models.CharField(max_length=300)
+    is_completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    order = models.PositiveIntegerField(default=0)
+    assigned_to = models.ForeignKey(
+        Profile,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_subtasks",
+    )
+    org = models.ForeignKey(Org, on_delete=models.CASCADE, related_name="subtasks")
+
+    class Meta:
+        verbose_name = "Subtask"
+        verbose_name_plural = "Subtasks"
+        db_table = "subtask"
+        ordering = ["order", "created_at"]
+        indexes = [
+            models.Index(fields=["task", "order"]),
+            models.Index(fields=["case", "order"]),
+            models.Index(fields=["org"]),
+        ]
+
+
+class TaskDependency(OrgScopedMixin, BaseModel):
+    """Dependency or relationship between two tasks."""
+
+    DEPENDENCY_TYPES = [
+        ("blocks", "Bloqueia"),
+        ("related", "Relacionada"),
+    ]
+
+    task = models.ForeignKey(
+        Task, related_name="dependencies", on_delete=models.CASCADE
+    )
+    depends_on = models.ForeignKey(
+        Task, related_name="dependents", on_delete=models.CASCADE
+    )
+    dependency_type = models.CharField(
+        max_length=20, choices=DEPENDENCY_TYPES, default="blocks"
+    )
+    org = models.ForeignKey(Org, on_delete=models.CASCADE, related_name="task_dependencies")
+
+    class Meta:
+        verbose_name = "Task Dependency"
+        verbose_name_plural = "Task Dependencies"
+        db_table = "task_dependency"
+        unique_together = ("task", "depends_on")
+        indexes = [
+            models.Index(fields=["task"]),
+            models.Index(fields=["depends_on"]),
+            models.Index(fields=["org"]),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.task_id == self.depends_on_id:
+            raise ValidationError("A task cannot depend on itself.")
+        # Check for circular dependencies (max depth 10)
+        if self.dependency_type == "blocks":
+            self._check_circular(self.depends_on_id, self.task_id, depth=0)
+
+    def _check_circular(self, source_id, target_id, depth):
+        if depth > 10:
+            return
+        deps = TaskDependency.objects.filter(
+            task_id=source_id, dependency_type="blocks"
+        ).values_list("depends_on_id", flat=True)
+        if target_id in deps:
+            raise ValidationError("Circular dependency detected.")
+        for dep_id in deps:
+            self._check_circular(dep_id, target_id, depth + 1)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class Project(OrgScopedMixin, BaseModel):
+    """Project/Portfolio for grouping tasks."""
+
+    STATUS_CHOICES = [
+        ("active", "Ativo"),
+        ("completed", "Concluído"),
+        ("archived", "Arquivado"),
+    ]
+
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    color = models.CharField(max_length=7, default="#6366F1")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    due_date = models.DateField(null=True, blank=True)
+    owner = models.ForeignKey(
+        Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name="owned_projects"
+    )
+    members = models.ManyToManyField(Profile, related_name="projects", blank=True)
+    org = models.ForeignKey(Org, on_delete=models.CASCADE, related_name="projects")
+
+    class Meta:
+        verbose_name = "Project"
+        verbose_name_plural = "Projects"
+        db_table = "project"
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["org", "-created_at"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return self.name

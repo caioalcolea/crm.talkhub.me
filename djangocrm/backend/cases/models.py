@@ -34,6 +34,8 @@ class Case(AssignableMixin, OrgScopedMixin, BaseModel):
     )
     contacts = models.ManyToManyField(Contact, related_name="case_contacts")
     closed_on = models.DateField(blank=True, null=True)
+    due_date = models.DateField(_("due date"), blank=True, null=True)
+    due_time = models.TimeField(_("due time"), blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     assigned_to = models.ManyToManyField(Profile, related_name="case_assigned_users")
     is_active = models.BooleanField(default=True)
@@ -109,6 +111,8 @@ class Case(AssignableMixin, OrgScopedMixin, BaseModel):
         indexes = [
             models.Index(fields=["status"]),
             models.Index(fields=["priority"]),
+            models.Index(fields=["due_date"]),
+            models.Index(fields=["due_date", "due_time"]),
             models.Index(fields=["org", "-created_at"]),
             models.Index(fields=["stage", "kanban_order"]),
             models.Index(fields=["status", "kanban_order"]),
@@ -184,6 +188,37 @@ class Case(AssignableMixin, OrgScopedMixin, BaseModel):
         if self.created_at:
             return self.created_at + timedelta(hours=self.sla_resolution_hours)
         return None
+
+    @property
+    def is_overdue(self) -> bool:
+        """Check if case is overdue (past due date/time and not closed)."""
+        if self.status in ("Closed", "Rejected", "Duplicate"):
+            return False
+        if not self.due_date:
+            return False
+        now = timezone.now()
+        today = now.date()
+        if today > self.due_date:
+            return True
+        if today == self.due_date and self.due_time:
+            return timezone.localtime(now).time() > self.due_time
+        return False
+
+    @property
+    def days_until_due(self) -> int | None:
+        """Return days until due (negative if overdue). None if no due date."""
+        if not self.due_date:
+            return None
+        return (self.due_date - timezone.now().date()).days
+
+    @property
+    def subtask_progress(self) -> str:
+        """Return subtask completion progress as 'completed/total'."""
+        total = self.subtasks.count()
+        if total == 0:
+            return ""
+        completed = self.subtasks.filter(is_completed=True).count()
+        return f"{completed}/{total}"
 
 
 class Solution(OrgScopedMixin, BaseModel):

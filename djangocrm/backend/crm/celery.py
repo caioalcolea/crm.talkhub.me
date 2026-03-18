@@ -174,4 +174,9 @@ app.conf.beat_schedule = {
         "task": "assistant.tasks.cleanup_old_data",
         "schedule": crontab(hour=4, minute=0),
     },
+    # Tasks — Auto-escalate overdue tasks every hour
+    "auto-escalate-overdue-tasks": {
+        "task": "auto_escalate_overdue_tasks",
+        "schedule": crontab(minute=0),
+    },
 }

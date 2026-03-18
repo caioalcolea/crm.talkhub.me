@@ -40,6 +40,8 @@ ALLOWED_VARIABLES = {
         "case_priority",
         "assigned_to",
         "sla_deadline",
+        "due_date",
+        "due_time",
     ],
     "tasks": [
         "task_title",
@@ -240,6 +242,8 @@ def build_context_for_case(case):
         "case_priority": getattr(case, "priority", ""),
         "assigned_to": str(assigned) if assigned else "",
         "sla_deadline": sla_deadline,
+        "due_date": str(case.due_date) if case.due_date else "",
+        "due_time": case.due_time.strftime("%H:%M") if case.due_time else "",
         "org_name": case.org.name,
         "current_date": str(date.today()),
     }

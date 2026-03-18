@@ -31,6 +31,7 @@ export async function load({ locals, cookies, url }) {
   const limit = parseInt(url.searchParams.get('limit') || '10');
 
   // Parse filter params from URL
+  const quickFilter = url.searchParams.get('quick_filter') || '';
   const filters = {
     search: url.searchParams.get('search') || '',
     status: url.searchParams.get('status') || '',
@@ -38,7 +39,8 @@ export async function load({ locals, cookies, url }) {
     assigned_to: url.searchParams.getAll('assigned_to'),
     tags: url.searchParams.getAll('tags'),
     due_date_gte: url.searchParams.get('due_date_gte') || '',
-    due_date_lte: url.searchParams.get('due_date_lte') || ''
+    due_date_lte: url.searchParams.get('due_date_lte') || '',
+    quick_filter: quickFilter
   };
 
   try {
@@ -58,6 +60,7 @@ export async function load({ locals, cookies, url }) {
     filters.tags.forEach((id) => queryParams.append('tags', id));
     if (filters.due_date_gte) queryParams.append('due_date__gte', filters.due_date_gte);
     if (filters.due_date_lte) queryParams.append('due_date__lte', filters.due_date_lte);
+    if (filters.quick_filter) queryParams.append('quick_filter', filters.quick_filter);
 
     // Build kanban query params (similar filters)
     const kanbanQueryParams = new URLSearchParams();

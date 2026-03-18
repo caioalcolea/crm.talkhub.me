@@ -6,8 +6,12 @@
     HelpCircle,
     AlertOctagon,
     FileWarning,
-    Timer
+    Timer,
+    Calendar,
+    AlertCircle,
+    ListChecks
   } from '@lucide/svelte';
+  import { formatDate } from '$lib/utils/formatting.js';
 
   /**
    * @typedef {Object} Case
@@ -89,6 +93,10 @@
   const priority = $derived(item.priority);
   const caseType = $derived(item.case_type);
   const accountName = $derived(item.account_name);
+  const dueDate = $derived(item.due_date);
+  const dueTime = $derived(item.due_time);
+  const isOverdue = $derived(item.is_overdue || false);
+  const subtaskProgress = $derived(item.subtask_progress || '');
   const isSlaBreached = $derived(
     item.is_sla_breached || item.is_sla_first_response_breached || item.is_sla_resolution_breached
   );
@@ -142,7 +150,7 @@
 
 <div
   class="case-card group relative cursor-pointer overflow-hidden rounded-xl border transition-all duration-300 ease-out
-    {isSlaBreached
+    {isSlaBreached || isOverdue
     ? 'border-l-[3px] border-l-rose-500'
     : 'border-white/10 dark:border-white/[0.06]'}
     bg-white/80 backdrop-blur-sm
@@ -221,6 +229,38 @@
         </div>
       {/if}
     </div>
+
+    <!-- Due Date -->
+    {#if dueDate}
+      <div class="mt-2.5 flex items-center gap-2">
+        <div
+          class="flex items-center gap-1.5 rounded-lg px-2 py-1
+          {isOverdue
+            ? 'bg-gradient-to-r from-rose-500/15 to-red-500/15 dark:from-rose-500/20 dark:to-red-500/20'
+            : 'bg-gradient-to-r from-slate-500/10 to-gray-500/10 dark:from-slate-500/15 dark:to-gray-500/15'}"
+        >
+          {#if isOverdue}
+            <AlertCircle class="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+            <span class="text-xs font-bold tracking-tight text-rose-700 dark:text-rose-300">
+              Atrasado: {formatDate(dueDate)}{#if dueTime} · {dueTime.slice(0, 5)}{/if}
+            </span>
+          {:else}
+            <Calendar class="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+            <span class="text-xs font-medium tracking-tight text-slate-700 dark:text-slate-300">
+              {formatDate(dueDate)}{#if dueTime} · {dueTime.slice(0, 5)}{/if}
+            </span>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Subtask progress -->
+    {#if subtaskProgress && subtaskProgress !== '0/0'}
+      <div class="text-muted-foreground mt-2 flex items-center gap-1 text-[0.7rem]" title="Subtarefas">
+        <ListChecks class="h-3 w-3" />
+        <span>{subtaskProgress}</span>
+      </div>
+    {/if}
 
     <!-- Footer: Assignees -->
     {#if assignees.length > 0}

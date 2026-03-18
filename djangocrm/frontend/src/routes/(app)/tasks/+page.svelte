@@ -39,6 +39,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import SubtaskList from '$lib/components/ui/subtask-list/SubtaskList.svelte';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import AutomationOriginBadge from '$lib/components/assistant/AutomationOriginBadge.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
@@ -858,6 +859,96 @@
     reopenForm.requestSubmit();
   }
 
+  // ---- Subtask management ----
+  let taskSubtasks = $state(/** @type {any[]} */ ([]));
+
+  // Load subtasks when a task is selected
+  $effect(() => {
+    if (selectedTaskId && !isCreateMode) {
+      loadSubtasks(selectedTaskId);
+    } else {
+      taskSubtasks = [];
+    }
+  });
+
+  async function loadSubtasks(taskId) {
+    try {
+      const res = await clientApiRequest(`/tasks/${taskId}/subtasks/`);
+      taskSubtasks = Array.isArray(res) ? res : [];
+    } catch {
+      taskSubtasks = [];
+    }
+  }
+
+  async function handleAddSubtask(title) {
+    if (!selectedTaskId) return;
+    try {
+      await clientApiRequest(`/tasks/${selectedTaskId}/subtasks/`, {
+        method: 'POST',
+        body: { title }
+      });
+      await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao adicionar subtarefa');
+    }
+  }
+
+  async function handleToggleSubtask(id, completed) {
+    try {
+      await clientApiRequest(`/tasks/subtasks/${id}/`, {
+        method: 'PATCH',
+        body: { is_completed: completed }
+      });
+      if (selectedTaskId) await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao atualizar subtarefa');
+    }
+  }
+
+  async function handleUpdateSubtask(id, title) {
+    try {
+      await clientApiRequest(`/tasks/subtasks/${id}/`, {
+        method: 'PATCH',
+        body: { title }
+      });
+      if (selectedTaskId) await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao atualizar subtarefa');
+    }
+  }
+
+  async function handleDeleteSubtask(id) {
+    try {
+      await clientApiRequest(`/tasks/subtasks/${id}/`, { method: 'DELETE' });
+      if (selectedTaskId) await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao remover subtarefa');
+    }
+  }
+
+  // ---- Quick filter chips ----
+  const quickFilterOptions = [
+    { value: '', label: 'Todas' },
+    { value: 'overdue', label: 'Atrasadas' },
+    { value: 'due_today', label: 'Vence Hoje' },
+    { value: 'due_this_week', label: 'Esta Semana' },
+    { value: 'no_date', label: 'Sem Data' },
+    { value: 'completed_this_week', label: 'Concluídas' }
+  ];
+
+  const activeQuickFilter = $derived(filters.quick_filter || '');
+
+  async function setQuickFilter(value) {
+    const url = new URL($page.url);
+    if (value) {
+      url.searchParams.set('quick_filter', value);
+    } else {
+      url.searchParams.delete('quick_filter');
+    }
+    url.searchParams.set('page', '1');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+  }
+
   // Get selected task data
   const selectedTask = $derived(localTasks.find((t) => t.id === selectedTaskId));
   const isCreateMode = $derived(selectedTaskId === null && sheetOpen);
@@ -1508,6 +1599,24 @@
       onchange={(ids) => updateFilters({ ...filters, tags: ids })}
     />
   </FilterBar>
+
+  <!-- Quick filter chips -->
+  <div class="flex flex-wrap gap-1.5 px-1 pb-3">
+    {#each quickFilterOptions as option}
+      <button
+        class={cn(
+          'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+          activeQuickFilter === option.value
+            ? 'bg-primary text-primary-foreground border-primary'
+            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+        )}
+        onclick={() => setQuickFilter(option.value)}
+      >
+        {option.label}
+      </button>
+    {/each}
+  </div>
+
   {#if viewMode === 'list'}
     <CrmTable
       data={localTasks}
@@ -1874,6 +1983,20 @@
   {/snippet}
 
   {#snippet activitySection()}
+    <!-- Subtasks/Checklist (only for existing tasks) -->
+    {#if selectedTask && !isCreateMode}
+      <div class="mb-4">
+        <div class="mb-2 text-[13px] font-medium text-[var(--text-tertiary)]">Subtarefas</div>
+        <SubtaskList
+          subtasks={taskSubtasks}
+          onAdd={handleAddSubtask}
+          onToggle={handleToggleSubtask}
+          onUpdate={handleUpdateSubtask}
+          onDelete={handleDeleteSubtask}
+        />
+      </div>
+    {/if}
+
     <!-- Task metadata (only for existing tasks) -->
     {#if selectedTask && !isCreateMode}
       <AutomationOriginBadge taskId={selectedTask.id} />

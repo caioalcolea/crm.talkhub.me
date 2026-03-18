@@ -14,6 +14,7 @@
     Tag,
     Circle,
     Calendar,
+    Clock,
     FileText,
     MessageSquare,
     Activity,
@@ -26,12 +27,14 @@
   import { CaseKanban } from '$lib/components/ui/case-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
   import { apiRequest as clientApiRequest } from '$lib/api.js';
+  import { cn } from '$lib/utils.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { PageHeader } from '$lib/components/layout';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import SubtaskList from '$lib/components/ui/subtask-list/SubtaskList.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
@@ -90,6 +93,14 @@
     },
     { key: 'status', label: 'Status', type: 'select', options: caseStatusOptions, width: 'w-28' },
     { key: 'caseType', label: 'Tipo', type: 'select', options: caseTypeOptions, width: 'w-28' },
+    { key: 'dueDate', label: 'Prazo', type: 'date', width: 'w-32', canHide: true },
+    {
+      key: 'dueTime',
+      label: 'Hora',
+      width: 'w-24',
+      canHide: true,
+      getValue: (/** @type {any} */ row) => ({ name: row.dueTime ? row.dueTime.slice(0, 5) : '—' })
+    },
     {
       key: 'owner',
       label: 'Responsável',
@@ -166,6 +177,8 @@
     priority: 'Normal',
     caseType: '',
     status: 'New',
+    dueDate: '',
+    dueTime: '',
     closedOn: ''
   });
 
@@ -529,6 +542,20 @@
       emptyText: 'Sem etiquetas'
     },
     {
+      key: 'dueDate',
+      label: 'Prazo',
+      type: 'date',
+      icon: Calendar,
+      emptyText: 'Sem prazo'
+    },
+    {
+      key: 'dueTime',
+      label: 'Hora',
+      type: 'time',
+      icon: Clock,
+      emptyText: 'Sem hora'
+    },
+    {
       key: 'closedOn',
       label: 'Data de Encerramento',
       type: 'date',
@@ -554,6 +581,8 @@
           priority: 'Normal',
           caseType: '',
           status: 'New',
+          dueDate: '',
+          dueTime: '',
           closedOn: ''
         };
       } else if (drawer.selected) {
@@ -570,6 +599,8 @@
           priority: caseItem.priority || 'Normal',
           caseType: caseItem.caseType || '',
           status: caseItem.status || 'New',
+          dueDate: caseItem.dueDate || '',
+          dueTime: caseItem.dueTime || '',
           closedOn: caseItem.closedOn ? caseItem.closedOn.split('T')[0] : ''
         };
       }
@@ -699,6 +730,95 @@
     return filtered;
   });
 
+  // ---- Subtask management for Cases ----
+  let caseSubtasks = $state(/** @type {any[]} */ ([]));
+
+  $effect(() => {
+    if (drawer.selected && drawer.mode !== 'create') {
+      loadCaseSubtasks(drawer.selected.id);
+    } else {
+      caseSubtasks = [];
+    }
+  });
+
+  async function loadCaseSubtasks(caseId) {
+    try {
+      const res = await clientApiRequest(`/cases/${caseId}/subtasks/`);
+      caseSubtasks = Array.isArray(res) ? res : [];
+    } catch {
+      caseSubtasks = [];
+    }
+  }
+
+  async function handleAddCaseSubtask(title) {
+    if (!drawer.selected) return;
+    try {
+      await clientApiRequest(`/cases/${drawer.selected.id}/subtasks/`, {
+        method: 'POST',
+        body: { title }
+      });
+      await loadCaseSubtasks(drawer.selected.id);
+    } catch {
+      toast.error('Erro ao adicionar subtarefa');
+    }
+  }
+
+  async function handleToggleCaseSubtask(id, completed) {
+    try {
+      await clientApiRequest(`/cases/subtasks/${id}/`, {
+        method: 'PATCH',
+        body: { is_completed: completed }
+      });
+      if (drawer.selected) await loadCaseSubtasks(drawer.selected.id);
+    } catch {
+      toast.error('Erro ao atualizar subtarefa');
+    }
+  }
+
+  async function handleUpdateCaseSubtask(id, title) {
+    try {
+      await clientApiRequest(`/cases/subtasks/${id}/`, {
+        method: 'PATCH',
+        body: { title }
+      });
+      if (drawer.selected) await loadCaseSubtasks(drawer.selected.id);
+    } catch {
+      toast.error('Erro ao atualizar subtarefa');
+    }
+  }
+
+  async function handleDeleteCaseSubtask(id) {
+    try {
+      await clientApiRequest(`/cases/subtasks/${id}/`, { method: 'DELETE' });
+      if (drawer.selected) await loadCaseSubtasks(drawer.selected.id);
+    } catch {
+      toast.error('Erro ao remover subtarefa');
+    }
+  }
+
+  // ---- Quick filter chips ----
+  const quickFilterOptions = [
+    { value: '', label: 'Todos' },
+    { value: 'overdue', label: 'Atrasados' },
+    { value: 'due_today', label: 'Vence Hoje' },
+    { value: 'due_this_week', label: 'Esta Semana' },
+    { value: 'no_date', label: 'Sem Data' },
+    { value: 'completed_this_week', label: 'Fechados' }
+  ];
+
+  const activeQuickFilter = $derived(data.filters?.quick_filter || '');
+
+  async function setQuickFilter(value) {
+    const url = new URL($page.url);
+    if (value) {
+      url.searchParams.set('quick_filter', value);
+    } else {
+      url.searchParams.delete('quick_filter');
+    }
+    url.searchParams.set('page', '1');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+  }
+
   // Form references for server actions
   /** @type {HTMLFormElement} */
   let createForm;
@@ -735,6 +855,8 @@
     caseType: '',
     status: 'New',
     dueDate: '',
+    dueTime: '',
+    closedOn: '',
     caseId: ''
   });
 
@@ -760,7 +882,9 @@
     formState.priority = drawerFormData.priority || 'Normal';
     formState.caseType = drawerFormData.caseType || '';
     formState.status = drawerFormData.status || 'New';
-    formState.dueDate = drawerFormData.closedOn || '';
+    formState.dueDate = drawerFormData.dueDate || '';
+    formState.dueTime = drawerFormData.dueTime || '';
+    formState.closedOn = drawerFormData.closedOn || '';
 
     await tick();
 
@@ -1159,6 +1283,23 @@
     />
   </FilterBar>
 
+  <!-- Quick filter chips -->
+  <div class="flex flex-wrap gap-1.5 px-1 pb-3">
+    {#each quickFilterOptions as option}
+      <button
+        class={cn(
+          'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+          activeQuickFilter === option.value
+            ? 'bg-primary text-primary-foreground border-primary'
+            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+        )}
+        onclick={() => setQuickFilter(option.value)}
+      >
+        {option.label}
+      </button>
+    {/each}
+  </div>
+
   {#if viewMode === 'list'}
     <CrmTable
       data={filteredCases}
@@ -1298,6 +1439,18 @@
 
   {#snippet activitySection()}
     {#if drawer.mode !== 'create' && drawer.selected}
+      <!-- Subtasks/Checklist -->
+      <div class="mb-4">
+        <div class="mb-2 text-[13px] font-medium text-[var(--text-tertiary)]">Subtarefas</div>
+        <SubtaskList
+          subtasks={caseSubtasks}
+          onAdd={handleAddCaseSubtask}
+          onToggle={handleToggleCaseSubtask}
+          onUpdate={handleUpdateCaseSubtask}
+          onDelete={handleDeleteCaseSubtask}
+        />
+      </div>
+
       <div class="mb-4">
         <p class="mb-2 text-xs font-medium tracking-wider text-[var(--text-tertiary)] uppercase">
           Relacionados
@@ -1371,6 +1524,8 @@
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="caseType" value={formState.caseType} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="dueTime" value={formState.dueTime} />
+  <input type="hidden" name="closedOn" value={formState.closedOn} />
   <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
@@ -1392,6 +1547,8 @@
   <input type="hidden" name="caseType" value={formState.caseType} />
   <input type="hidden" name="status" value={formState.status} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="dueTime" value={formState.dueTime} />
+  <input type="hidden" name="closedOn" value={formState.closedOn} />
   <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
