@@ -63,7 +63,7 @@
   import { cn } from '$lib/utils.js';
   import { TASK_STATUSES as statuses, PRIORITIES as priorities } from '$lib/constants/filters.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
-  import { formatRelativeDate } from '$lib/utils/formatting.js';
+  import { formatRelativeDate, safeParseDateOnly, toLocalDateString } from '$lib/utils/formatting.js';
 
   // Account from URL param (for quick action from account page)
   let accountFromUrl = $state(false);
@@ -716,8 +716,8 @@
    */
   function formatDate(dateStr) {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const date = safeParseDateOnly(dateStr);
+    return date.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   /**
@@ -1125,7 +1125,7 @@
   // Calendar state
   let today = new Date();
   let currentDate = $state(new Date(today));
-  let selectedDate = $state(today.toISOString().slice(0, 10));
+  let selectedDate = $state(toLocalDateString(today));
 
   const monthNames = [
     'Janeiro',
@@ -1218,7 +1218,7 @@
   // Monthly stats for calendar
   const monthlyTaskDates = $derived(
     Object.keys(tasksByDate).filter((dateStr) => {
-      const taskDate = new Date(dateStr);
+      const taskDate = safeParseDateOnly(dateStr);
       return taskDate.getFullYear() === calendarYear && taskDate.getMonth() === calendarMonth;
     })
   );
@@ -1239,8 +1239,9 @@
    * Check if date is today
    * @param {Date|null} date
    */
+  const todayStr = toLocalDateString(today);
   function isTodayDate(date) {
-    return !!(date && formatDateString(date) === today.toISOString().slice(0, 10));
+    return !!(date && formatDateString(date) === todayStr);
   }
 
   /**
@@ -1271,7 +1272,7 @@
 
   function goToToday() {
     currentDate = new Date(today);
-    selectedDate = today.toISOString().slice(0, 10);
+    selectedDate = toLocalDateString(today);
   }
 
   // Account options for drawer (combobox - uses {id, name} format)
@@ -1592,8 +1593,8 @@
 <PageHeader title="Tarefas" subtitle="{filteredTasks.length} de {tasks.length} tarefas">
   {#snippet actions()}
     <div class="flex items-center gap-2">
-      <!-- Status Filter Chips — hidden below 2xl (1536px) to prevent body-level overflow -->
-      <div class="hidden 2xl:flex gap-1">
+      <!-- Status Filter Chips — visible from xl (1280px), scrollable if needed -->
+      <div class="hidden xl:flex gap-1 overflow-x-auto">
         <button
           type="button"
           onclick={() => (statusChipFilter = 'ALL')}
@@ -1858,7 +1859,7 @@
     />
   {:else if viewMode === 'today'}
     <!-- My Day View -->
-    <div class="mx-auto max-w-2xl space-y-4">
+    <div class="mx-auto max-w-3xl space-y-4">
       {#if myDayLoading}
         <div class="flex items-center justify-center py-16">
           <div class="text-muted-foreground text-sm">Carregando...</div>
@@ -1909,7 +1910,7 @@
                         <div class="font-medium text-sm text-foreground">{task.title}</div>
                         <div class="flex items-center gap-2 mt-0.5">
                           {#if task.due_date}
-                            <span class="text-xs text-rose-600 dark:text-rose-400">{task.due_date}</span>
+                            <span class="text-xs text-rose-600 dark:text-rose-400">{formatDate(task.due_date)}</span>
                           {/if}
                           {#if task.due_time}
                             <span class="text-xs text-muted-foreground">· {task.due_time.slice(0, 5)}</span>
@@ -2214,7 +2215,7 @@
         <Card.Root class="h-fit">
           <Card.Header class="border-b pb-4">
             <Card.Title class="text-base">
-              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR', {
+              {safeParseDateOnly(selectedDate).toLocaleDateString('pt-BR', {
                 weekday: 'long',
                 month: 'long',
                 day: 'numeric'
@@ -2257,12 +2258,12 @@
               {/if}
 
               <!-- Hourly timeline -->
-              <div class="max-h-[480px] overflow-y-auto">
+              <div class="max-h-[60vh] lg:max-h-[480px] overflow-y-auto">
                 {#each timelineHours as hour}
                   {@const hourTasks = getTasksForHour(hour)}
                   {@const hourStr = String(hour).padStart(2, '0') + ':00'}
                   {@const now = new Date()}
-                  {@const isCurrentHour = selectedDate === now.toISOString().slice(0, 10) && now.getHours() === hour}
+                  {@const isCurrentHour = selectedDate === toLocalDateString(now) && now.getHours() === hour}
                   <div class="group relative flex border-b last:border-b-0 {isCurrentHour ? 'bg-primary/5' : ''}">
                     <!-- Hour label -->
                     <div class="text-muted-foreground w-14 shrink-0 border-r py-2 pr-2 text-right text-xs font-medium {isCurrentHour ? 'text-primary font-semibold' : ''}">

@@ -5,7 +5,7 @@
   import { Calendar } from '$lib/components/ui/calendar/index.js';
   import { EditableMultiSelect } from '$lib/components/ui/editable-field/index.js';
   import { cn } from '$lib/utils.js';
-  import { formatCurrency } from '$lib/utils/formatting.js';
+  import { formatCurrency, safeParseDateOnly } from '$lib/utils/formatting.js';
   import { parseDate, getLocalTimeZone } from '@internationalized/date';
 
   /**
@@ -97,10 +97,7 @@
   function formatDateDisplay(dateStr) {
     if (!dateStr) return placeholder || 'Escolha uma data';
     try {
-      // Handle both date-only (YYYY-MM-DD) and full datetime (ISO 8601) strings
-      const date = dateStr.includes('T')
-        ? new Date(dateStr)
-        : new Date(dateStr + 'T00:00:00');
+      const date = safeParseDateOnly(dateStr);
       if (isNaN(date.getTime())) return dateStr;
       return date.toLocaleDateString('pt-BR', {
         month: 'short',

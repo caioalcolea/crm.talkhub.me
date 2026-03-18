@@ -8,6 +8,33 @@ import { ptBR } from 'date-fns/locale';
 import { getOrgCurrency } from '$lib/stores/org.js';
 
 /**
+ * Parse date-only strings safely — appends T12:00:00 so no timezone
+ * offset on Earth (max ±14h) can shift the calendar day.
+ * Full datetime strings (containing 'T') pass through unchanged.
+ * @param {string | Date | null | undefined} dateStr
+ * @returns {Date}
+ */
+export function safeParseDateOnly(dateStr) {
+  if (!dateStr) return new Date(NaN);
+  if (dateStr instanceof Date) return dateStr;
+  const s = String(dateStr);
+  if (!s.includes('T') && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return new Date(s + 'T12:00:00');
+  }
+  return new Date(s);
+}
+
+/**
+ * Format a Date to YYYY-MM-DD using local timezone getters (not UTC).
+ * Unlike toISOString().slice(0,10), this won't shift the date after 21:00 BRT.
+ * @param {Date} d
+ * @returns {string}
+ */
+export function toLocalDateString(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
  * Format a date string to a human-readable format
  * @param {string | Date | null | undefined} date - Date to format
  * @param {string} [formatStr='MMM d, yyyy'] - date-fns format string
@@ -16,7 +43,7 @@ import { getOrgCurrency } from '$lib/stores/org.js';
 export function formatDate(date, formatStr = 'MMM d, yyyy') {
   if (!date) return '-';
   try {
-    return format(new Date(date), formatStr);
+    return format(safeParseDateOnly(date), formatStr);
   } catch {
     return '-';
   }
@@ -30,7 +57,7 @@ export function formatDate(date, formatStr = 'MMM d, yyyy') {
 export function formatRelativeDate(date) {
   if (!date) return '-';
   try {
-    return formatDistanceToNow(new Date(date), { addSuffix: true, locale: ptBR });
+    return formatDistanceToNow(safeParseDateOnly(date), { addSuffix: true, locale: ptBR });
   } catch {
     return '-';
   }

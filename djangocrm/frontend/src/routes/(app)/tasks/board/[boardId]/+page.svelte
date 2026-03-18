@@ -1,6 +1,7 @@
 <script>
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
+  import { safeParseDateOnly } from '$lib/utils/formatting.js';
 
   /** @type {{ data: any }} */
   let { data } = $props();
@@ -94,7 +95,7 @@
 
   function formatDate(date) {
     if (!date) return '';
-    return new Date(date).toLocaleDateString('pt-BR', {
+    return safeParseDateOnly(date).toLocaleDateString('pt-BR', {
       month: 'short',
       day: 'numeric'
     });

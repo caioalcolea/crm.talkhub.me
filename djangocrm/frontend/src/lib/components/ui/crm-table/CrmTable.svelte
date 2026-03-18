@@ -4,7 +4,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { expandButtonClasses } from '$lib/utils/drag-drop.js';
   import { getOptionStyle, getOptionLabel, getOptionBgColor } from '$lib/utils/table-helpers.js';
-  import { formatCurrency } from '$lib/utils/formatting.js';
+  import { formatCurrency, safeParseDateOnly } from '$lib/utils/formatting.js';
 
   /**
    * @typedef {Object} ColumnDef
@@ -86,7 +86,7 @@
    */
   function formatDate(dateStr) {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
+    const date = safeParseDateOnly(dateStr);
     return date.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 

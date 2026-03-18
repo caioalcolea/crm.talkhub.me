@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { Plus, CheckSquare, Clock, User } from '@lucide/svelte';
+  import { safeParseDateOnly } from '$lib/utils/formatting.js';
 
   /**
    * @typedef {Object} Props
@@ -30,7 +31,7 @@
   /** @param {string} dateStr */
   function formatDate(dateStr) {
     if (!dateStr) return '';
-    return new Date(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return safeParseDateOnly(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
   }
 </script>
 
