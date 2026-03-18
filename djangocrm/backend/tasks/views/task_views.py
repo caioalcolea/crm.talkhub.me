@@ -127,6 +127,10 @@ class TaskListView(APIView, LimitOffsetPagination):
                     queryset = queryset.filter(status="Completed", updated_at__gte=monday)
                 elif quick_filter == "no_date":
                     queryset = queryset.filter(due_date__isnull=True).exclude(status="Completed")
+                elif quick_filter == "active":
+                    queryset = queryset.filter(status__in=["New", "In Progress"])
+                elif quick_filter == "completed":
+                    queryset = queryset.filter(status="Completed")
         context = {}
         results_tasks = self.paginate_queryset(
             queryset.distinct(), self.request, view=self

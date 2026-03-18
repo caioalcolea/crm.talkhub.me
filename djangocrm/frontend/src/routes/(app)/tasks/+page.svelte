@@ -36,7 +36,9 @@
     Gauge,
     ArrowRight,
     Check,
-    AlertTriangle
+    AlertTriangle,
+    CircleDot,
+    Ban
   } from '@lucide/svelte';
   import { TaskKanban } from '$lib/components/ui/task-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
@@ -367,14 +369,16 @@
     ...priorityOptions
   ]);
 
-  // Count active filters (excluding status since it's handled via chips in header)
+  // Count active filters
   const activeFiltersCount = $derived.by(() => {
     let count = 0;
     if (filters.search) count++;
+    if (filters.status) count++;
     if (filters.priority) count++;
     if (filters.assigned_to?.length > 0) count++;
     if (filters.tags?.length > 0) count++;
     if (filters.due_date_gte || filters.due_date_lte) count++;
+    if (filters.quick_filter) count++;
     return count;
   });
 
@@ -385,7 +389,7 @@
   async function updateFilters(newFilters) {
     const url = new URL($page.url);
     // Clear existing filter params
-    ['search', 'status', 'priority', 'assigned_to', 'tags', 'due_date_gte', 'due_date_lte'].forEach(
+    ['search', 'status', 'priority', 'assigned_to', 'tags', 'due_date_gte', 'due_date_lte', 'quick_filter'].forEach(
       (key) => url.searchParams.delete(key)
     );
     // Set new params
@@ -427,31 +431,11 @@
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
-  // Status counts for filter chips
-  const activeStatuses = ['New', 'In Progress'];
-  const activeTaskCount = $derived(
-    tasks.filter((/** @type {any} */ t) => activeStatuses.includes(t.status)).length
-  );
-  const completedCount = $derived(
-    tasks.filter((/** @type {any} */ t) => t.status === 'Completed').length
-  );
-
-  // Status chip filter state (client-side quick filter on top of server filters)
-  let statusChipFilter = $state('ALL');
-
   // Filter panel expansion state
   let filtersExpanded = $state(false);
 
-  // Filtered tasks - server already applies main filters, just apply status chip
-  const filteredTasks = $derived.by(() => {
-    let filtered = tasks;
-    if (statusChipFilter === 'active') {
-      filtered = filtered.filter((/** @type {any} */ t) => activeStatuses.includes(t.status));
-    } else if (statusChipFilter === 'completed') {
-      filtered = filtered.filter((/** @type {any} */ t) => t.status === 'Completed');
-    }
-    return filtered;
-  });
+  // Filtered tasks — all filtering is server-side via URL params
+  const filteredTasks = $derived(tasks);
 
   // Local data for optimistic updates
   let localTasks = $state(/** @type {any[]} */ ([]));
@@ -1071,24 +1055,51 @@
     return tasks.filter(t => !existingIds.has(t.id) && t.subject?.toLowerCase().includes(q)).slice(0, 5);
   });
 
-  // ---- Quick filter chips ----
+  // ---- Quick filter chips (unified: status + date shortcuts) ----
+  /** @type {{ value: string, label: string, icon: any, color: string|null }[]} */
   const quickFilterOptions = [
-    { value: '', label: 'Todas' },
-    { value: 'overdue', label: 'Atrasadas' },
-    { value: 'due_today', label: 'Vence Hoje' },
-    { value: 'due_this_week', label: 'Esta Semana' },
-    { value: 'no_date', label: 'Sem Data' },
-    { value: 'completed_this_week', label: 'Concluídas' }
+    { value: '', label: 'Todas', icon: null, color: null },
+    { value: 'active', label: 'Abertas', icon: CircleDot, color: 'blue' },
+    { value: 'completed', label: 'Concluídas', icon: CheckCircle2, color: 'emerald' },
+    // separator inserted at index 3 in template
+    { value: 'overdue', label: 'Atrasadas', icon: AlertTriangle, color: 'rose' },
+    { value: 'due_today', label: 'Vence Hoje', icon: Clock, color: 'amber' },
+    { value: 'due_this_week', label: 'Esta Semana', icon: Calendar, color: null },
+    { value: 'no_date', label: 'Sem Data', icon: Ban, color: null },
   ];
 
   const activeQuickFilter = $derived(filters.quick_filter || '');
 
+  // Client-side counts for chip badges (approximate — from current page data)
+  const chipCounts = $derived.by(() => {
+    const todayStr = toLocalDateString(new Date());
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const mondayStr = toLocalDateString(monday);
+    const sundayStr = toLocalDateString(sunday);
+
+    return {
+      '': tasks.length,
+      active: tasks.filter((/** @type {any} */ t) => ['New', 'In Progress'].includes(t.status)).length,
+      completed: tasks.filter((/** @type {any} */ t) => t.status === 'Completed').length,
+      overdue: tasks.filter((/** @type {any} */ t) => t.dueDate && t.dueDate < todayStr && t.status !== 'Completed').length,
+      due_today: tasks.filter((/** @type {any} */ t) => t.dueDate?.slice(0, 10) === todayStr).length,
+      due_this_week: tasks.filter((/** @type {any} */ t) => t.dueDate && t.dueDate >= mondayStr && t.dueDate <= sundayStr).length,
+      no_date: tasks.filter((/** @type {any} */ t) => !t.dueDate && t.status !== 'Completed').length,
+    };
+  });
+
   async function setQuickFilter(value) {
     const url = new URL($page.url);
+    // Clear both params to avoid conflicts
+    url.searchParams.delete('quick_filter');
+    url.searchParams.delete('status');
     if (value) {
       url.searchParams.set('quick_filter', value);
-    } else {
-      url.searchParams.delete('quick_filter');
     }
     url.searchParams.set('page', '1');
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
@@ -1593,109 +1604,57 @@
 <PageHeader title="Tarefas" subtitle="{filteredTasks.length} de {tasks.length} tarefas">
   {#snippet actions()}
     <div class="flex items-center gap-2">
-      <!-- Status Filter Chips — visible from xl (1280px), scrollable if needed -->
-      <div class="hidden xl:flex gap-1 overflow-x-auto">
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'ALL')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'ALL'
-            ? 'bg-[var(--color-primary-default)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Todas
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'ALL'
-              ? 'bg-[var(--color-primary-dark)] text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {tasks.length}
-          </span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'active')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'active'
-            ? 'bg-[var(--task-due-today)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Ativas
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'active'
-              ? 'bg-black/20 text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {activeTaskCount}
-          </span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'completed')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'completed'
-            ? 'bg-[var(--task-completed)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Concluídas
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'completed'
-              ? 'bg-black/20 text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {completedCount}
-          </span>
-        </button>
-      </div>
-
-      <div class="bg-border hidden 2xl:block mx-1 h-6 w-px"></div>
-
-      <!-- View Toggle -->
+      <!-- View Toggle — icon-only below md, icon+text on md+ -->
       <div class="border-input bg-background inline-flex rounded-lg border p-1">
         <Button
           variant={viewMode === 'today' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('today')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Hoje"
         >
-          <Sun class="mr-1.5 h-4 w-4" />
-          Hoje
+          <Sun class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Hoje</span>
         </Button>
         <Button
           variant={viewMode === 'list' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('list')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Lista"
         >
-          <List class="mr-1.5 h-4 w-4" />
-          Lista
+          <List class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Lista</span>
         </Button>
         <Button
           variant={viewMode === 'kanban' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('kanban')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Quadro"
         >
-          <Columns class="mr-1.5 h-4 w-4" />
-          Quadro
+          <Columns class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Quadro</span>
         </Button>
         <Button
           variant={viewMode === 'calendar' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('calendar')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Calendário"
         >
-          <Calendar class="mr-1.5 h-4 w-4" />
-          Calendário
+          <Calendar class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Calendário</span>
         </Button>
         <Button
           variant={viewMode === 'workload' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('workload')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Equipe"
         >
-          <BarChart3 class="mr-1.5 h-4 w-4" />
-          Equipe
+          <BarChart3 class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Equipe</span>
         </Button>
       </div>
 
@@ -1774,6 +1733,12 @@
       placeholder="Buscar tarefas..."
     />
     <SelectFilter
+      label="Status"
+      options={statusFilterOptions}
+      value={filters.status}
+      onchange={(value) => updateFilters({ ...filters, status: value, quick_filter: '' })}
+    />
+    <SelectFilter
       label="Prioridade"
       options={priorityFilterOptions}
       value={filters.priority}
@@ -1793,19 +1758,48 @@
     />
   </FilterBar>
 
-  <!-- Quick filter chips -->
-  <div class="flex flex-wrap gap-1.5 px-1 pb-3">
-    {#each quickFilterOptions as option}
+  <!-- Unified filter chips (status + date shortcuts) -->
+  <div class="flex flex-wrap items-center gap-1.5 px-1 pb-3">
+    {#each quickFilterOptions as option, i}
+      {#if i === 3}
+        <div class="mx-0.5 h-4 w-px bg-border"></div>
+      {/if}
+      {@const isActive = activeQuickFilter === option.value}
+      {@const count = chipCounts[option.value] ?? 0}
       <button
+        type="button"
         class={cn(
-          'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-          activeQuickFilter === option.value
-            ? 'bg-primary text-primary-foreground border-primary'
+          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+          isActive
+            ? option.color === 'rose' ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800'
+              : option.color === 'amber' ? 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
+              : option.color === 'emerald' ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800'
+              : option.color === 'blue' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800'
+              : 'bg-primary text-primary-foreground border-primary'
             : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
         )}
         onclick={() => setQuickFilter(option.value)}
       >
+        {#if option.value === 'active'}
+          <CircleDot class="h-3 w-3" />
+        {:else if option.value === 'completed'}
+          <CheckCircle2 class="h-3 w-3" />
+        {:else if option.value === 'overdue'}
+          <AlertTriangle class="h-3 w-3" />
+        {:else if option.value === 'due_today'}
+          <Clock class="h-3 w-3" />
+        {:else if option.value === 'due_this_week'}
+          <Calendar class="h-3 w-3" />
+        {:else if option.value === 'no_date'}
+          <Ban class="h-3 w-3" />
+        {/if}
         {option.label}
+        <span class={cn(
+          'rounded-full px-1.5 text-[10px] font-semibold',
+          isActive ? 'bg-black/10 dark:bg-white/15' : 'bg-muted text-muted-foreground'
+        )}>
+          {count}
+        </span>
       </button>
     {/each}
   </div>
