@@ -308,8 +308,8 @@
       </Popover.Root>
     {:else if type === 'time'}
       <div class="flex items-center gap-2 px-2.5 py-1">
-        {#if icon}
-          <svelte:component this={icon} class="text-muted-foreground/60 h-3.5 w-3.5 shrink-0" />
+        {#if Icon}
+          <Icon class="text-muted-foreground/60 h-3.5 w-3.5 shrink-0" />
         {/if}
         <input
           type="time"
