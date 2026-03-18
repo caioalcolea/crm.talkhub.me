@@ -1,3 +1,5 @@
+import re
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -69,6 +71,8 @@ class AccountSerializer(serializers.ModelSerializer):
             "email",
             "phone",
             "website",
+            # Tax / Registration
+            "cnpj",
             # Business Information
             "industry",
             "number_of_employees",
@@ -155,6 +159,7 @@ class AccountWriteSerializer(serializers.ModelSerializer):
             "phone",
             "email",
             "website",
+            "cnpj",
             "industry",
             "number_of_employees",
             "annual_revenue",
@@ -185,6 +190,28 @@ class AccountCreateSerializer(serializers.ModelSerializer):
                 website = f"https://{website}"
         return website
 
+    def validate_cnpj(self, value):
+        """Validate and normalize CNPJ to digits only."""
+        if not value:
+            return value
+        clean = re.sub(r"\D", "", value)
+        if len(clean) != 14:
+            raise serializers.ValidationError("CNPJ deve ter 14 dígitos")
+        if len(set(clean)) == 1:
+            raise serializers.ValidationError("CNPJ inválido")
+        # Check digits
+        weights1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+        weights2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+        s = sum(int(clean[i]) * weights1[i] for i in range(12))
+        d1 = 0 if s % 11 < 2 else 11 - s % 11
+        if int(clean[12]) != d1:
+            raise serializers.ValidationError("CNPJ inválido")
+        s = sum(int(clean[i]) * weights2[i] for i in range(13))
+        d2 = 0 if s % 11 < 2 else 11 - s % 11
+        if int(clean[13]) != d2:
+            raise serializers.ValidationError("CNPJ inválido")
+        return clean  # Store digits only
+
     def validate_name(self, name):
         if self.instance:
             if self.instance.name != name:
@@ -206,6 +233,8 @@ class AccountCreateSerializer(serializers.ModelSerializer):
             "email",
             "phone",
             "website",
+            # Tax / Registration
+            "cnpj",
             # Business Information
             "industry",
             "number_of_employees",

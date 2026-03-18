@@ -62,6 +62,7 @@
   import { apiRequest } from '$lib/api.js';
   import { browser } from '$app/environment';
   import { orgSettings } from '$lib/stores/org.js';
+  import { fetchAddressByCep } from '$lib/utils/viacep.js';
   import { ViewToggle } from '$lib/components/ui/view-toggle';
   import { LeadKanban } from '$lib/components/ui/lead-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
@@ -1203,13 +1204,29 @@
    * @param {string} field
    * @param {any} value
    */
-  function handleDrawerFieldChange(field, value) {
+  async function handleDrawerFieldChange(field, value) {
     if (drawerMode === 'create') {
       // For create mode, just update the form data
       createFormData = { ...createFormData, [field]: value };
     } else if (drawerData) {
       // For edit mode, just update local data - no auto-save
       drawerData = { ...drawerData, [field]: value };
+    }
+
+    // ViaCEP: auto-fill address from CEP
+    if (field === 'postcode') {
+      const clean = value?.replace(/\D/g, '') || '';
+      if (clean.length === 8) {
+        const address = await fetchAddressByCep(clean);
+        if (address) {
+          if (drawerMode === 'create') {
+            createFormData = { ...createFormData, ...address };
+          } else if (drawerData) {
+            drawerData = { ...drawerData, ...address };
+          }
+          toast.success('Endereço preenchido pelo CEP');
+        }
+      }
     }
   }
 

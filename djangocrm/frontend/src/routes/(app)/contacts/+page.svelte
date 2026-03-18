@@ -47,6 +47,7 @@
   import { goto } from '$app/navigation';
   import { COUNTRIES, getCountryName } from '$lib/constants/countries.js';
   import { browser } from '$app/environment';
+  import { fetchAddressByCep } from '$lib/utils/viacep.js';
 
   // Column visibility configuration
   const STORAGE_KEY = 'contacts-column-config';
@@ -761,7 +762,7 @@
    * @param {string} field
    * @param {any} value
    */
-  function handleDrawerFieldChange(field, value) {
+  async function handleDrawerFieldChange(field, value) {
     // Update local form data only - no auto-save
     drawerFormData = { ...drawerFormData, [field]: value };
     // When account changes, auto-populate organization name
@@ -769,6 +770,17 @@
       const acct = accounts.find((/** @type {any} */ a) => a.id === value);
       if (acct) {
         drawerFormData = { ...drawerFormData, organization: acct.name };
+      }
+    }
+    // ViaCEP: auto-fill address from CEP
+    if (field === 'postcode') {
+      const clean = value?.replace(/\D/g, '') || '';
+      if (clean.length === 8) {
+        const address = await fetchAddressByCep(clean);
+        if (address) {
+          drawerFormData = { ...drawerFormData, ...address };
+          toast.success('Endereço preenchido pelo CEP');
+        }
       }
     }
   }
