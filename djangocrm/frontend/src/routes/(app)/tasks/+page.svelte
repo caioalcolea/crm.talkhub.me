@@ -28,7 +28,15 @@
     Contact,
     Link2,
     Filter,
-    Columns
+    Columns,
+    Sun,
+    BarChart3,
+    Lock,
+    Zap,
+    Gauge,
+    ArrowRight,
+    Check,
+    AlertTriangle
   } from '@lucide/svelte';
   import { TaskKanban } from '$lib/components/ui/task-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
@@ -473,8 +481,8 @@
     };
   }
 
-  // View mode state (list, kanban, or calendar) - sync with server data
-  /** @type {'list' | 'kanban' | 'calendar'} */
+  // View mode state (list, kanban, calendar, or today) - sync with server data
+  /** @type {'list' | 'kanban' | 'calendar' | 'today' | 'workload'} */
   let viewMode = $state('list');
 
   // Sync viewMode when data changes (e.g., on navigation)
@@ -646,6 +654,8 @@
     priority: 'Medium',
     dueDate: '',
     dueTime: '',
+    effort: '',
+    impact: '',
     accountId: '',
     accountName: '',
     opportunityId: '',
@@ -678,6 +688,8 @@
     formState.priority = field === 'priority' ? value : row.priority || 'Medium';
     formState.dueDate = row.dueDate ? row.dueDate.split('T')[0] : '';
     formState.dueTime = row.dueTime || '';
+    formState.effort = row.effort?.toString() || '';
+    formState.impact = row.impact?.toString() || '';
     formState.accountId = row.account?.id || '';
     formState.opportunityId = row.opportunity?.id || '';
     formState.caseId = row.case_?.id || '';
@@ -745,6 +757,8 @@
       status: 'New',
       priority: 'Medium',
       dueDate: '',
+      effort: '',
+      impact: '',
       accountId: accountIdFromUrl || '',
       accountName: accountNameFromUrl || '',
       opportunityId: '',
@@ -801,6 +815,8 @@
         priority: task.priority || 'Medium',
         dueDate: task.dueDate ? task.dueDate.split('T')[0] : '',
         dueTime: task.dueTime || '',
+        effort: task.effort?.toString() || '',
+        impact: task.impact?.toString() || '',
         accountId: task.account?.id || '',
         accountName: task.account?.name || '',
         opportunityId: task.opportunity?.id || '',
@@ -925,6 +941,134 @@
       toast.error('Erro ao remover subtarefa');
     }
   }
+
+  // ---- My Day (Today) view ----
+  let myDayData = $state(/** @type {{ overdue: any[], today: any[], completed_today: any[], overdue_count: number, today_count: number, completed_today_count: number } | null} */ (null));
+  let myDayLoading = $state(false);
+  let showCompletedToday = $state(false);
+
+  async function loadMyDay() {
+    myDayLoading = true;
+    try {
+      const res = await clientApiRequest('/tasks/my-day/');
+      myDayData = res;
+    } catch {
+      myDayData = null;
+    }
+    myDayLoading = false;
+  }
+
+  // Load my-day data when switching to today view
+  $effect(() => {
+    if (viewMode === 'today') {
+      loadMyDay();
+    }
+  });
+
+  const myDayTotal = $derived((myDayData?.overdue_count || 0) + (myDayData?.today_count || 0));
+  const myDayCompleted = $derived(myDayData?.completed_today_count || 0);
+  const myDayProgress = $derived(myDayTotal + myDayCompleted > 0 ? Math.round((myDayCompleted / (myDayTotal + myDayCompleted)) * 100) : 0);
+
+  async function quickCompleteTask(taskId) {
+    try {
+      await clientApiRequest(`/tasks/${taskId}/`, {
+        method: 'PATCH',
+        body: { status: 'Completed' }
+      });
+      toast.success('Tarefa concluída');
+      await loadMyDay();
+      await invalidateAll();
+    } catch {
+      toast.error('Erro ao concluir tarefa');
+    }
+  }
+
+  // ---- Workload view ----
+  let workloadData = $state(/** @type {any[] | null} */ (null));
+  let workloadLoading = $state(false);
+
+  async function loadWorkload() {
+    workloadLoading = true;
+    try {
+      const res = await clientApiRequest('/tasks/workload/');
+      workloadData = res?.workload || [];
+    } catch {
+      workloadData = null;
+    }
+    workloadLoading = false;
+  }
+
+  $effect(() => {
+    if (viewMode === 'workload') {
+      loadWorkload();
+    }
+  });
+
+  // ---- Dependencies management ----
+  let taskDependencies = $state(/** @type {any[]} */ ([]));
+  let taskDependents = $state(/** @type {any[]} */ ([]));
+
+  $effect(() => {
+    if (selectedTaskId && !isCreateMode) {
+      loadDependencies(selectedTaskId);
+    } else {
+      taskDependencies = [];
+      taskDependents = [];
+    }
+  });
+
+  async function loadDependencies(taskId) {
+    try {
+      const res = await clientApiRequest(`/tasks/${taskId}/dependencies/`);
+      taskDependencies = Array.isArray(res) ? res : [];
+    } catch {
+      taskDependencies = [];
+    }
+    // Load dependents (tasks that depend on this one) from the task detail
+    try {
+      const task = await clientApiRequest(`/tasks/${taskId}/`);
+      taskDependents = task?.dependents || [];
+    } catch {
+      taskDependents = [];
+    }
+  }
+
+  async function handleAddDependency(dependsOnId, type = 'blocks') {
+    if (!selectedTaskId) return;
+    try {
+      await clientApiRequest(`/tasks/${selectedTaskId}/dependencies/`, {
+        method: 'POST',
+        body: { depends_on: dependsOnId, dependency_type: type }
+      });
+      await loadDependencies(selectedTaskId);
+      toast.success('Dependência adicionada');
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao adicionar dependência');
+    }
+  }
+
+  async function handleRemoveDependency(depId) {
+    try {
+      await clientApiRequest(`/tasks/dependencies/${depId}/`, { method: 'DELETE' });
+      if (selectedTaskId) await loadDependencies(selectedTaskId);
+      toast.success('Dependência removida');
+    } catch {
+      toast.error('Erro ao remover dependência');
+    }
+  }
+
+  // Dependency search state
+  let depSearchQuery = $state('');
+  const depSearchResults = $derived.by(() => {
+    if (!depSearchQuery || depSearchQuery.length < 2) return [];
+    const q = depSearchQuery.toLowerCase();
+    const existingIds = new Set([
+      selectedTaskId,
+      ...taskDependencies.map(d => d.depends_on),
+      ...taskDependents.map(d => d.task)
+    ]);
+    return tasks.filter(t => !existingIds.has(t.id) && t.subject?.toLowerCase().includes(q)).slice(0, 5);
+  });
 
   // ---- Quick filter chips ----
   const quickFilterOptions = [
@@ -1181,6 +1325,30 @@
     { key: 'priority', label: 'Prioridade', type: 'select', icon: Flag, options: priorityOptions },
     { key: 'dueDate', label: 'Prazo', type: 'date', icon: Calendar },
     { key: 'dueTime', label: 'Hora', type: 'time', icon: Clock },
+    {
+      key: 'effort',
+      label: 'Esforço',
+      type: 'select',
+      icon: Gauge,
+      options: [
+        { value: '', label: 'Nenhum', color: 'bg-muted text-muted-foreground' },
+        { value: '1', label: 'Baixo', color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+        { value: '2', label: 'Médio', color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+        { value: '3', label: 'Alto', color: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' }
+      ]
+    },
+    {
+      key: 'impact',
+      label: 'Impacto',
+      type: 'select',
+      icon: Zap,
+      options: [
+        { value: '', label: 'Nenhum', color: 'bg-muted text-muted-foreground' },
+        { value: '1', label: 'Baixo', color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+        { value: '2', label: 'Médio', color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+        { value: '3', label: 'Alto', color: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' }
+      ]
+    },
     // Parent entity field handling:
     // - In edit mode: show readonly for the existing parent entity
     // - In create mode with accountFromUrl: show account as readonly only
@@ -1252,6 +1420,8 @@
       priority: formState.priority,
       dueDate: formState.dueDate,
       dueTime: formState.dueTime,
+      effort: formState.effort,
+      impact: formState.impact,
       accountId: formState.accountId,
       accountName: formState.accountName,
       opportunityId: formState.opportunityId,
@@ -1304,7 +1474,7 @@
 
   /**
    * Handle view mode change (sync with URL for kanban data loading)
-   * @param {'list' | 'kanban' | 'calendar'} mode
+   * @param {'list' | 'kanban' | 'calendar' | 'today' | 'workload'} mode
    */
   async function updateViewMode(mode) {
     viewMode = mode;
@@ -1393,6 +1563,8 @@
         status: task.status || 'New',
         priority: task.priority || 'Medium',
         dueDate: task.due_date ? task.due_date.split('T')[0] : '', // kanban uses 'due_date'
+        effort: task.effort?.toString() || '',
+        impact: task.impact?.toString() || '',
         accountId,
         accountName,
         opportunityId,
@@ -1478,6 +1650,15 @@
       <!-- View Toggle -->
       <div class="border-input bg-background inline-flex rounded-lg border p-1">
         <Button
+          variant={viewMode === 'today' ? 'secondary' : 'ghost'}
+          size="sm"
+          onclick={() => updateViewMode('today')}
+          class="h-8 px-3"
+        >
+          <Sun class="mr-1.5 h-4 w-4" />
+          Hoje
+        </Button>
+        <Button
           variant={viewMode === 'list' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('list')}
@@ -1503,6 +1684,15 @@
         >
           <Calendar class="mr-1.5 h-4 w-4" />
           Calendário
+        </Button>
+        <Button
+          variant={viewMode === 'workload' ? 'secondary' : 'ghost'}
+          size="sm"
+          onclick={() => updateViewMode('workload')}
+          class="h-8 px-3"
+        >
+          <BarChart3 class="mr-1.5 h-4 w-4" />
+          Equipe
         </Button>
       </div>
 
@@ -1664,7 +1854,250 @@
       onStatusChange={handleKanbanStatusChange}
       onCardClick={handleKanbanCardClick}
     />
-  {:else}
+  {:else if viewMode === 'today'}
+    <!-- My Day View -->
+    <div class="mx-auto max-w-2xl space-y-4">
+      {#if myDayLoading}
+        <div class="flex items-center justify-center py-16">
+          <div class="text-muted-foreground text-sm">Carregando...</div>
+        </div>
+      {:else if myDayData}
+        <!-- Day progress bar -->
+        <Card.Root>
+          <Card.Content class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium text-foreground">Progresso do Dia</span>
+              <span class="text-sm font-semibold text-foreground">{myDayCompleted}/{myDayTotal + myDayCompleted}</span>
+            </div>
+            <div class="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                style="width: {myDayProgress}%"
+              ></div>
+            </div>
+            <div class="text-muted-foreground mt-1 text-xs text-right">{myDayProgress}% concluído</div>
+          </Card.Content>
+        </Card.Root>
+
+        <!-- Overdue tasks -->
+        {#if myDayData.overdue.length > 0}
+          <div>
+            <div class="flex items-center gap-2 mb-2 px-1">
+              <AlertTriangle class="h-4 w-4 text-rose-500" />
+              <h3 class="text-sm font-semibold text-rose-600 dark:text-rose-400">Atrasadas ({myDayData.overdue_count})</h3>
+            </div>
+            <div class="space-y-2">
+              {#each myDayData.overdue as task (task.id)}
+                <Card.Root class="border-l-[3px] border-l-rose-500">
+                  <Card.Content class="p-3">
+                    <div class="flex items-center gap-3">
+                      <button
+                        type="button"
+                        class="shrink-0 text-muted-foreground hover:text-emerald-500 transition-colors"
+                        onclick={() => quickCompleteTask(task.id)}
+                        title="Concluir tarefa"
+                      >
+                        <Circle class="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="flex-1 text-left"
+                        onclick={() => openTaskSheet(task.id)}
+                      >
+                        <div class="font-medium text-sm text-foreground">{task.title}</div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          {#if task.due_date}
+                            <span class="text-xs text-rose-600 dark:text-rose-400">{task.due_date}</span>
+                          {/if}
+                          {#if task.due_time}
+                            <span class="text-xs text-muted-foreground">· {task.due_time.slice(0, 5)}</span>
+                          {/if}
+                          <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                        </div>
+                      </button>
+                      {#if task.subtask_progress && task.subtask_progress !== '0/0'}
+                        <span class="text-muted-foreground text-xs">{task.subtask_progress}</span>
+                      {/if}
+                    </div>
+                  </Card.Content>
+                </Card.Root>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Today's tasks -->
+        <div>
+          <div class="flex items-center gap-2 mb-2 px-1">
+            <Sun class="h-4 w-4 text-amber-500" />
+            <h3 class="text-sm font-semibold text-foreground">Hoje ({myDayData.today_count})</h3>
+          </div>
+          {#if myDayData.today.length > 0}
+            <div class="space-y-2">
+              {#each myDayData.today as task (task.id)}
+                <Card.Root>
+                  <Card.Content class="p-3">
+                    <div class="flex items-center gap-3">
+                      <button
+                        type="button"
+                        class="shrink-0 text-muted-foreground hover:text-emerald-500 transition-colors"
+                        onclick={() => quickCompleteTask(task.id)}
+                        title="Concluir tarefa"
+                      >
+                        <Circle class="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="flex-1 text-left"
+                        onclick={() => openTaskSheet(task.id)}
+                      >
+                        <div class="font-medium text-sm text-foreground">{task.title}</div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          {#if task.due_time}
+                            <span class="text-xs text-primary font-medium">{task.due_time.slice(0, 5)}</span>
+                          {:else}
+                            <span class="text-xs text-muted-foreground">Dia inteiro</span>
+                          {/if}
+                          <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                        </div>
+                      </button>
+                      {#if task.subtask_progress && task.subtask_progress !== '0/0'}
+                        <span class="text-muted-foreground text-xs">{task.subtask_progress}</span>
+                      {/if}
+                    </div>
+                  </Card.Content>
+                </Card.Root>
+              {/each}
+            </div>
+          {:else}
+            <Card.Root>
+              <Card.Content class="py-8 text-center">
+                <Sun class="text-amber-400 mx-auto mb-3 h-10 w-10" />
+                <p class="text-muted-foreground text-sm">Nenhuma tarefa para hoje</p>
+              </Card.Content>
+            </Card.Root>
+          {/if}
+        </div>
+
+        <!-- Completed today -->
+        {#if myDayData.completed_today.length > 0}
+          <div>
+            <button
+              type="button"
+              class="flex items-center gap-2 mb-2 px-1"
+              onclick={() => (showCompletedToday = !showCompletedToday)}
+            >
+              <Check class="h-4 w-4 text-emerald-500" />
+              <h3 class="text-sm font-semibold text-muted-foreground">Concluídas Hoje ({myDayData.completed_today_count})</h3>
+              <ChevronRight class="h-4 w-4 text-muted-foreground transition-transform {showCompletedToday ? 'rotate-90' : ''}" />
+            </button>
+            {#if showCompletedToday}
+              <div class="space-y-2">
+                {#each myDayData.completed_today as task (task.id)}
+                  <Card.Root class="opacity-60">
+                    <Card.Content class="p-3">
+                      <div class="flex items-center gap-3">
+                        <CheckCircle2 class="h-5 w-5 shrink-0 text-emerald-500" />
+                        <button
+                          type="button"
+                          class="flex-1 text-left"
+                          onclick={() => openTaskSheet(task.id)}
+                        >
+                          <div class="font-medium text-sm text-foreground line-through">{task.title}</div>
+                        </button>
+                      </div>
+                    </Card.Content>
+                  </Card.Root>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- Empty state when everything is done -->
+        {#if myDayTotal === 0 && myDayCompleted > 0}
+          <Card.Root class="border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/5">
+            <Card.Content class="py-8 text-center">
+              <CheckCircle2 class="text-emerald-500 mx-auto mb-3 h-12 w-12" />
+              <h3 class="font-semibold text-emerald-700 dark:text-emerald-400">Parabéns!</h3>
+              <p class="text-emerald-600 dark:text-emerald-500 text-sm mt-1">Todas as tarefas do dia foram concluídas.</p>
+            </Card.Content>
+          </Card.Root>
+        {/if}
+      {:else}
+        <Card.Root>
+          <Card.Content class="py-16 text-center">
+            <Sun class="text-muted-foreground/50 mx-auto mb-4 h-12 w-12" />
+            <p class="text-muted-foreground text-sm">Erro ao carregar tarefas do dia</p>
+          </Card.Content>
+        </Card.Root>
+      {/if}
+    </div>
+  {:else if viewMode === 'workload'}
+    <!-- Workload View -->
+    <div class="space-y-4">
+      {#if workloadLoading}
+        <div class="flex items-center justify-center py-16">
+          <div class="text-muted-foreground text-sm">Carregando...</div>
+        </div>
+      {:else if workloadData && workloadData.length > 0}
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {#each workloadData as member (member.user.id)}
+            {@const total = member.counts.total || 0}
+            {@const overdue = member.counts.overdue || 0}
+            {@const completed = member.counts.completed_this_period || 0}
+            {@const load = total > 15 ? 'critical' : total > 8 ? 'high' : 'normal'}
+            <Card.Root class={load === 'critical' ? 'border-rose-500/30' : load === 'high' ? 'border-amber-500/30' : ''}>
+              <Card.Content class="p-4">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-purple-600 text-sm font-semibold text-white">
+                    {(member.user.name || member.user.email || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-sm text-foreground truncate">{member.user.name || member.user.email}</div>
+                    <div class="text-xs text-muted-foreground">{total} tarefa{total !== 1 ? 's' : ''} ativa{total !== 1 ? 's' : ''}</div>
+                  </div>
+                  <span class={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
+                    load === 'critical' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400' :
+                    load === 'high' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' :
+                    'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                  )}>
+                    {load === 'critical' ? 'Crítica' : load === 'high' ? 'Alta' : 'Normal'}
+                  </span>
+                </div>
+                <!-- Stacked bar -->
+                <div class="h-3 w-full rounded-full bg-muted overflow-hidden flex">
+                  {#if member.counts.new}
+                    <div class="h-full bg-blue-500" style="width: {(member.counts.new / Math.max(total, 1)) * 100}%" title="Novas: {member.counts.new}"></div>
+                  {/if}
+                  {#if member.counts.in_progress}
+                    <div class="h-full bg-amber-500" style="width: {(member.counts.in_progress / Math.max(total, 1)) * 100}%" title="Em andamento: {member.counts.in_progress}"></div>
+                  {/if}
+                  {#if overdue}
+                    <div class="h-full bg-rose-500" style="width: {(overdue / Math.max(total, 1)) * 100}%" title="Atrasadas: {overdue}"></div>
+                  {/if}
+                </div>
+                <div class="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-blue-500 inline-block"></span> Novas {member.counts.new || 0}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-amber-500 inline-block"></span> Andamento {member.counts.in_progress || 0}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-rose-500 inline-block"></span> Atrasadas {overdue}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-emerald-500 inline-block"></span> Concluídas {completed}</span>
+                </div>
+              </Card.Content>
+            </Card.Root>
+          {/each}
+        </div>
+      {:else}
+        <Card.Root>
+          <Card.Content class="py-16 text-center">
+            <Users class="text-muted-foreground/50 mx-auto mb-4 h-12 w-12" />
+            <p class="text-muted-foreground text-sm">Nenhum dado de carga disponível</p>
+          </Card.Content>
+        </Card.Root>
+      {/if}
+    </div>
+  {:else if viewMode === 'calendar'}
     <!-- Calendar View -->
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
       <!-- Calendar Section -->
@@ -1997,6 +2430,87 @@
       </div>
     {/if}
 
+    <!-- Dependencies (only for existing tasks) -->
+    {#if selectedTask && !isCreateMode}
+      <div class="mb-4">
+        <div class="mb-2 text-[13px] font-medium text-[var(--text-tertiary)]">Dependências</div>
+
+        <!-- Blocked by -->
+        {#if taskDependencies.length > 0}
+          <div class="space-y-1.5 mb-2">
+            {#each taskDependencies as dep (dep.id)}
+              <div class="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm">
+                <Lock class="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <span class="flex-1 truncate text-foreground">
+                  {dep.depends_on_title || 'Tarefa'}
+                </span>
+                <span class={cn(
+                  'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                  dep.dependency_type === 'blocks' ? 'bg-amber-500/15 text-amber-600' : 'bg-blue-500/15 text-blue-600'
+                )}>
+                  {dep.dependency_type === 'blocks' ? 'Bloqueia' : 'Relacionada'}
+                </span>
+                <button
+                  type="button"
+                  class="text-muted-foreground hover:text-destructive transition-colors"
+                  onclick={() => handleRemoveDependency(dep.id)}
+                  title="Remover"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <!-- Dependents (tasks that depend on this one) -->
+        {#if taskDependents.length > 0}
+          <div class="space-y-1.5 mb-2">
+            <div class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Dependentes</div>
+            {#each taskDependents as dep (dep.id)}
+              <div class="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                <ArrowRight class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span class="flex-1 truncate text-foreground">{dep.task_title || 'Tarefa'}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <!-- Add dependency search -->
+        <div class="relative">
+          <input
+            type="text"
+            bind:value={depSearchQuery}
+            placeholder="Buscar tarefa para vincular..."
+            class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm placeholder:text-muted-foreground"
+          />
+          {#if depSearchResults.length > 0}
+            <div class="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-md">
+              {#each depSearchResults as result (result.id)}
+                <div class="flex items-center gap-1 border-b last:border-b-0">
+                  <button
+                    type="button"
+                    class="flex-1 px-3 py-2 text-left text-sm hover:bg-muted transition-colors truncate"
+                    onclick={() => { handleAddDependency(result.id, 'blocks'); depSearchQuery = ''; }}
+                  >
+                    <Lock class="h-3 w-3 inline mr-1 text-amber-500" /> {result.subject}
+                  </button>
+                  <button
+                    type="button"
+                    class="px-2 py-2 text-xs text-blue-600 hover:bg-muted transition-colors"
+                    onclick={() => { handleAddDependency(result.id, 'related'); depSearchQuery = ''; }}
+                    title="Adicionar como relacionada"
+                  >
+                    <Link2 class="h-3 w-3" />
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     <!-- Task metadata (only for existing tasks) -->
     {#if selectedTask && !isCreateMode}
       <AutomationOriginBadge taskId={selectedTask.id} />
@@ -2081,6 +2595,8 @@
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
   <input type="hidden" name="dueTime" value={formState.dueTime} />
+  <input type="hidden" name="effort" value={formState.effort} />
+  <input type="hidden" name="impact" value={formState.impact} />
   <input type="hidden" name="accountId" value={formState.accountId} />
   <input type="hidden" name="opportunityId" value={formState.opportunityId} />
   <input type="hidden" name="caseId" value={formState.caseId} />
@@ -2106,6 +2622,8 @@
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
   <input type="hidden" name="dueTime" value={formState.dueTime} />
+  <input type="hidden" name="effort" value={formState.effort} />
+  <input type="hidden" name="impact" value={formState.impact} />
   <input type="hidden" name="accountId" value={formState.accountId} />
   <input type="hidden" name="opportunityId" value={formState.opportunityId} />
   <input type="hidden" name="caseId" value={formState.caseId} />

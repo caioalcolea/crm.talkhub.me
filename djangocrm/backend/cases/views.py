@@ -1210,7 +1210,7 @@ class CaseWorkloadView(APIView):
             })
 
         result.sort(key=lambda x: x["counts"]["total"], reverse=True)
-        return Response(result)
+        return Response({"workload": result, "period": period})
 
 
 class CaseSLADashboardView(APIView):

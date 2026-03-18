@@ -22,13 +22,17 @@
     Eye,
     Filter,
     List,
-    Columns
+    Columns,
+    BarChart3,
+    Timer,
+    AlertTriangle
   } from '@lucide/svelte';
   import { CaseKanban } from '$lib/components/ui/case-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
   import { apiRequest as clientApiRequest } from '$lib/api.js';
   import { cn } from '$lib/utils.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import * as Card from '$lib/components/ui/card/index.js';
   import { PageHeader } from '$lib/components/layout';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmTable } from '$lib/components/ui/crm-table';
@@ -210,8 +214,8 @@
   let casesData = $derived(data.cases || []);
   const pagination = $derived(data.pagination || { page: 1, limit: 10, total: 0, totalPages: 0 });
 
-  // View mode (list or kanban)
-  /** @type {'list' | 'kanban'} */
+  // View mode (list, kanban, or workload)
+  /** @type {'list' | 'kanban' | 'workload'} */
   let viewMode = $state('list');
 
   // Sync viewMode when data changes
@@ -796,6 +800,55 @@
     }
   }
 
+  // ---- SLA Dashboard ----
+  let slaDashboard = $state(/** @type {any} */ (null));
+  let slaDashboardLoading = $state(false);
+
+  async function loadSlaDashboard() {
+    slaDashboardLoading = true;
+    try {
+      slaDashboard = await clientApiRequest('/cases/sla-dashboard/');
+    } catch {
+      slaDashboard = null;
+    }
+    slaDashboardLoading = false;
+  }
+
+  // Load SLA dashboard on mount
+  onMount(() => {
+    loadSlaDashboard();
+  });
+
+  // SLA status color
+  const slaStatusColor = $derived.by(() => {
+    if (!slaDashboard || slaDashboard.total_open === 0) return 'emerald';
+    const breachRate = slaDashboard.sla_breached_count / slaDashboard.total_open;
+    if (breachRate > 0.2) return 'rose';
+    if (breachRate > 0.1 || slaDashboard.sla_at_risk_count > 0) return 'amber';
+    return 'emerald';
+  });
+
+  // ---- Workload view ----
+  let caseWorkloadData = $state(/** @type {any[] | null} */ (null));
+  let caseWorkloadLoading = $state(false);
+
+  async function loadCaseWorkload() {
+    caseWorkloadLoading = true;
+    try {
+      const res = await clientApiRequest('/cases/workload/');
+      caseWorkloadData = res?.workload || [];
+    } catch {
+      caseWorkloadData = null;
+    }
+    caseWorkloadLoading = false;
+  }
+
+  $effect(() => {
+    if (viewMode === 'workload') {
+      loadCaseWorkload();
+    }
+  });
+
   // ---- Quick filter chips ----
   const quickFilterOptions = [
     { value: '', label: 'Todos' },
@@ -1172,6 +1225,15 @@
           <Columns class="mr-1.5 h-4 w-4" />
           Quadro
         </Button>
+        <Button
+          variant={viewMode === 'workload' ? 'secondary' : 'ghost'}
+          size="sm"
+          onclick={() => updateViewMode('workload')}
+          class="h-8 px-3"
+        >
+          <BarChart3 class="mr-1.5 h-4 w-4" />
+          Equipe
+        </Button>
       </div>
 
       <div class="bg-border mx-1 h-6 w-px"></div>
@@ -1283,6 +1345,48 @@
     />
   </FilterBar>
 
+  <!-- SLA Dashboard KPI Bar -->
+  {#if slaDashboard && !slaDashboardLoading}
+    <div class={cn(
+      'mb-3 flex flex-wrap items-center gap-4 rounded-lg border px-4 py-2.5 text-sm',
+      slaStatusColor === 'rose' ? 'border-rose-500/30 bg-rose-50 dark:bg-rose-500/5' :
+      slaStatusColor === 'amber' ? 'border-amber-500/30 bg-amber-50 dark:bg-amber-500/5' :
+      'border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/5'
+    )}>
+      <div class="flex items-center gap-1.5">
+        <Briefcase class="h-4 w-4 text-muted-foreground" />
+        <span class="font-medium text-foreground">{slaDashboard.total_open} abertos</span>
+      </div>
+      <div class="h-4 w-px bg-border"></div>
+      <div class="flex items-center gap-1.5">
+        <Timer class={cn('h-4 w-4', slaDashboard.sla_breached_count > 0 ? 'text-rose-500' : 'text-muted-foreground')} />
+        <span class={slaDashboard.sla_breached_count > 0 ? 'font-semibold text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}>
+          {slaDashboard.sla_breached_count} SLA violado
+        </span>
+      </div>
+      <div class="h-4 w-px bg-border"></div>
+      <div class="flex items-center gap-1.5">
+        <AlertTriangle class={cn('h-4 w-4', slaDashboard.sla_at_risk_count > 0 ? 'text-amber-500' : 'text-muted-foreground')} />
+        <span class={slaDashboard.sla_at_risk_count > 0 ? 'font-semibold text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}>
+          {slaDashboard.sla_at_risk_count} em risco
+        </span>
+      </div>
+      {#if slaDashboard.avg_resolution_hours != null}
+        <div class="h-4 w-px bg-border"></div>
+        <div class="flex items-center gap-1.5 text-muted-foreground">
+          <Clock class="h-4 w-4" />
+          <span>Resolução: {slaDashboard.avg_resolution_hours.toFixed(1)}h</span>
+        </div>
+      {/if}
+      {#if slaDashboard.escalated_count > 0}
+        <div class="h-4 w-px bg-border"></div>
+        <div class="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+          <span class="font-medium">{slaDashboard.escalated_count} escalonados</span>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <!-- Quick filter chips -->
   <div class="flex flex-wrap gap-1.5 px-1 pb-3">
     {#each quickFilterOptions as option}
@@ -1331,6 +1435,70 @@
       onPageChange={handlePageChange}
       onLimitChange={handleLimitChange}
     />
+  {:else if viewMode === 'workload'}
+    <!-- Workload View -->
+    <div class="space-y-4">
+      {#if caseWorkloadLoading}
+        <div class="flex items-center justify-center py-16">
+          <div class="text-muted-foreground text-sm">Carregando...</div>
+        </div>
+      {:else if caseWorkloadData && caseWorkloadData.length > 0}
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {#each caseWorkloadData as member (member.user.id)}
+            {@const total = member.counts.total || 0}
+            {@const breached = member.counts.sla_breached || 0}
+            {@const resolved = member.counts.resolved_this_period || 0}
+            {@const load = total > 15 ? 'critical' : total > 8 ? 'high' : 'normal'}
+            <Card.Root class={load === 'critical' ? 'border-rose-500/30' : load === 'high' ? 'border-amber-500/30' : ''}>
+              <Card.Content class="p-4">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-sm font-semibold text-white">
+                    {(member.user.name || member.user.email || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-sm text-foreground truncate">{member.user.name || member.user.email}</div>
+                    <div class="text-xs text-muted-foreground">{total} chamado{total !== 1 ? 's' : ''} aberto{total !== 1 ? 's' : ''}</div>
+                  </div>
+                  <span class={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
+                    load === 'critical' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400' :
+                    load === 'high' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' :
+                    'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                  )}>
+                    {load === 'critical' ? 'Crítica' : load === 'high' ? 'Alta' : 'Normal'}
+                  </span>
+                </div>
+                <!-- Stacked bar -->
+                <div class="h-3 w-full rounded-full bg-muted overflow-hidden flex">
+                  {#if member.counts.open}
+                    <div class="h-full bg-blue-500" style="width: {(member.counts.open / Math.max(total, 1)) * 100}%" title="Abertos: {member.counts.open}"></div>
+                  {/if}
+                  {#if member.counts.pending}
+                    <div class="h-full bg-amber-500" style="width: {(member.counts.pending / Math.max(total, 1)) * 100}%" title="Pendentes: {member.counts.pending}"></div>
+                  {/if}
+                  {#if breached}
+                    <div class="h-full bg-rose-500" style="width: {(breached / Math.max(total, 1)) * 100}%" title="SLA violado: {breached}"></div>
+                  {/if}
+                </div>
+                <div class="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-blue-500 inline-block"></span> Abertos {member.counts.open || 0}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-amber-500 inline-block"></span> Pendentes {member.counts.pending || 0}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-rose-500 inline-block"></span> SLA {breached}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-emerald-500 inline-block"></span> Resolvidos {resolved}</span>
+                </div>
+              </Card.Content>
+            </Card.Root>
+          {/each}
+        </div>
+      {:else}
+        <Card.Root>
+          <Card.Content class="py-16 text-center">
+            <Users class="text-muted-foreground/50 mx-auto mb-4 h-12 w-12" />
+            <p class="text-muted-foreground text-sm">Nenhum dado de carga disponível</p>
+          </Card.Content>
+        </Card.Root>
+      {/if}
+    </div>
   {:else}
     <div class="mb-4">
       <PipelineManager

@@ -165,6 +165,11 @@ export async function load({ locals, cookies, url }) {
       priority: task.priority,
       dueDate: task.due_date,
       dueTime: task.due_time || '',
+      effort: task.effort || null,
+      impact: task.impact || null,
+      priorityScore: task.priority_score || 0,
+      isBlocked: task.is_blocked || false,
+      subtaskProgress: task.subtask_progress || '',
       createdAt: task.created_at,
       updatedAt: task.updated_at,
 
@@ -295,6 +300,8 @@ export const actions = {
       const priority = form.get('priority')?.toString() || 'Medium';
       const dueDate = form.get('dueDate')?.toString() || null;
       const dueTime = form.get('dueTime')?.toString() || null;
+      const effort = form.get('effort')?.toString() || null;
+      const impact = form.get('impact')?.toString() || null;
       const accountId = form.get('accountId')?.toString() || null;
       const opportunityId = form.get('opportunityId')?.toString() || null;
       const caseId = form.get('caseId')?.toString() || null;
@@ -323,6 +330,8 @@ export const actions = {
         priority: priority,
         due_date: dueDate,
         due_time: dueTime || null,
+        effort: effort ? parseInt(effort) : null,
+        impact: impact ? parseInt(impact) : null,
         assigned_to: assignedTo,
         contacts: contacts,
         teams: teams,
@@ -365,6 +374,8 @@ export const actions = {
       const priority = form.get('priority')?.toString() || 'Medium';
       const dueDate = form.get('dueDate')?.toString() || null;
       const dueTime = form.get('dueTime')?.toString() || null;
+      const effort = form.get('effort')?.toString() || null;
+      const impact = form.get('impact')?.toString() || null;
       const accountId = form.get('accountId')?.toString() || null;
       const opportunityId = form.get('opportunityId')?.toString() || null;
       const caseId = form.get('caseId')?.toString() || null;
@@ -393,6 +404,8 @@ export const actions = {
         priority: priority,
         due_date: dueDate,
         due_time: dueTime || null,
+        effort: effort ? parseInt(effort) : null,
+        impact: impact ? parseInt(impact) : null,
         assigned_to: assignedTo,
         contacts: contacts,
         teams: teams,

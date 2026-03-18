@@ -221,6 +221,27 @@ CASES_PRESETS = {
         "message_template": "Chamado {{case_name}} requer atenção. Prioridade: {{case_priority}}. Status: {{case_status}}.",
         "approval_policy": "auto",
     },
+    "case_due_date": {
+        "name": "Prazo do chamado",
+        "description": "Lembrete antes do prazo do chamado com hora",
+        "trigger_type": "due_date",
+        "trigger_config": {
+            "date_field": "due_date",
+            "offsets": [-3, -1, 0, 1],
+        },
+        "channel_config": {
+            "channel_type": "internal",
+            "destination_type": "owner_email",
+        },
+        "task_config": {
+            "enabled": True,
+            "mode": "per_run",
+            "title_template": "Prazo: {{case_name}} — {{due_date}} {{due_time}}",
+            "priority": "High",
+        },
+        "message_template": "Chamado {{case_name}} vence em {{due_date}} {{due_time}}. Prioridade: {{case_priority}}. Status: {{case_status}}.",
+        "approval_policy": "auto",
+    },
 }
 
 TASKS_PRESETS = {

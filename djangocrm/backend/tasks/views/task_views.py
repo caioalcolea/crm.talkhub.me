@@ -1233,6 +1233,8 @@ class WorkloadView(APIView):
         for profile in profiles:
             tasks = profile.task_assigned_users.filter(org=org)
             total_active = tasks.exclude(status="Completed").count()
+            new_count = tasks.filter(status="New").count()
+            in_progress_count = tasks.filter(status="In Progress").count()
             overdue_count = tasks.filter(
                 due_date__lt=today
             ).exclude(status="Completed").count()
@@ -1247,11 +1249,13 @@ class WorkloadView(APIView):
                     "email": profile.user.email,
                 },
                 "counts": {
-                    "total_active": total_active,
+                    "total": total_active,
+                    "new": new_count,
+                    "in_progress": in_progress_count,
                     "overdue": overdue_count,
-                    "completed_period": completed_period,
+                    "completed_this_period": completed_period,
                 },
             })
 
-        result.sort(key=lambda x: x["counts"]["total_active"], reverse=True)
+        result.sort(key=lambda x: x["counts"]["total"], reverse=True)
         return Response({"workload": result, "period": period})
