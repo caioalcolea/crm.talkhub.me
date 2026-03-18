@@ -1007,6 +1007,7 @@ class SubtaskListCreateView(APIView):
                 task=task,
                 org=request.profile.org,
                 order=request.data.get("order", max_order),
+                created_by=request.profile.user,
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -1025,7 +1026,7 @@ class SubtaskDetailView(APIView):
             subtask.is_completed = data["is_completed"]
             if subtask.is_completed:
                 subtask.completed_at = timezone.now()
-                subtask.completed_by = request.user
+                subtask.completed_by = request.profile.user
             else:
                 subtask.completed_at = None
                 subtask.completed_by = None
@@ -1093,6 +1094,7 @@ class TaskDependencyListCreateView(APIView):
                 dependency_type=dep_type,
                 org=request.profile.org,
             )
+            dep.full_clean()
             dep.save()
         except Exception as e:
             return Response(
@@ -1227,7 +1229,7 @@ class WorkloadView(APIView):
 
         profiles = Profile.objects.filter(
             org=org, is_active=True
-        ).prefetch_related("task_assigned_users")
+        ).select_related("user").prefetch_related("task_assigned_users")
 
         result = []
         for profile in profiles:

@@ -757,6 +757,7 @@
       status: 'New',
       priority: 'Medium',
       dueDate: '',
+      dueTime: '',
       effort: '',
       impact: '',
       accountId: accountIdFromUrl || '',
@@ -1563,6 +1564,7 @@
         status: task.status || 'New',
         priority: task.priority || 'Medium',
         dueDate: task.due_date ? task.due_date.split('T')[0] : '', // kanban uses 'due_date'
+        dueTime: task.due_time || '',
         effort: task.effort?.toString() || '',
         impact: task.impact?.toString() || '',
         accountId,

@@ -1032,7 +1032,9 @@
       priority: caseItem.priority || 'Normal',
       caseType: caseItem.caseType || '',
       status: caseItem.status || 'New',
-      dueDate: caseItem.closedOn ? caseItem.closedOn.split('T')[0] : ''
+      closedOn: caseItem.closedOn ? caseItem.closedOn.split('T')[0] : '',
+      dueDate: caseItem.dueDate ? caseItem.dueDate.split('T')[0] : '',
+      dueTime: caseItem.dueTime || ''
     };
   }
 
@@ -1049,7 +1051,9 @@
       caseType: 'caseType',
       priority: 'priority',
       status: 'status',
-      closedOn: 'dueDate'
+      dueDate: 'dueDate',
+      dueTime: 'dueTime',
+      closedOn: 'closedOn'
     };
 
     // Populate form state with current case data

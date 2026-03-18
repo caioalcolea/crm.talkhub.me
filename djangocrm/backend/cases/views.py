@@ -1180,15 +1180,20 @@ class CaseWorkloadView(APIView):
         profiles = Profile.objects.filter(org=org, is_active=True)
         result = []
 
-        for profile in profiles:
+        for profile in profiles.select_related("user"):
             cases_qs = Case.objects.filter(org=org, assigned_to=profile)
-            total = cases_qs.exclude(status__in=["Closed", "Rejected", "Duplicate"]).count()
+            active_cases = list(
+                cases_qs.exclude(status__in=["Closed", "Rejected", "Duplicate"])
+            )
+            total = len(active_cases)
             open_count = cases_qs.filter(status__in=["New", "Assigned"]).count()
             pending_count = cases_qs.filter(status="Pending").count()
-            sla_breached = cases_qs.filter(
-                Q(is_sla_first_response_breached=True)
-                | Q(is_sla_resolution_breached=True)
-            ).exclude(status__in=["Closed", "Rejected", "Duplicate"]).count()
+            sla_breached = sum(
+                1
+                for c in active_cases
+                if c.is_sla_first_response_breached
+                or c.is_sla_resolution_breached
+            )
             resolved_this_period = cases_qs.filter(
                 status="Closed",
                 updated_at__gte=period_start,
@@ -1220,27 +1225,34 @@ class CaseSLADashboardView(APIView):
 
     def get(self, request):
         org = request.profile.org
-        open_cases = Case.objects.filter(org=org).exclude(
+        open_cases_qs = Case.objects.filter(org=org).exclude(
             status__in=["Closed", "Rejected", "Duplicate"]
         )
-        total_open = open_cases.count()
-        sla_breached_count = open_cases.filter(
-            Q(is_sla_first_response_breached=True)
-            | Q(is_sla_resolution_breached=True)
-        ).count()
+        open_cases_list = list(open_cases_qs)
+        total_open = len(open_cases_list)
+
+        # SLA breach check uses @property — must filter in Python
+        sla_breached_count = sum(
+            1
+            for c in open_cases_list
+            if c.is_sla_first_response_breached
+            or c.is_sla_resolution_breached
+        )
 
         # At-risk: >75% of SLA time used but not yet breached
         sla_at_risk_count = 0
         now = timezone.now()
-        for case in open_cases.filter(
-            is_sla_resolution_breached=False,
-            sla_resolution_hours__gt=0,
-            created_at__isnull=False,
-        ):
-            elapsed = (now - case.created_at).total_seconds() / 3600
-            threshold = case.sla_resolution_hours * 0.75
-            if elapsed >= threshold:
-                sla_at_risk_count += 1
+        for case in open_cases_list:
+            if (
+                not case.is_sla_resolution_breached
+                and case.sla_resolution_hours
+                and case.sla_resolution_hours > 0
+                and case.created_at
+            ):
+                elapsed = (now - case.created_at).total_seconds() / 3600
+                threshold = case.sla_resolution_hours * 0.75
+                if elapsed >= threshold:
+                    sla_at_risk_count += 1
 
         # Average response/resolution times (from closed cases)
         closed_cases = Case.objects.filter(org=org, status="Closed")
@@ -1264,21 +1276,25 @@ class CaseSLADashboardView(APIView):
             )
             avg_resolution = round(total_hours / len(sample), 1)
 
-        # By priority
+        # By priority — use Python filtering since SLA breach is a @property
         by_priority = []
         for priority in ["Low", "Normal", "High", "Urgent"]:
-            pq = open_cases.filter(priority=priority)
-            breached = pq.filter(
-                Q(is_sla_first_response_breached=True)
-                | Q(is_sla_resolution_breached=True)
-            ).count()
+            priority_cases = [c for c in open_cases_list if c.priority == priority]
+            breached = sum(
+                1
+                for c in priority_cases
+                if c.is_sla_first_response_breached
+                or c.is_sla_resolution_breached
+            )
             by_priority.append({
                 "priority": priority,
-                "count": pq.count(),
+                "count": len(priority_cases),
                 "breached": breached,
             })
 
-        escalated_count = open_cases.filter(escalation_level__gt=0).count()
+        escalated_count = sum(
+            1 for c in open_cases_list if (c.escalation_level or 0) > 0
+        )
 
         return Response({
             "total_open": total_open,
