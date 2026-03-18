@@ -49,6 +49,8 @@
   import { COUNTRIES, getCountryName } from '$lib/constants/countries.js';
   import { CURRENCY_CODES } from '$lib/constants/filters.js';
   import { orgSettings } from '$lib/stores/org.js';
+  import { fetchAddressByCep } from '$lib/utils/viacep.js';
+  import { validateCnpj, formatCnpj, fetchCompanyByCnpj } from '$lib/utils/cnpj.js';
 
   // Column visibility configuration
   const STORAGE_KEY = 'accounts-column-config';
@@ -114,6 +116,13 @@
   // Base drawer columns (using $derived for dynamic currency symbol)
   const baseDrawerColumns = $derived([
     { key: 'name', label: 'Nome', type: 'text' },
+    {
+      key: 'cnpj',
+      label: 'CNPJ',
+      type: 'text',
+      icon: Building2,
+      placeholder: '00.000.000/0000-00'
+    },
     {
       key: 'industry',
       label: 'Setor',
@@ -322,6 +331,7 @@
   // Empty account template for create mode
   const emptyAccount = {
     name: '',
+    cnpj: '',
     industry: '',
     website: '',
     phone: '',
@@ -555,6 +565,7 @@
   let formState = $state({
     accountId: '',
     name: '',
+    cnpj: '',
     email: '',
     phone: '',
     website: '',
@@ -586,9 +597,51 @@
    * @param {string} field
    * @param {any} value
    */
-  function handleDrawerFieldChange(field, value) {
+  async function handleDrawerFieldChange(field, value) {
     // Update local form data only - no auto-save
     drawerFormData = { ...drawerFormData, [field]: value };
+
+    // ViaCEP: auto-fill address from CEP
+    if (field === 'postcode') {
+      const clean = value?.replace(/\D/g, '') || '';
+      if (clean.length === 8) {
+        const address = await fetchAddressByCep(clean);
+        if (address) {
+          drawerFormData = { ...drawerFormData, ...address };
+          toast.success('Endereço preenchido pelo CEP');
+        }
+      }
+    }
+
+    // CNPJ: auto-fill company data from BrasilAPI
+    if (field === 'cnpj') {
+      const clean = value?.replace(/\D/g, '') || '';
+      if (clean.length === 14) {
+        if (!validateCnpj(clean)) {
+          toast.error('CNPJ inválido');
+          return;
+        }
+        // Format the CNPJ in the field
+        drawerFormData = { ...drawerFormData, cnpj: formatCnpj(clean) };
+        const company = await fetchCompanyByCnpj(clean);
+        if (company) {
+          // Only fill empty fields — never overwrite user-entered data
+          const updates = { cnpj: company.cnpj };
+          if (!drawerFormData.name) updates.name = company.name;
+          if (!drawerFormData.addressLine) updates.addressLine = company.addressLine;
+          if (!drawerFormData.city) updates.city = company.city;
+          if (!drawerFormData.state) updates.state = company.state;
+          if (!drawerFormData.postcode) updates.postcode = company.postcode;
+          if (!drawerFormData.country) updates.country = company.country;
+          if (!drawerFormData.phone) updates.phone = company.phone;
+          if (!drawerFormData.email) updates.email = company.email;
+          drawerFormData = { ...drawerFormData, ...updates };
+          toast.success('Dados da empresa preenchidos automaticamente');
+        } else {
+          toast.error('CNPJ não encontrado na base de dados');
+        }
+      }
+    }
   }
 
   /**
@@ -600,6 +653,7 @@
     isSubmitting = true;
     formState.accountId = selectedAccount.id;
     formState.name = drawerFormData.name || '';
+    formState.cnpj = drawerFormData.cnpj?.replace(/\D/g, '') || '';
     formState.email = drawerFormData.email || '';
     formState.phone = drawerFormData.phone || '';
     formState.website = drawerFormData.website || '';
@@ -629,6 +683,7 @@
 
     isSubmitting = true;
     formState.name = drawerFormData.name || '';
+    formState.cnpj = drawerFormData.cnpj?.replace(/\D/g, '') || '';
     formState.email = drawerFormData.email || '';
     formState.phone = drawerFormData.phone || '';
     formState.website = drawerFormData.website || '';
@@ -1199,6 +1254,7 @@
   class="hidden"
 >
   <input type="hidden" name="name" value={formState.name} />
+  <input type="hidden" name="cnpj" value={formState.cnpj} />
   <input type="hidden" name="email" value={formState.email} />
   <input type="hidden" name="phone" value={formState.phone} />
   <input type="hidden" name="website" value={formState.website} />
@@ -1226,6 +1282,7 @@
 >
   <input type="hidden" name="accountId" value={formState.accountId} />
   <input type="hidden" name="name" value={formState.name} />
+  <input type="hidden" name="cnpj" value={formState.cnpj} />
   <input type="hidden" name="email" value={formState.email} />
   <input type="hidden" name="phone" value={formState.phone} />
   <input type="hidden" name="website" value={formState.website} />

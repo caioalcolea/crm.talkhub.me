@@ -31,6 +31,7 @@ export async function load({ locals, cookies, url }) {
   const limit = parseInt(url.searchParams.get('limit') || '10');
 
   // Parse filter params from URL
+  const quickFilter = url.searchParams.get('quick_filter') || '';
   const filters = {
     search: url.searchParams.get('search') || '',
     status: url.searchParams.get('status') || '',
@@ -38,7 +39,8 @@ export async function load({ locals, cookies, url }) {
     assigned_to: url.searchParams.getAll('assigned_to'),
     tags: url.searchParams.getAll('tags'),
     due_date_gte: url.searchParams.get('due_date_gte') || '',
-    due_date_lte: url.searchParams.get('due_date_lte') || ''
+    due_date_lte: url.searchParams.get('due_date_lte') || '',
+    quick_filter: quickFilter
   };
 
   try {
@@ -58,6 +60,7 @@ export async function load({ locals, cookies, url }) {
     filters.tags.forEach((id) => queryParams.append('tags', id));
     if (filters.due_date_gte) queryParams.append('due_date__gte', filters.due_date_gte);
     if (filters.due_date_lte) queryParams.append('due_date__lte', filters.due_date_lte);
+    if (filters.quick_filter) queryParams.append('quick_filter', filters.quick_filter);
 
     // Build kanban query params (similar filters)
     const kanbanQueryParams = new URLSearchParams();
@@ -161,6 +164,12 @@ export async function load({ locals, cookies, url }) {
       status: task.status,
       priority: task.priority,
       dueDate: task.due_date,
+      dueTime: task.due_time || '',
+      effort: task.effort || null,
+      impact: task.impact || null,
+      priorityScore: task.priority_score || 0,
+      isBlocked: task.is_blocked || false,
+      subtaskProgress: task.subtask_progress || '',
       createdAt: task.created_at,
       updatedAt: task.updated_at,
 
@@ -290,6 +299,9 @@ export const actions = {
       const status = form.get('status')?.toString() || 'New';
       const priority = form.get('priority')?.toString() || 'Medium';
       const dueDate = form.get('dueDate')?.toString() || null;
+      const dueTime = form.get('dueTime')?.toString() || null;
+      const effort = form.get('effort')?.toString() || null;
+      const impact = form.get('impact')?.toString() || null;
       const accountId = form.get('accountId')?.toString() || null;
       const opportunityId = form.get('opportunityId')?.toString() || null;
       const caseId = form.get('caseId')?.toString() || null;
@@ -317,6 +329,9 @@ export const actions = {
         status: status,
         priority: priority,
         due_date: dueDate,
+        due_time: dueTime || null,
+        effort: effort ? parseInt(effort) : null,
+        impact: impact ? parseInt(impact) : null,
         assigned_to: assignedTo,
         contacts: contacts,
         teams: teams,
@@ -326,6 +341,10 @@ export const actions = {
         case: caseId || null,
         lead: leadId || null
       };
+
+      // Pipeline stage
+      const stageId = form.get('stageId')?.toString() || null;
+      if (stageId) djangoData.stage = stageId;
 
       await apiRequest(
         '/tasks/',
@@ -354,6 +373,9 @@ export const actions = {
       const status = form.get('status')?.toString() || 'New';
       const priority = form.get('priority')?.toString() || 'Medium';
       const dueDate = form.get('dueDate')?.toString() || null;
+      const dueTime = form.get('dueTime')?.toString() || null;
+      const effort = form.get('effort')?.toString() || null;
+      const impact = form.get('impact')?.toString() || null;
       const accountId = form.get('accountId')?.toString() || null;
       const opportunityId = form.get('opportunityId')?.toString() || null;
       const caseId = form.get('caseId')?.toString() || null;
@@ -381,6 +403,9 @@ export const actions = {
         status: status,
         priority: priority,
         due_date: dueDate,
+        due_time: dueTime || null,
+        effort: effort ? parseInt(effort) : null,
+        impact: impact ? parseInt(impact) : null,
         assigned_to: assignedTo,
         contacts: contacts,
         teams: teams,
@@ -390,6 +415,10 @@ export const actions = {
         case: caseId || null,
         lead: leadId || null
       };
+
+      // Pipeline stage (null clears the stage)
+      const stageId = form.get('stageId')?.toString() || null;
+      djangoData.stage = stageId;
 
       await apiRequest(
         `/tasks/${taskId}/`,

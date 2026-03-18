@@ -1,7 +1,9 @@
 import json
+from datetime import date, timedelta
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Q
+from django.db.models import Count, Q
+from django.utils import timezone
 from drf_spectacular.utils import (
     extend_schema,
     inline_serializer,
@@ -31,6 +33,8 @@ from common.serializers import AttachmentsSerializer, CommentSerializer
 from common.utils import CASE_TYPE, PRIORITY_CHOICE, STATUS_CHOICE
 from contacts.models import Contact
 from contacts.serializers import ContactSerializer
+from tasks.models import Subtask
+from tasks.serializers import SubtaskSerializer
 
 
 class CaseListView(APIView, LimitOffsetPagination):
@@ -93,6 +97,39 @@ class CaseListView(APIView, LimitOffsetPagination):
                 queryset = queryset.filter(
                     created_at__lte=params.get("created_at__lte")
                 )
+            if params.get("due_date__gte"):
+                queryset = queryset.filter(due_date__gte=params.get("due_date__gte"))
+            if params.get("due_date__lte"):
+                queryset = queryset.filter(due_date__lte=params.get("due_date__lte"))
+
+            # Quick filters
+            quick_filter = params.get("quick_filter")
+            if quick_filter:
+                today = date.today()
+                if quick_filter == "overdue":
+                    queryset = queryset.filter(
+                        due_date__lt=today,
+                    ).exclude(
+                        status__in=["Closed", "Rejected", "Duplicate"],
+                    )
+                elif quick_filter == "due_today":
+                    queryset = queryset.filter(due_date=today)
+                elif quick_filter == "due_this_week":
+                    monday = today - timedelta(days=today.weekday())
+                    sunday = monday + timedelta(days=6)
+                    queryset = queryset.filter(due_date__range=[monday, sunday])
+                elif quick_filter == "completed_this_week":
+                    monday = today - timedelta(days=today.weekday())
+                    queryset = queryset.filter(
+                        status="Closed",
+                        updated_at__gte=monday,
+                    )
+                elif quick_filter == "no_date":
+                    queryset = queryset.filter(
+                        due_date__isnull=True,
+                    ).exclude(
+                        status__in=["Closed", "Rejected", "Duplicate"],
+                    )
 
         context = {}
 
@@ -1040,3 +1077,231 @@ class CaseRelatedView(APIView):
             ]
 
         return Response(context)
+
+
+class CaseSubtaskListCreateView(APIView):
+    """GET/POST subtasks for a case."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        org = request.profile.org
+        case = Case.objects.filter(pk=pk, org=org).first()
+        if not case:
+            return Response(
+                {"error": True, "errors": "Case not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        subtasks = Subtask.objects.filter(case=case, org=org).order_by("order", "created_at")
+        return Response(SubtaskSerializer(subtasks, many=True).data)
+
+    def post(self, request, pk):
+        org = request.profile.org
+        case = Case.objects.filter(pk=pk, org=org).first()
+        if not case:
+            return Response(
+                {"error": True, "errors": "Case not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        data = request.data
+        max_order = Subtask.objects.filter(case=case).count()
+        subtask = Subtask.objects.create(
+            case=case,
+            title=data.get("title", ""),
+            order=data.get("order", max_order),
+            org=org,
+            created_by=request.profile.user,
+        )
+        return Response(
+            SubtaskSerializer(subtask).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CaseSubtaskDetailView(APIView):
+    """PATCH/DELETE a case subtask."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def patch(self, request, pk):
+        org = request.profile.org
+        subtask = Subtask.objects.filter(pk=pk, case__isnull=False, org=org).first()
+        if not subtask:
+            return Response(
+                {"error": True, "errors": "Subtask not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        data = request.data
+        if "title" in data:
+            subtask.title = data["title"]
+        if "is_completed" in data:
+            subtask.is_completed = data["is_completed"]
+            if data["is_completed"]:
+                subtask.completed_at = timezone.now()
+                subtask.completed_by = request.profile.user
+            else:
+                subtask.completed_at = None
+                subtask.completed_by = None
+        if "order" in data:
+            subtask.order = data["order"]
+        subtask.save()
+        return Response(SubtaskSerializer(subtask).data)
+
+    def delete(self, request, pk):
+        org = request.profile.org
+        subtask = Subtask.objects.filter(pk=pk, case__isnull=False, org=org).first()
+        if not subtask:
+            return Response(
+                {"error": True, "errors": "Subtask not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        subtask.delete()
+        return Response(
+            {"error": False, "message": "Subtask deleted"},
+            status=status.HTTP_200_OK,
+        )
+
+
+class CaseWorkloadView(APIView):
+    """GET /cases/workload/ — case counts per user with SLA metrics."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request):
+        org = request.profile.org
+        today = date.today()
+        period = request.query_params.get("period", "week")
+
+        if period == "month":
+            period_start = today.replace(day=1)
+        else:
+            period_start = today - timedelta(days=today.weekday())
+
+        profiles = Profile.objects.filter(org=org, is_active=True)
+        result = []
+
+        for profile in profiles.select_related("user"):
+            cases_qs = Case.objects.filter(org=org, assigned_to=profile)
+            active_cases = list(
+                cases_qs.exclude(status__in=["Closed", "Rejected", "Duplicate"])
+            )
+            total = len(active_cases)
+            open_count = cases_qs.filter(status__in=["New", "Assigned"]).count()
+            pending_count = cases_qs.filter(status="Pending").count()
+            sla_breached = sum(
+                1
+                for c in active_cases
+                if c.is_sla_first_response_breached
+                or c.is_sla_resolution_breached
+            )
+            resolved_this_period = cases_qs.filter(
+                status="Closed",
+                updated_at__gte=period_start,
+            ).count()
+
+            result.append({
+                "user": {
+                    "id": str(profile.id),
+                    "name": str(profile),
+                    "email": profile.user.email,
+                },
+                "counts": {
+                    "total": total,
+                    "open": open_count,
+                    "pending": pending_count,
+                    "sla_breached": sla_breached,
+                    "resolved_this_period": resolved_this_period,
+                },
+            })
+
+        result.sort(key=lambda x: x["counts"]["total"], reverse=True)
+        return Response({"workload": result, "period": period})
+
+
+class CaseSLADashboardView(APIView):
+    """GET /cases/sla-dashboard/ — SLA metrics overview."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request):
+        org = request.profile.org
+        open_cases_qs = Case.objects.filter(org=org).exclude(
+            status__in=["Closed", "Rejected", "Duplicate"]
+        )
+        open_cases_list = list(open_cases_qs)
+        total_open = len(open_cases_list)
+
+        # SLA breach check uses @property — must filter in Python
+        sla_breached_count = sum(
+            1
+            for c in open_cases_list
+            if c.is_sla_first_response_breached
+            or c.is_sla_resolution_breached
+        )
+
+        # At-risk: >75% of SLA time used but not yet breached
+        sla_at_risk_count = 0
+        now = timezone.now()
+        for case in open_cases_list:
+            if (
+                not case.is_sla_resolution_breached
+                and case.sla_resolution_hours
+                and case.sla_resolution_hours > 0
+                and case.created_at
+            ):
+                elapsed = (now - case.created_at).total_seconds() / 3600
+                threshold = case.sla_resolution_hours * 0.75
+                if elapsed >= threshold:
+                    sla_at_risk_count += 1
+
+        # Average response/resolution times (from closed cases)
+        closed_cases = Case.objects.filter(org=org, status="Closed")
+        avg_first_response = None
+        avg_resolution = None
+        cases_with_response = closed_cases.filter(first_response_at__isnull=False)
+        if cases_with_response.exists():
+            sample = list(cases_with_response[:100])
+            total_hours = sum(
+                (c.first_response_at - c.created_at).total_seconds() / 3600
+                for c in sample
+            )
+            avg_first_response = round(total_hours / len(sample), 1)
+
+        cases_with_resolution = closed_cases.filter(resolved_at__isnull=False)
+        if cases_with_resolution.exists():
+            sample = list(cases_with_resolution[:100])
+            total_hours = sum(
+                (c.resolved_at - c.created_at).total_seconds() / 3600
+                for c in sample
+            )
+            avg_resolution = round(total_hours / len(sample), 1)
+
+        # By priority — use Python filtering since SLA breach is a @property
+        by_priority = []
+        for priority in ["Low", "Normal", "High", "Urgent"]:
+            priority_cases = [c for c in open_cases_list if c.priority == priority]
+            breached = sum(
+                1
+                for c in priority_cases
+                if c.is_sla_first_response_breached
+                or c.is_sla_resolution_breached
+            )
+            by_priority.append({
+                "priority": priority,
+                "count": len(priority_cases),
+                "breached": breached,
+            })
+
+        escalated_count = sum(
+            1 for c in open_cases_list if (c.escalation_level or 0) > 0
+        )
+
+        return Response({
+            "total_open": total_open,
+            "sla_breached_count": sla_breached_count,
+            "sla_at_risk_count": sla_at_risk_count,
+            "avg_first_response_hours": avg_first_response,
+            "avg_resolution_hours": avg_resolution,
+            "by_priority": by_priority,
+            "escalated_count": escalated_count,
+        })

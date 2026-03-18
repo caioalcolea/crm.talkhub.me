@@ -181,6 +181,8 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             # System
             "company_name",
             "is_active",
+            # Kanban
+            "stage",
         )
 
     def create(self, validated_data):

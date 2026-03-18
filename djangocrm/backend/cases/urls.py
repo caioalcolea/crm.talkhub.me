@@ -9,6 +9,9 @@ urlpatterns = [
     path("", views.CaseListView.as_view()),
     # Kanban endpoints (must be before <str:pk>/ to avoid conflicts)
     path("kanban/", kanban_views.CaseKanbanView.as_view(), name="case_kanban"),
+    # Workload & SLA Dashboard
+    path("workload/", views.CaseWorkloadView.as_view(), name="case_workload"),
+    path("sla-dashboard/", views.CaseSLADashboardView.as_view(), name="sla_dashboard"),
     # Pipeline management
     path(
         "pipelines/",
@@ -36,6 +39,12 @@ urlpatterns = [
         kanban_views.CaseStageDetailView.as_view(),
         name="stage_detail",
     ),
+    # Subtask management (must be before <str:pk>/ to avoid conflicts)
+    path(
+        "subtasks/<str:pk>/",
+        views.CaseSubtaskDetailView.as_view(),
+        name="case_subtask_detail",
+    ),
     # Solutions (Knowledge Base) endpoints (must be before <str:pk>/ to avoid conflicts)
     path(
         "solutions/", solution_views.SolutionListView.as_view(), name="solutions_list"
@@ -59,6 +68,7 @@ urlpatterns = [
     path("<str:pk>/related/", views.CaseRelatedView.as_view(), name="case-related"),
     path("<str:pk>/", views.CaseDetailView.as_view()),
     path("<str:pk>/tasks/", views.CaseTaskCreateView.as_view(), name="case_task_create"),
+    path("<str:pk>/subtasks/", views.CaseSubtaskListCreateView.as_view(), name="case_subtask_list"),
     path("<str:pk>/move/", kanban_views.CaseMoveView.as_view(), name="case_move"),
     path("comment/<str:pk>/", views.CaseCommentView.as_view()),
     path("attachment/<str:pk>/", views.CaseAttachmentView.as_view()),

@@ -1,8 +1,10 @@
 import json
+from datetime import date, timedelta
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.pagination import LimitOffsetPagination
@@ -26,11 +28,14 @@ from contacts.serializers import ContactSerializer
 from leads.models import Lead
 from opportunity.models import Opportunity
 from tasks import swagger_params
-from tasks.models import Task
+from tasks.models import Project, Subtask, Task, TaskDependency
 from tasks.serializers import (
+    ProjectSerializer,
+    SubtaskSerializer,
     TaskCommentEditSwaggerSerializer,
     TaskCreateSerializer,
     TaskCreateSwaggerSerializer,
+    TaskDependencySerializer,
     TaskDetailEditSwaggerSerializer,
     TaskSerializer,
 )
@@ -103,6 +108,25 @@ class TaskListView(APIView, LimitOffsetPagination):
                 queryset = queryset.filter(case_id=params.get("case"))
             if params.get("lead"):
                 queryset = queryset.filter(lead_id=params.get("lead"))
+            if params.get("project"):
+                queryset = queryset.filter(project_id=params.get("project"))
+            # Quick filters
+            quick_filter = params.get("quick_filter")
+            if quick_filter:
+                today = date.today()
+                if quick_filter == "overdue":
+                    queryset = queryset.filter(due_date__lt=today).exclude(status="Completed")
+                elif quick_filter == "due_today":
+                    queryset = queryset.filter(due_date=today)
+                elif quick_filter == "due_this_week":
+                    monday = today - timedelta(days=today.weekday())
+                    sunday = monday + timedelta(days=6)
+                    queryset = queryset.filter(due_date__range=[monday, sunday])
+                elif quick_filter == "completed_this_week":
+                    monday = today - timedelta(days=today.weekday())
+                    queryset = queryset.filter(status="Completed", updated_at__gte=monday)
+                elif quick_filter == "no_date":
+                    queryset = queryset.filter(due_date__isnull=True).exclude(status="Completed")
         context = {}
         results_tasks = self.paginate_queryset(
             queryset.distinct(), self.request, view=self
@@ -172,6 +196,7 @@ class TaskListView(APIView, LimitOffsetPagination):
             task_obj = serializer.save(
                 created_by=request.profile.user,
                 due_date=params.get("due_date"),
+                due_time=params.get("due_time") or None,
                 org=request.profile.org,
             )
             if params.get("contacts"):
@@ -956,3 +981,283 @@ class TaskAttachmentView(APIView):
             },
             status=status.HTTP_403_FORBIDDEN,
         )
+
+
+# ============================================================================
+# Subtask Views
+# ============================================================================
+
+
+class SubtaskListCreateView(APIView):
+    """GET subtasks for a task, POST to create a new subtask."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        task = get_object_or_404(Task, pk=pk, org=request.profile.org)
+        subtasks = task.subtasks.all()
+        return Response(SubtaskSerializer(subtasks, many=True).data)
+
+    def post(self, request, pk):
+        task = get_object_or_404(Task, pk=pk, org=request.profile.org)
+        serializer = SubtaskSerializer(data=request.data)
+        if serializer.is_valid():
+            max_order = task.subtasks.count()
+            serializer.save(
+                task=task,
+                org=request.profile.org,
+                order=request.data.get("order", max_order),
+                created_by=request.profile.user,
+            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SubtaskDetailView(APIView):
+    """PATCH/DELETE a subtask."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def patch(self, request, pk):
+        subtask = get_object_or_404(Subtask, pk=pk, org=request.profile.org)
+        data = request.data
+
+        if "is_completed" in data:
+            subtask.is_completed = data["is_completed"]
+            if subtask.is_completed:
+                subtask.completed_at = timezone.now()
+                subtask.completed_by = request.profile.user
+            else:
+                subtask.completed_at = None
+                subtask.completed_by = None
+
+        if "title" in data:
+            subtask.title = data["title"]
+        if "order" in data:
+            subtask.order = data["order"]
+        if "assigned_to" in data:
+            subtask.assigned_to_id = data["assigned_to"] or None
+
+        subtask.save()
+        return Response(SubtaskSerializer(subtask).data)
+
+    def delete(self, request, pk):
+        subtask = get_object_or_404(Subtask, pk=pk, org=request.profile.org)
+        subtask.delete()
+        return Response({"error": False, "message": "Subtask deleted"})
+
+
+class SubtaskReorderView(APIView):
+    """Reorder subtasks by providing ordered list of IDs."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def post(self, request, pk):
+        task = get_object_or_404(Task, pk=pk, org=request.profile.org)
+        subtask_ids = request.data.get("subtask_ids", [])
+        for idx, sid in enumerate(subtask_ids):
+            Subtask.objects.filter(pk=sid, task=task).update(order=idx)
+        return Response({"error": False, "message": "Subtasks reordered"})
+
+
+# ============================================================================
+# Task Dependency Views
+# ============================================================================
+
+
+class TaskDependencyListCreateView(APIView):
+    """GET dependencies for a task, POST to create a new dependency."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        task = get_object_or_404(Task, pk=pk, org=request.profile.org)
+        deps = TaskDependency.objects.filter(
+            Q(task=task) | Q(depends_on=task), org=request.profile.org
+        )
+        return Response(TaskDependencySerializer(deps, many=True).data)
+
+    def post(self, request, pk):
+        task = get_object_or_404(Task, pk=pk, org=request.profile.org)
+        depends_on_id = request.data.get("depends_on")
+        dep_type = request.data.get("dependency_type", "blocks")
+        if not depends_on_id:
+            return Response(
+                {"error": True, "errors": "depends_on is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        depends_on = get_object_or_404(Task, pk=depends_on_id, org=request.profile.org)
+        try:
+            dep = TaskDependency(
+                task=task,
+                depends_on=depends_on,
+                dependency_type=dep_type,
+                org=request.profile.org,
+            )
+            dep.full_clean()
+            dep.save()
+        except Exception as e:
+            return Response(
+                {"error": True, "errors": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(TaskDependencySerializer(dep).data, status=status.HTTP_201_CREATED)
+
+
+class TaskDependencyDeleteView(APIView):
+    """DELETE a task dependency."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def delete(self, request, pk):
+        dep = get_object_or_404(TaskDependency, pk=pk, org=request.profile.org)
+        dep.delete()
+        return Response({"error": False, "message": "Dependency removed"})
+
+
+# ============================================================================
+# Project Views
+# ============================================================================
+
+
+class ProjectListCreateView(APIView):
+    """GET projects, POST to create a new project."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request):
+        projects = Project.objects.filter(org=request.profile.org)
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            projects = projects.filter(status=status_filter)
+        return Response({"projects": ProjectSerializer(projects, many=True).data})
+
+    def post(self, request):
+        serializer = ProjectSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(org=request.profile.org, owner=request.profile)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProjectDetailView(APIView):
+    """GET/PATCH/DELETE a project."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request, pk):
+        project = get_object_or_404(Project, pk=pk, org=request.profile.org)
+        return Response(ProjectSerializer(project).data)
+
+    def patch(self, request, pk):
+        project = get_object_or_404(Project, pk=pk, org=request.profile.org)
+        serializer = ProjectSerializer(project, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        project = get_object_or_404(Project, pk=pk, org=request.profile.org)
+        project.delete()
+        return Response({"error": False, "message": "Project deleted"})
+
+
+# ============================================================================
+# My Day View
+# ============================================================================
+
+
+class MyDayView(APIView):
+    """Tasks for today and overdue for the current user."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request):
+        today = date.today()
+        profile = request.profile
+
+        base_qs = Task.objects.filter(
+            org=profile.org,
+            assigned_to=profile,
+        ).select_related("account", "case", "lead", "opportunity")
+
+        overdue = base_qs.filter(
+            due_date__lt=today,
+        ).exclude(status="Completed").order_by("due_date", "due_time")
+
+        today_tasks = base_qs.filter(
+            due_date=today,
+        ).exclude(status="Completed").order_by("due_time")
+
+        completed_today = base_qs.filter(
+            status="Completed",
+            updated_at__date=today,
+        ).order_by("-updated_at")
+
+        from tasks.serializers import TaskKanbanCardSerializer
+
+        return Response({
+            "overdue": TaskKanbanCardSerializer(overdue, many=True).data,
+            "today": TaskKanbanCardSerializer(today_tasks, many=True).data,
+            "completed_today": TaskKanbanCardSerializer(completed_today, many=True).data,
+            "overdue_count": overdue.count(),
+            "today_count": today_tasks.count(),
+            "completed_today_count": completed_today.count(),
+        })
+
+
+# ============================================================================
+# Workload View
+# ============================================================================
+
+
+class WorkloadView(APIView):
+    """Task counts per assigned user."""
+
+    permission_classes = (IsAuthenticated, HasOrgContext)
+
+    def get(self, request):
+        org = request.profile.org
+        today = date.today()
+        period = request.query_params.get("period", "week")
+
+        if period == "month":
+            start_date = today.replace(day=1)
+        else:
+            start_date = today - timedelta(days=today.weekday())
+
+        profiles = Profile.objects.filter(
+            org=org, is_active=True
+        ).select_related("user").prefetch_related("task_assigned_users")
+
+        result = []
+        for profile in profiles:
+            tasks = profile.task_assigned_users.filter(org=org)
+            total_active = tasks.exclude(status="Completed").count()
+            new_count = tasks.filter(status="New").count()
+            in_progress_count = tasks.filter(status="In Progress").count()
+            overdue_count = tasks.filter(
+                due_date__lt=today
+            ).exclude(status="Completed").count()
+            completed_period = tasks.filter(
+                status="Completed", updated_at__gte=start_date
+            ).count()
+
+            result.append({
+                "user": {
+                    "id": str(profile.id),
+                    "name": str(profile),
+                    "email": profile.user.email,
+                },
+                "counts": {
+                    "total": total_active,
+                    "new": new_count,
+                    "in_progress": in_progress_count,
+                    "overdue": overdue_count,
+                    "completed_this_period": completed_period,
+                },
+            })
+
+        result.sort(key=lambda x: x["counts"]["total"], reverse=True)
+        return Response({"workload": result, "period": period})

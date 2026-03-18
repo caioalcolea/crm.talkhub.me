@@ -28,7 +28,15 @@
     Contact,
     Link2,
     Filter,
-    Columns
+    Columns,
+    Sun,
+    BarChart3,
+    Lock,
+    Zap,
+    Gauge,
+    ArrowRight,
+    Check,
+    AlertTriangle
   } from '@lucide/svelte';
   import { TaskKanban } from '$lib/components/ui/task-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
@@ -39,6 +47,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { CrmDrawer } from '$lib/components/ui/crm-drawer';
   import { CommentSection } from '$lib/components/ui/comment-section';
+  import SubtaskList from '$lib/components/ui/subtask-list/SubtaskList.svelte';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import AutomationOriginBadge from '$lib/components/assistant/AutomationOriginBadge.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
@@ -161,6 +170,13 @@
       getValue: getRelatedEntity
     },
     { key: 'dueDate', label: 'Prazo', type: 'date', width: 'w-36' },
+    {
+      key: 'dueTime',
+      label: 'Hora',
+      width: 'w-24',
+      canHide: true,
+      getValue: (/** @type {any} */ row) => ({ name: row.dueTime ? row.dueTime.slice(0, 5) : '—' })
+    },
     { key: 'priority', label: 'Prioridade', type: 'select', options: priorityOptions, width: 'w-28' },
     { key: 'status', label: 'Status', type: 'select', options: statusOptions, width: 'w-36' },
     {
@@ -465,8 +481,8 @@
     };
   }
 
-  // View mode state (list, kanban, or calendar) - sync with server data
-  /** @type {'list' | 'kanban' | 'calendar'} */
+  // View mode state (list, kanban, calendar, or today) - sync with server data
+  /** @type {'list' | 'kanban' | 'calendar' | 'today' | 'workload'} */
   let viewMode = $state('list');
 
   // Sync viewMode when data changes (e.g., on navigation)
@@ -483,6 +499,14 @@
   const taskPipelines = $derived(data.pipelines || []);
   let activeTaskPipelineId = $state('');
   let isTaskAdmin = $derived(data.userRole === 'ADMIN');
+
+  // Pipeline/stage form state for drawer create/edit
+  let formPipelineId = $state('');
+  let formStageId = $state('');
+  const selectedPipelineStages = $derived(
+    taskPipelines.find(p => p.id === formPipelineId)?.stages
+      ?.slice().sort((a, b) => a.order - b.order) ?? []
+  );
 
   $effect(() => {
     if (data.pipelineId) {
@@ -629,6 +653,9 @@
     status: 'New',
     priority: 'Medium',
     dueDate: '',
+    dueTime: '',
+    effort: '',
+    impact: '',
     accountId: '',
     accountName: '',
     opportunityId: '',
@@ -660,6 +687,9 @@
     formState.status = field === 'status' ? value : row.status || 'New';
     formState.priority = field === 'priority' ? value : row.priority || 'Medium';
     formState.dueDate = row.dueDate ? row.dueDate.split('T')[0] : '';
+    formState.dueTime = row.dueTime || '';
+    formState.effort = row.effort?.toString() || '';
+    formState.impact = row.impact?.toString() || '';
     formState.accountId = row.account?.id || '';
     formState.opportunityId = row.opportunity?.id || '';
     formState.caseId = row.case_?.id || '';
@@ -727,6 +757,9 @@
       status: 'New',
       priority: 'Medium',
       dueDate: '',
+      dueTime: '',
+      effort: '',
+      impact: '',
       accountId: accountIdFromUrl || '',
       accountName: accountNameFromUrl || '',
       opportunityId: '',
@@ -741,6 +774,21 @@
       tags: []
     };
     sheetOpen = true;
+
+    // Auto-select active pipeline when creating from kanban
+    if (activeTaskPipelineId) {
+      const pipeline = taskPipelines.find(p => p.id === activeTaskPipelineId);
+      if (pipeline?.stages?.length) {
+        formPipelineId = pipeline.id;
+        formStageId = pipeline.stages.slice().sort((a, b) => a.order - b.order)[0].id;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
+    } else {
+      formPipelineId = '';
+      formStageId = '';
+    }
   }
 
   // URL sync for action param (quick action from account page)
@@ -767,6 +815,9 @@
         status: task.status || 'New',
         priority: task.priority || 'Medium',
         dueDate: task.dueDate ? task.dueDate.split('T')[0] : '',
+        dueTime: task.dueTime || '',
+        effort: task.effort?.toString() || '',
+        impact: task.impact?.toString() || '',
         accountId: task.account?.id || '',
         accountName: task.account?.name || '',
         opportunityId: task.opportunity?.id || '',
@@ -780,6 +831,16 @@
         teams: (task.teams || []).map((/** @type {any} */ t) => t.id),
         tags: (task.tags || []).map((/** @type {any} */ t) => t.id)
       };
+      // Pre-populate pipeline/stage from task data
+      const stageId = task.stage;
+      if (stageId) {
+        const pipelineForStage = taskPipelines.find(p => p.stages?.some(s => s.id === stageId));
+        formPipelineId = pipelineForStage?.id ?? '';
+        formStageId = stageId;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
     }
     sheetOpen = true;
   }
@@ -813,6 +874,224 @@
     formState.taskId = selectedTaskId;
     await tick();
     reopenForm.requestSubmit();
+  }
+
+  // ---- Subtask management ----
+  let taskSubtasks = $state(/** @type {any[]} */ ([]));
+
+  // Load subtasks when a task is selected
+  $effect(() => {
+    if (selectedTaskId && !isCreateMode) {
+      loadSubtasks(selectedTaskId);
+    } else {
+      taskSubtasks = [];
+    }
+  });
+
+  async function loadSubtasks(taskId) {
+    try {
+      const res = await clientApiRequest(`/tasks/${taskId}/subtasks/`);
+      taskSubtasks = Array.isArray(res) ? res : [];
+    } catch {
+      taskSubtasks = [];
+    }
+  }
+
+  async function handleAddSubtask(title) {
+    if (!selectedTaskId) return;
+    try {
+      await clientApiRequest(`/tasks/${selectedTaskId}/subtasks/`, {
+        method: 'POST',
+        body: { title }
+      });
+      await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao adicionar subtarefa');
+    }
+  }
+
+  async function handleToggleSubtask(id, completed) {
+    try {
+      await clientApiRequest(`/tasks/subtasks/${id}/`, {
+        method: 'PATCH',
+        body: { is_completed: completed }
+      });
+      if (selectedTaskId) await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao atualizar subtarefa');
+    }
+  }
+
+  async function handleUpdateSubtask(id, title) {
+    try {
+      await clientApiRequest(`/tasks/subtasks/${id}/`, {
+        method: 'PATCH',
+        body: { title }
+      });
+      if (selectedTaskId) await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao atualizar subtarefa');
+    }
+  }
+
+  async function handleDeleteSubtask(id) {
+    try {
+      await clientApiRequest(`/tasks/subtasks/${id}/`, { method: 'DELETE' });
+      if (selectedTaskId) await loadSubtasks(selectedTaskId);
+    } catch (err) {
+      toast.error('Erro ao remover subtarefa');
+    }
+  }
+
+  // ---- My Day (Today) view ----
+  let myDayData = $state(/** @type {{ overdue: any[], today: any[], completed_today: any[], overdue_count: number, today_count: number, completed_today_count: number } | null} */ (null));
+  let myDayLoading = $state(false);
+  let showCompletedToday = $state(false);
+
+  async function loadMyDay() {
+    myDayLoading = true;
+    try {
+      const res = await clientApiRequest('/tasks/my-day/');
+      myDayData = res;
+    } catch {
+      myDayData = null;
+    }
+    myDayLoading = false;
+  }
+
+  // Load my-day data when switching to today view
+  $effect(() => {
+    if (viewMode === 'today') {
+      loadMyDay();
+    }
+  });
+
+  const myDayTotal = $derived((myDayData?.overdue_count || 0) + (myDayData?.today_count || 0));
+  const myDayCompleted = $derived(myDayData?.completed_today_count || 0);
+  const myDayProgress = $derived(myDayTotal + myDayCompleted > 0 ? Math.round((myDayCompleted / (myDayTotal + myDayCompleted)) * 100) : 0);
+
+  async function quickCompleteTask(taskId) {
+    try {
+      await clientApiRequest(`/tasks/${taskId}/`, {
+        method: 'PATCH',
+        body: { status: 'Completed' }
+      });
+      toast.success('Tarefa concluída');
+      await loadMyDay();
+      await invalidateAll();
+    } catch {
+      toast.error('Erro ao concluir tarefa');
+    }
+  }
+
+  // ---- Workload view ----
+  let workloadData = $state(/** @type {any[] | null} */ (null));
+  let workloadLoading = $state(false);
+
+  async function loadWorkload() {
+    workloadLoading = true;
+    try {
+      const res = await clientApiRequest('/tasks/workload/');
+      workloadData = res?.workload || [];
+    } catch {
+      workloadData = null;
+    }
+    workloadLoading = false;
+  }
+
+  $effect(() => {
+    if (viewMode === 'workload') {
+      loadWorkload();
+    }
+  });
+
+  // ---- Dependencies management ----
+  let taskDependencies = $state(/** @type {any[]} */ ([]));
+  let taskDependents = $state(/** @type {any[]} */ ([]));
+
+  $effect(() => {
+    if (selectedTaskId && !isCreateMode) {
+      loadDependencies(selectedTaskId);
+    } else {
+      taskDependencies = [];
+      taskDependents = [];
+    }
+  });
+
+  async function loadDependencies(taskId) {
+    try {
+      const res = await clientApiRequest(`/tasks/${taskId}/dependencies/`);
+      taskDependencies = Array.isArray(res) ? res : [];
+    } catch {
+      taskDependencies = [];
+    }
+    // Load dependents (tasks that depend on this one) from the task detail
+    try {
+      const task = await clientApiRequest(`/tasks/${taskId}/`);
+      taskDependents = task?.dependents || [];
+    } catch {
+      taskDependents = [];
+    }
+  }
+
+  async function handleAddDependency(dependsOnId, type = 'blocks') {
+    if (!selectedTaskId) return;
+    try {
+      await clientApiRequest(`/tasks/${selectedTaskId}/dependencies/`, {
+        method: 'POST',
+        body: { depends_on: dependsOnId, dependency_type: type }
+      });
+      await loadDependencies(selectedTaskId);
+      toast.success('Dependência adicionada');
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao adicionar dependência');
+    }
+  }
+
+  async function handleRemoveDependency(depId) {
+    try {
+      await clientApiRequest(`/tasks/dependencies/${depId}/`, { method: 'DELETE' });
+      if (selectedTaskId) await loadDependencies(selectedTaskId);
+      toast.success('Dependência removida');
+    } catch {
+      toast.error('Erro ao remover dependência');
+    }
+  }
+
+  // Dependency search state
+  let depSearchQuery = $state('');
+  const depSearchResults = $derived.by(() => {
+    if (!depSearchQuery || depSearchQuery.length < 2) return [];
+    const q = depSearchQuery.toLowerCase();
+    const existingIds = new Set([
+      selectedTaskId,
+      ...taskDependencies.map(d => d.depends_on),
+      ...taskDependents.map(d => d.task)
+    ]);
+    return tasks.filter(t => !existingIds.has(t.id) && t.subject?.toLowerCase().includes(q)).slice(0, 5);
+  });
+
+  // ---- Quick filter chips ----
+  const quickFilterOptions = [
+    { value: '', label: 'Todas' },
+    { value: 'overdue', label: 'Atrasadas' },
+    { value: 'due_today', label: 'Vence Hoje' },
+    { value: 'due_this_week', label: 'Esta Semana' },
+    { value: 'no_date', label: 'Sem Data' },
+    { value: 'completed_this_week', label: 'Concluídas' }
+  ];
+
+  const activeQuickFilter = $derived(filters.quick_filter || '');
+
+  async function setQuickFilter(value) {
+    const url = new URL($page.url);
+    if (value) {
+      url.searchParams.set('quick_filter', value);
+    } else {
+      url.searchParams.delete('quick_filter');
+    }
+    url.searchParams.set('page', '1');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
   // Get selected task data
@@ -899,6 +1178,42 @@
   });
 
   const selectedTasks = $derived(tasksByDate[selectedDate] || []);
+
+  // Separate all-day vs timed tasks for the timeline
+  const allDayTasks = $derived(selectedTasks.filter((t) => !t.dueTime));
+  const timedTasks = $derived(
+    selectedTasks
+      .filter((t) => t.dueTime)
+      .sort((a, b) => a.dueTime.localeCompare(b.dueTime))
+  );
+
+  // Timeline hours (00:00 - 23:00)
+  const timelineHours = Array.from({ length: 24 }, (_, i) => i);
+
+  /**
+   * Get the next timed task for a given date (for calendar grid indicator)
+   * @param {any[]} dateTasks
+   * @param {boolean} isToday
+   */
+  function getNextTimedTask(dateTasks, isToday) {
+    const timed = dateTasks.filter((t) => t.dueTime).sort((a, b) => a.dueTime.localeCompare(b.dueTime));
+    if (!timed.length) return null;
+    if (isToday) {
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      return timed.find((t) => t.dueTime >= currentTime) || timed[0];
+    }
+    return timed[0];
+  }
+
+  /**
+   * Get tasks for a specific hour slot
+   * @param {number} hour
+   */
+  function getTasksForHour(hour) {
+    const hourStr = String(hour).padStart(2, '0');
+    return timedTasks.filter((t) => t.dueTime?.slice(0, 2) === hourStr);
+  }
 
   // Monthly stats for calendar
   const monthlyTaskDates = $derived(
@@ -1010,6 +1325,31 @@
     { key: 'status', label: 'Status', type: 'select', icon: Circle, options: statusOptions },
     { key: 'priority', label: 'Prioridade', type: 'select', icon: Flag, options: priorityOptions },
     { key: 'dueDate', label: 'Prazo', type: 'date', icon: Calendar },
+    { key: 'dueTime', label: 'Hora', type: 'time', icon: Clock },
+    {
+      key: 'effort',
+      label: 'Esforço',
+      type: 'select',
+      icon: Gauge,
+      options: [
+        { value: '', label: 'Nenhum', color: 'bg-muted text-muted-foreground' },
+        { value: '1', label: 'Baixo', color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+        { value: '2', label: 'Médio', color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+        { value: '3', label: 'Alto', color: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' }
+      ]
+    },
+    {
+      key: 'impact',
+      label: 'Impacto',
+      type: 'select',
+      icon: Zap,
+      options: [
+        { value: '', label: 'Nenhum', color: 'bg-muted text-muted-foreground' },
+        { value: '1', label: 'Baixo', color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+        { value: '2', label: 'Médio', color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+        { value: '3', label: 'Alto', color: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' }
+      ]
+    },
     // Parent entity field handling:
     // - In edit mode: show readonly for the existing parent entity
     // - In create mode with accountFromUrl: show account as readonly only
@@ -1080,6 +1420,9 @@
       status: formState.status,
       priority: formState.priority,
       dueDate: formState.dueDate,
+      dueTime: formState.dueTime,
+      effort: formState.effort,
+      impact: formState.impact,
       accountId: formState.accountId,
       accountName: formState.accountName,
       opportunityId: formState.opportunityId,
@@ -1132,7 +1475,7 @@
 
   /**
    * Handle view mode change (sync with URL for kanban data loading)
-   * @param {'list' | 'kanban' | 'calendar'} mode
+   * @param {'list' | 'kanban' | 'calendar' | 'today' | 'workload'} mode
    */
   async function updateViewMode(mode) {
     viewMode = mode;
@@ -1151,12 +1494,22 @@
    * @param {string} newStatus
    * @param {string} _columnId
    */
-  async function handleKanbanStatusChange(taskId, newStatus, _columnId) {
+  async function handleKanbanStatusChange(taskId, targetColumnId, _columnId) {
     kanbanFormState.taskId = taskId;
-    kanbanFormState.status = newStatus;
-    kanbanFormState.stageId = '';
     kanbanFormState.aboveTaskId = '';
     kanbanFormState.belowTaskId = '';
+
+    // Determine mode from kanban data
+    // In status-based mode, column.id is a status value (e.g., "Todo", "In Progress")
+    // In pipeline-based mode, column.id is a stage UUID
+    if (kanbanData?.mode === 'pipeline') {
+      kanbanFormState.status = '';
+      kanbanFormState.stageId = targetColumnId;
+    } else {
+      kanbanFormState.status = targetColumnId;
+      kanbanFormState.stageId = '';
+    }
+
     await tick();
     moveTaskForm.requestSubmit();
   }
@@ -1211,6 +1564,9 @@
         status: task.status || 'New',
         priority: task.priority || 'Medium',
         dueDate: task.due_date ? task.due_date.split('T')[0] : '', // kanban uses 'due_date'
+        dueTime: task.due_time || '',
+        effort: task.effort?.toString() || '',
+        impact: task.impact?.toString() || '',
         accountId,
         accountName,
         opportunityId,
@@ -1296,6 +1652,15 @@
       <!-- View Toggle -->
       <div class="border-input bg-background inline-flex rounded-lg border p-1">
         <Button
+          variant={viewMode === 'today' ? 'secondary' : 'ghost'}
+          size="sm"
+          onclick={() => updateViewMode('today')}
+          class="h-8 px-3"
+        >
+          <Sun class="mr-1.5 h-4 w-4" />
+          Hoje
+        </Button>
+        <Button
           variant={viewMode === 'list' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('list')}
@@ -1321,6 +1686,15 @@
         >
           <Calendar class="mr-1.5 h-4 w-4" />
           Calendário
+        </Button>
+        <Button
+          variant={viewMode === 'workload' ? 'secondary' : 'ghost'}
+          size="sm"
+          onclick={() => updateViewMode('workload')}
+          class="h-8 px-3"
+        >
+          <BarChart3 class="mr-1.5 h-4 w-4" />
+          Equipe
         </Button>
       </div>
 
@@ -1417,6 +1791,24 @@
       onchange={(ids) => updateFilters({ ...filters, tags: ids })}
     />
   </FilterBar>
+
+  <!-- Quick filter chips -->
+  <div class="flex flex-wrap gap-1.5 px-1 pb-3">
+    {#each quickFilterOptions as option}
+      <button
+        class={cn(
+          'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+          activeQuickFilter === option.value
+            ? 'bg-primary text-primary-foreground border-primary'
+            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+        )}
+        onclick={() => setQuickFilter(option.value)}
+      >
+        {option.label}
+      </button>
+    {/each}
+  </div>
+
   {#if viewMode === 'list'}
     <CrmTable
       data={localTasks}
@@ -1464,7 +1856,250 @@
       onStatusChange={handleKanbanStatusChange}
       onCardClick={handleKanbanCardClick}
     />
-  {:else}
+  {:else if viewMode === 'today'}
+    <!-- My Day View -->
+    <div class="mx-auto max-w-2xl space-y-4">
+      {#if myDayLoading}
+        <div class="flex items-center justify-center py-16">
+          <div class="text-muted-foreground text-sm">Carregando...</div>
+        </div>
+      {:else if myDayData}
+        <!-- Day progress bar -->
+        <Card.Root>
+          <Card.Content class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium text-foreground">Progresso do Dia</span>
+              <span class="text-sm font-semibold text-foreground">{myDayCompleted}/{myDayTotal + myDayCompleted}</span>
+            </div>
+            <div class="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                style="width: {myDayProgress}%"
+              ></div>
+            </div>
+            <div class="text-muted-foreground mt-1 text-xs text-right">{myDayProgress}% concluído</div>
+          </Card.Content>
+        </Card.Root>
+
+        <!-- Overdue tasks -->
+        {#if myDayData.overdue.length > 0}
+          <div>
+            <div class="flex items-center gap-2 mb-2 px-1">
+              <AlertTriangle class="h-4 w-4 text-rose-500" />
+              <h3 class="text-sm font-semibold text-rose-600 dark:text-rose-400">Atrasadas ({myDayData.overdue_count})</h3>
+            </div>
+            <div class="space-y-2">
+              {#each myDayData.overdue as task (task.id)}
+                <Card.Root class="border-l-[3px] border-l-rose-500">
+                  <Card.Content class="p-3">
+                    <div class="flex items-center gap-3">
+                      <button
+                        type="button"
+                        class="shrink-0 text-muted-foreground hover:text-emerald-500 transition-colors"
+                        onclick={() => quickCompleteTask(task.id)}
+                        title="Concluir tarefa"
+                      >
+                        <Circle class="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="flex-1 text-left"
+                        onclick={() => openTaskSheet(task.id)}
+                      >
+                        <div class="font-medium text-sm text-foreground">{task.title}</div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          {#if task.due_date}
+                            <span class="text-xs text-rose-600 dark:text-rose-400">{task.due_date}</span>
+                          {/if}
+                          {#if task.due_time}
+                            <span class="text-xs text-muted-foreground">· {task.due_time.slice(0, 5)}</span>
+                          {/if}
+                          <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                        </div>
+                      </button>
+                      {#if task.subtask_progress && task.subtask_progress !== '0/0'}
+                        <span class="text-muted-foreground text-xs">{task.subtask_progress}</span>
+                      {/if}
+                    </div>
+                  </Card.Content>
+                </Card.Root>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Today's tasks -->
+        <div>
+          <div class="flex items-center gap-2 mb-2 px-1">
+            <Sun class="h-4 w-4 text-amber-500" />
+            <h3 class="text-sm font-semibold text-foreground">Hoje ({myDayData.today_count})</h3>
+          </div>
+          {#if myDayData.today.length > 0}
+            <div class="space-y-2">
+              {#each myDayData.today as task (task.id)}
+                <Card.Root>
+                  <Card.Content class="p-3">
+                    <div class="flex items-center gap-3">
+                      <button
+                        type="button"
+                        class="shrink-0 text-muted-foreground hover:text-emerald-500 transition-colors"
+                        onclick={() => quickCompleteTask(task.id)}
+                        title="Concluir tarefa"
+                      >
+                        <Circle class="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="flex-1 text-left"
+                        onclick={() => openTaskSheet(task.id)}
+                      >
+                        <div class="font-medium text-sm text-foreground">{task.title}</div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          {#if task.due_time}
+                            <span class="text-xs text-primary font-medium">{task.due_time.slice(0, 5)}</span>
+                          {:else}
+                            <span class="text-xs text-muted-foreground">Dia inteiro</span>
+                          {/if}
+                          <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                        </div>
+                      </button>
+                      {#if task.subtask_progress && task.subtask_progress !== '0/0'}
+                        <span class="text-muted-foreground text-xs">{task.subtask_progress}</span>
+                      {/if}
+                    </div>
+                  </Card.Content>
+                </Card.Root>
+              {/each}
+            </div>
+          {:else}
+            <Card.Root>
+              <Card.Content class="py-8 text-center">
+                <Sun class="text-amber-400 mx-auto mb-3 h-10 w-10" />
+                <p class="text-muted-foreground text-sm">Nenhuma tarefa para hoje</p>
+              </Card.Content>
+            </Card.Root>
+          {/if}
+        </div>
+
+        <!-- Completed today -->
+        {#if myDayData.completed_today.length > 0}
+          <div>
+            <button
+              type="button"
+              class="flex items-center gap-2 mb-2 px-1"
+              onclick={() => (showCompletedToday = !showCompletedToday)}
+            >
+              <Check class="h-4 w-4 text-emerald-500" />
+              <h3 class="text-sm font-semibold text-muted-foreground">Concluídas Hoje ({myDayData.completed_today_count})</h3>
+              <ChevronRight class="h-4 w-4 text-muted-foreground transition-transform {showCompletedToday ? 'rotate-90' : ''}" />
+            </button>
+            {#if showCompletedToday}
+              <div class="space-y-2">
+                {#each myDayData.completed_today as task (task.id)}
+                  <Card.Root class="opacity-60">
+                    <Card.Content class="p-3">
+                      <div class="flex items-center gap-3">
+                        <CheckCircle2 class="h-5 w-5 shrink-0 text-emerald-500" />
+                        <button
+                          type="button"
+                          class="flex-1 text-left"
+                          onclick={() => openTaskSheet(task.id)}
+                        >
+                          <div class="font-medium text-sm text-foreground line-through">{task.title}</div>
+                        </button>
+                      </div>
+                    </Card.Content>
+                  </Card.Root>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- Empty state when everything is done -->
+        {#if myDayTotal === 0 && myDayCompleted > 0}
+          <Card.Root class="border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/5">
+            <Card.Content class="py-8 text-center">
+              <CheckCircle2 class="text-emerald-500 mx-auto mb-3 h-12 w-12" />
+              <h3 class="font-semibold text-emerald-700 dark:text-emerald-400">Parabéns!</h3>
+              <p class="text-emerald-600 dark:text-emerald-500 text-sm mt-1">Todas as tarefas do dia foram concluídas.</p>
+            </Card.Content>
+          </Card.Root>
+        {/if}
+      {:else}
+        <Card.Root>
+          <Card.Content class="py-16 text-center">
+            <Sun class="text-muted-foreground/50 mx-auto mb-4 h-12 w-12" />
+            <p class="text-muted-foreground text-sm">Erro ao carregar tarefas do dia</p>
+          </Card.Content>
+        </Card.Root>
+      {/if}
+    </div>
+  {:else if viewMode === 'workload'}
+    <!-- Workload View -->
+    <div class="space-y-4">
+      {#if workloadLoading}
+        <div class="flex items-center justify-center py-16">
+          <div class="text-muted-foreground text-sm">Carregando...</div>
+        </div>
+      {:else if workloadData && workloadData.length > 0}
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {#each workloadData as member (member.user.id)}
+            {@const total = member.counts.total || 0}
+            {@const overdue = member.counts.overdue || 0}
+            {@const completed = member.counts.completed_this_period || 0}
+            {@const load = total > 15 ? 'critical' : total > 8 ? 'high' : 'normal'}
+            <Card.Root class={load === 'critical' ? 'border-rose-500/30' : load === 'high' ? 'border-amber-500/30' : ''}>
+              <Card.Content class="p-4">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-purple-600 text-sm font-semibold text-white">
+                    {(member.user.name || member.user.email || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-sm text-foreground truncate">{member.user.name || member.user.email}</div>
+                    <div class="text-xs text-muted-foreground">{total} tarefa{total !== 1 ? 's' : ''} ativa{total !== 1 ? 's' : ''}</div>
+                  </div>
+                  <span class={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
+                    load === 'critical' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400' :
+                    load === 'high' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' :
+                    'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                  )}>
+                    {load === 'critical' ? 'Crítica' : load === 'high' ? 'Alta' : 'Normal'}
+                  </span>
+                </div>
+                <!-- Stacked bar -->
+                <div class="h-3 w-full rounded-full bg-muted overflow-hidden flex">
+                  {#if member.counts.new}
+                    <div class="h-full bg-blue-500" style="width: {(member.counts.new / Math.max(total, 1)) * 100}%" title="Novas: {member.counts.new}"></div>
+                  {/if}
+                  {#if member.counts.in_progress}
+                    <div class="h-full bg-amber-500" style="width: {(member.counts.in_progress / Math.max(total, 1)) * 100}%" title="Em andamento: {member.counts.in_progress}"></div>
+                  {/if}
+                  {#if overdue}
+                    <div class="h-full bg-rose-500" style="width: {(overdue / Math.max(total, 1)) * 100}%" title="Atrasadas: {overdue}"></div>
+                  {/if}
+                </div>
+                <div class="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-blue-500 inline-block"></span> Novas {member.counts.new || 0}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-amber-500 inline-block"></span> Andamento {member.counts.in_progress || 0}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-rose-500 inline-block"></span> Atrasadas {overdue}</span>
+                  <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-emerald-500 inline-block"></span> Concluídas {completed}</span>
+                </div>
+              </Card.Content>
+            </Card.Root>
+          {/each}
+        </div>
+      {:else}
+        <Card.Root>
+          <Card.Content class="py-16 text-center">
+            <Users class="text-muted-foreground/50 mx-auto mb-4 h-12 w-12" />
+            <p class="text-muted-foreground text-sm">Nenhum dado de carga disponível</p>
+          </Card.Content>
+        </Card.Root>
+      {/if}
+    </div>
+  {:else if viewMode === 'calendar'}
     <!-- Calendar View -->
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
       <!-- Calendar Section -->
@@ -1540,6 +2175,8 @@
                       {date.getDate()}
                     </div>
                     {#if hasTasksOnDate(date)}
+                      {@const dateTasks = tasksByDate[formatDateString(date)]}
+                      {@const nextTimed = getNextTimedTask(dateTasks, isTodayDate(date))}
                       <div
                         class={cn(
                           'absolute right-1 bottom-1 h-2 w-2 rounded-full',
@@ -1550,13 +2187,16 @@
                       ></div>
                       <div
                         class={cn(
-                          'absolute bottom-1 left-1 text-xs font-medium',
+                          'absolute bottom-1 left-1 flex items-center gap-0.5',
                           formatDateString(date) === selectedDate
                             ? 'text-primary-foreground'
                             : 'text-primary'
                         )}
                       >
-                        {tasksByDate[formatDateString(date)].length}
+                        <span class="text-xs font-medium">{dateTasks.length}</span>
+                        {#if nextTimed}
+                          <span class="hidden text-[9px] opacity-70 sm:inline">· {nextTimed.dueTime.slice(0, 5)}</span>
+                        {/if}
                       </div>
                     {/if}
                   </button>
@@ -1569,12 +2209,12 @@
         </Card.Root>
       </div>
 
-      <!-- Tasks for Selected Date -->
+      <!-- Timeline for Selected Date -->
       <div class="lg:col-span-1">
         <Card.Root class="h-fit">
           <Card.Header class="border-b pb-4">
             <Card.Title class="text-base">
-              Tarefas para {new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR', {
+              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR', {
                 weekday: 'long',
                 month: 'long',
                 day: 'numeric'
@@ -1582,57 +2222,86 @@
             </Card.Title>
             <p class="text-muted-foreground text-sm">
               {selectedTasks.length} tarefa{selectedTasks.length !== 1 ? 's' : ''}
+              {#if timedTasks.length > 0}
+                · {timedTasks.length} com horário
+              {/if}
             </p>
           </Card.Header>
 
-          <Card.Content class="p-4">
+          <Card.Content class="p-0">
             {#if selectedTasks.length > 0}
-              <div class="space-y-3">
-                {#each selectedTasks as task}
-                  <button
-                    type="button"
-                    onclick={() => openTaskSheet(task.id)}
-                    class="hover:bg-muted bg-muted/50 block w-full rounded-lg border p-3 text-left transition-colors"
-                  >
-                    <div class="mb-2 flex items-start justify-between gap-2">
-                      <h4 class="text-foreground line-clamp-2 flex-1 font-medium">
-                        {task.subject}
-                      </h4>
-                      {#if task.status === 'Completed'}
-                        <CheckCircle2 class="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                      {:else}
-                        <Circle class="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                      {/if}
-                    </div>
-
-                    {#if task.description}
-                      <p class="text-muted-foreground mb-3 line-clamp-2 text-sm">
-                        {task.description}
-                      </p>
-                    {/if}
-
-                    <div class="flex flex-wrap items-center gap-2">
-                      {#if task.priority}
-                        <span
-                          class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {getOptionStyle(
-                            task.priority,
-                            priorityOptions
-                          )}"
-                        >
-                          <Flag class="h-3 w-3" />
-                          {task.priority}
-                        </span>
-                      {/if}
-                      <span
-                        class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {getOptionStyle(
-                          task.status,
-                          statusOptions
-                        )}"
+              <!-- All-day tasks section -->
+              {#if allDayTasks.length > 0}
+                <div class="border-b p-3">
+                  <div class="text-muted-foreground mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider">
+                    <Calendar class="h-3.5 w-3.5" />
+                    Dia Inteiro
+                  </div>
+                  <div class="space-y-1.5">
+                    {#each allDayTasks as task}
+                      <button
+                        type="button"
+                        onclick={() => openTaskSheet(task.id)}
+                        class="hover:bg-muted bg-muted/50 block w-full rounded-md px-2.5 py-1.5 text-left transition-colors"
                       >
-                        {task.status}
-                      </span>
+                        <div class="flex items-center justify-between gap-2">
+                          <span class="text-foreground truncate text-sm font-medium">{task.subject}</span>
+                          <span class="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">
+                            {task.priority}
+                          </span>
+                        </div>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Hourly timeline -->
+              <div class="max-h-[480px] overflow-y-auto">
+                {#each timelineHours as hour}
+                  {@const hourTasks = getTasksForHour(hour)}
+                  {@const hourStr = String(hour).padStart(2, '0') + ':00'}
+                  {@const now = new Date()}
+                  {@const isCurrentHour = selectedDate === now.toISOString().slice(0, 10) && now.getHours() === hour}
+                  <div class="group relative flex border-b last:border-b-0 {isCurrentHour ? 'bg-primary/5' : ''}">
+                    <!-- Hour label -->
+                    <div class="text-muted-foreground w-14 shrink-0 border-r py-2 pr-2 text-right text-xs font-medium {isCurrentHour ? 'text-primary font-semibold' : ''}">
+                      {hourStr}
                     </div>
-                  </button>
+                    <!-- Slot content -->
+                    <div class="min-h-[2.5rem] flex-1 px-2 py-1">
+                      {#if hourTasks.length > 0}
+                        {#each hourTasks as task}
+                          <button
+                            type="button"
+                            onclick={() => openTaskSheet(task.id)}
+                            class="bg-primary/10 hover:bg-primary/20 text-primary mb-1 block w-full rounded-md px-2.5 py-1.5 text-left transition-colors"
+                          >
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="truncate text-sm font-medium">{task.subject}</span>
+                              <span class="shrink-0 text-xs opacity-70">{task.dueTime?.slice(0, 5)}</span>
+                            </div>
+                          </button>
+                        {/each}
+                      {:else}
+                        <button
+                          type="button"
+                          onclick={() => {
+                            addNewTask();
+                            formState.dueDate = selectedDate;
+                            formState.dueTime = hourStr;
+                          }}
+                          class="h-full w-full cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+                        >
+                          <span class="text-muted-foreground/50 text-xs">+ Adicionar</span>
+                        </button>
+                      {/if}
+                    </div>
+                    <!-- Current time marker -->
+                    {#if isCurrentHour}
+                      <div class="bg-primary pointer-events-none absolute left-14 right-0 h-0.5" style="top: {(now.getMinutes() / 60) * 100}%"></div>
+                    {/if}
+                  </div>
                 {/each}
               </div>
             {:else}
@@ -1714,9 +2383,136 @@
         </a>
       </div>
     {/if}
+
+    <!-- Pipeline / Stage selector -->
+    {#if taskPipelines.length > 0}
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Pipeline</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formPipelineId}
+            onchange={() => { formStageId = ''; }}
+          >
+            <option value="">Nenhum</option>
+            {#each taskPipelines as pipeline}
+              <option value={pipeline.id}>{pipeline.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Estágio</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formStageId}
+            disabled={!formPipelineId}
+          >
+            <option value="">Selecione...</option>
+            {#each selectedPipelineStages as stage}
+              <option value={stage.id}>{stage.name}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet activitySection()}
+    <!-- Subtasks/Checklist (only for existing tasks) -->
+    {#if selectedTask && !isCreateMode}
+      <div class="mb-4">
+        <div class="mb-2 text-[13px] font-medium text-[var(--text-tertiary)]">Subtarefas</div>
+        <SubtaskList
+          subtasks={taskSubtasks}
+          onAdd={handleAddSubtask}
+          onToggle={handleToggleSubtask}
+          onUpdate={handleUpdateSubtask}
+          onDelete={handleDeleteSubtask}
+        />
+      </div>
+    {/if}
+
+    <!-- Dependencies (only for existing tasks) -->
+    {#if selectedTask && !isCreateMode}
+      <div class="mb-4">
+        <div class="mb-2 text-[13px] font-medium text-[var(--text-tertiary)]">Dependências</div>
+
+        <!-- Blocked by -->
+        {#if taskDependencies.length > 0}
+          <div class="space-y-1.5 mb-2">
+            {#each taskDependencies as dep (dep.id)}
+              <div class="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm">
+                <Lock class="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <span class="flex-1 truncate text-foreground">
+                  {dep.depends_on_title || 'Tarefa'}
+                </span>
+                <span class={cn(
+                  'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                  dep.dependency_type === 'blocks' ? 'bg-amber-500/15 text-amber-600' : 'bg-blue-500/15 text-blue-600'
+                )}>
+                  {dep.dependency_type === 'blocks' ? 'Bloqueia' : 'Relacionada'}
+                </span>
+                <button
+                  type="button"
+                  class="text-muted-foreground hover:text-destructive transition-colors"
+                  onclick={() => handleRemoveDependency(dep.id)}
+                  title="Remover"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <!-- Dependents (tasks that depend on this one) -->
+        {#if taskDependents.length > 0}
+          <div class="space-y-1.5 mb-2">
+            <div class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Dependentes</div>
+            {#each taskDependents as dep (dep.id)}
+              <div class="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                <ArrowRight class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span class="flex-1 truncate text-foreground">{dep.task_title || 'Tarefa'}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <!-- Add dependency search -->
+        <div class="relative">
+          <input
+            type="text"
+            bind:value={depSearchQuery}
+            placeholder="Buscar tarefa para vincular..."
+            class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm placeholder:text-muted-foreground"
+          />
+          {#if depSearchResults.length > 0}
+            <div class="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-md">
+              {#each depSearchResults as result (result.id)}
+                <div class="flex items-center gap-1 border-b last:border-b-0">
+                  <button
+                    type="button"
+                    class="flex-1 px-3 py-2 text-left text-sm hover:bg-muted transition-colors truncate"
+                    onclick={() => { handleAddDependency(result.id, 'blocks'); depSearchQuery = ''; }}
+                  >
+                    <Lock class="h-3 w-3 inline mr-1 text-amber-500" /> {result.subject}
+                  </button>
+                  <button
+                    type="button"
+                    class="px-2 py-2 text-xs text-blue-600 hover:bg-muted transition-colors"
+                    onclick={() => { handleAddDependency(result.id, 'related'); depSearchQuery = ''; }}
+                    title="Adicionar como relacionada"
+                  >
+                    <Link2 class="h-3 w-3" />
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     <!-- Task metadata (only for existing tasks) -->
     {#if selectedTask && !isCreateMode}
       <AutomationOriginBadge taskId={selectedTask.id} />
@@ -1800,6 +2596,9 @@
   <input type="hidden" name="status" value={formState.status} />
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="dueTime" value={formState.dueTime} />
+  <input type="hidden" name="effort" value={formState.effort} />
+  <input type="hidden" name="impact" value={formState.impact} />
   <input type="hidden" name="accountId" value={formState.accountId} />
   <input type="hidden" name="opportunityId" value={formState.opportunityId} />
   <input type="hidden" name="caseId" value={formState.caseId} />
@@ -1808,6 +2607,7 @@
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form
@@ -1823,6 +2623,9 @@
   <input type="hidden" name="status" value={formState.status} />
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="dueTime" value={formState.dueTime} />
+  <input type="hidden" name="effort" value={formState.effort} />
+  <input type="hidden" name="impact" value={formState.impact} />
   <input type="hidden" name="accountId" value={formState.accountId} />
   <input type="hidden" name="opportunityId" value={formState.opportunityId} />
   <input type="hidden" name="caseId" value={formState.caseId} />
@@ -1831,6 +2634,7 @@
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form

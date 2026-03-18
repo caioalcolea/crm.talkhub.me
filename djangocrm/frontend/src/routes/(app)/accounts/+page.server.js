@@ -108,6 +108,9 @@ export async function load({ locals, url, cookies }) {
         email: account.email,
         phone: account.phone,
         website: account.website,
+        cnpj: account.cnpj?.length === 14
+          ? account.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+          : account.cnpj || '',
         industry: account.industry,
         description: account.description,
         isActive: account.is_active === true,
@@ -216,6 +219,7 @@ export const actions = {
     try {
       const form = await request.formData();
       const name = form.get('name')?.toString().trim();
+      const cnpj = form.get('cnpj')?.toString().trim() || null;
       const email = form.get('email')?.toString().trim() || null;
       const phone = form.get('phone')?.toString().trim() || null;
       let website = form.get('website')?.toString().trim() || null;
@@ -261,6 +265,7 @@ export const actions = {
 
       const accountData = {
         name,
+        cnpj,
         email,
         phone,
         website,
@@ -300,6 +305,7 @@ export const actions = {
       const form = await request.formData();
       const accountId = form.get('accountId')?.toString();
       const name = form.get('name')?.toString().trim();
+      const cnpj = form.get('cnpj')?.toString().trim() || null;
       const email = form.get('email')?.toString().trim() || null;
       const phone = form.get('phone')?.toString().trim() || null;
       let website = form.get('website')?.toString().trim() || null;
@@ -345,6 +351,7 @@ export const actions = {
 
       const accountData = {
         name,
+        cnpj,
         email,
         phone,
         website,

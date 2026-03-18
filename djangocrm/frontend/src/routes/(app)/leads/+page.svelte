@@ -62,6 +62,7 @@
   import { apiRequest } from '$lib/api.js';
   import { browser } from '$app/environment';
   import { orgSettings } from '$lib/stores/org.js';
+  import { fetchAddressByCep } from '$lib/utils/viacep.js';
   import { ViewToggle } from '$lib/components/ui/view-toggle';
   import { LeadKanban } from '$lib/components/ui/lead-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
@@ -602,6 +603,14 @@
   const leadPipelines = $derived(data.pipelines || []);
   let activePipelineId = $state('');
 
+  // Pipeline/stage form state for drawer create/edit
+  let formPipelineId = $state('');
+  let formStageId = $state('');
+  const selectedPipelineStages = $derived(
+    leadPipelines.find(p => p.id === formPipelineId)?.stages
+      ?.slice().sort((a, b) => a.order - b.order) ?? []
+  );
+
   $effect(() => {
     if (data.pipelineId) {
       const exists = leadPipelines.some(p => p.id === data.pipelineId);
@@ -1047,6 +1056,17 @@
       // Lead data is already in the correct format (from table view)
       drawerData = lead;
     }
+
+    // Pre-populate pipeline/stage from lead data
+    const stageId = drawerData?.stage;
+    if (stageId) {
+      const pipelineForStage = leadPipelines.find(p => p.stages?.some(s => s.id === stageId));
+      formPipelineId = pipelineForStage?.id ?? '';
+      formStageId = stageId;
+    } else {
+      formPipelineId = '';
+      formStageId = '';
+    }
   }
 
   /**
@@ -1092,6 +1112,21 @@
     updateUrl(null, 'create');
     // Lazy load form options when drawer opens
     loadFormOptions();
+
+    // Auto-select active pipeline when creating from kanban
+    if (activePipelineId) {
+      const pipeline = leadPipelines.find(p => p.id === activePipelineId);
+      if (pipeline?.stages?.length) {
+        formPipelineId = pipeline.id;
+        formStageId = pipeline.stages.slice().sort((a, b) => a.order - b.order)[0].id;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
+    } else {
+      formPipelineId = '';
+      formStageId = '';
+    }
   }
 
   /**
@@ -1122,14 +1157,21 @@
    * @param {string} newStatus
    * @param {string} _columnId
    */
-  async function handleKanbanStatusChange(leadId, newStatus, _columnId) {
-    // Convert column ID (status) to proper format
-    // Column IDs are: "assigned", "in process", "recycled", "closed"
-    const status = newStatus;
-
-    // Populate form and submit
+  async function handleKanbanStatusChange(leadId, targetColumnId, _columnId) {
     kanbanFormState.leadId = leadId;
-    kanbanFormState.status = status;
+    kanbanFormState.aboveLeadId = '';
+    kanbanFormState.belowLeadId = '';
+
+    // Determine mode from kanban data
+    // In status-based mode, column.id is a status value (e.g., "assigned", "in process")
+    // In pipeline-based mode, column.id is a stage UUID
+    if (kanbanData?.mode === 'pipeline') {
+      kanbanFormState.status = '';
+      kanbanFormState.stageId = targetColumnId;
+    } else {
+      kanbanFormState.status = targetColumnId;
+      kanbanFormState.stageId = '';
+    }
 
     await tick();
     updateStatusForm.requestSubmit();
@@ -1162,13 +1204,29 @@
    * @param {string} field
    * @param {any} value
    */
-  function handleDrawerFieldChange(field, value) {
+  async function handleDrawerFieldChange(field, value) {
     if (drawerMode === 'create') {
       // For create mode, just update the form data
       createFormData = { ...createFormData, [field]: value };
     } else if (drawerData) {
       // For edit mode, just update local data - no auto-save
       drawerData = { ...drawerData, [field]: value };
+    }
+
+    // ViaCEP: auto-fill address from CEP
+    if (field === 'postcode') {
+      const clean = value?.replace(/\D/g, '') || '';
+      if (clean.length === 8) {
+        const address = await fetchAddressByCep(clean);
+        if (address) {
+          if (drawerMode === 'create') {
+            createFormData = { ...createFormData, ...address };
+          } else if (drawerData) {
+            drawerData = { ...drawerData, ...address };
+          }
+          toast.success('Endereço preenchido pelo CEP');
+        }
+      }
     }
   }
 
@@ -1405,7 +1463,10 @@
   // Kanban form state (for drag-drop status updates)
   let kanbanFormState = $state({
     leadId: '',
-    status: ''
+    status: '',
+    stageId: '',
+    aboveLeadId: '',
+    belowLeadId: ''
   });
   // Form data state
   let formState = $state({
@@ -1992,6 +2053,38 @@
         </a>
       </div>
     {/if}
+
+    <!-- Pipeline / Stage selector -->
+    {#if leadPipelines.length > 0}
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Pipeline</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formPipelineId}
+            onchange={() => { formStageId = ''; }}
+          >
+            <option value="">Nenhum</option>
+            {#each leadPipelines as pipeline}
+              <option value={pipeline.id}>{pipeline.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Estágio</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formStageId}
+            disabled={!formPipelineId}
+          >
+            <option value="">Selecione...</option>
+            {#each selectedPipelineStages as stage}
+              <option value={stage.id}>{stage.name}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet activitySection()}
@@ -2102,6 +2195,7 @@
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form
@@ -2148,6 +2242,7 @@
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form
@@ -2177,6 +2272,9 @@
   use:enhance={createEnhanceHandler('Status do lead atualizado com sucesso', false)}
   class="hidden"
 >
-  <input type="hidden" name="leadId" bind:value={kanbanFormState.leadId} />
-  <input type="hidden" name="status" bind:value={kanbanFormState.status} />
+  <input type="hidden" name="leadId" value={kanbanFormState.leadId} />
+  <input type="hidden" name="status" value={kanbanFormState.status} />
+  <input type="hidden" name="stageId" value={kanbanFormState.stageId} />
+  <input type="hidden" name="aboveLeadId" value={kanbanFormState.aboveLeadId} />
+  <input type="hidden" name="belowLeadId" value={kanbanFormState.belowLeadId} />
 </form>

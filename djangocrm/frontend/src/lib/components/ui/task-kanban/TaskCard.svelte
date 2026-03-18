@@ -7,7 +7,9 @@
     Clock,
     CheckCircle2,
     Circle,
-    Zap
+    Zap,
+    Lock,
+    ListChecks
   } from '@lucide/svelte';
   import { formatDate } from '$lib/utils/formatting.js';
 
@@ -18,6 +20,7 @@
    * @property {string} status
    * @property {string} priority
    * @property {string|null} [due_date]
+   * @property {string|null} [due_time]
    * @property {boolean} [is_overdue]
    * @property {Array<{id: string, user_details?: {email?: string}, email?: string}>} [assigned_to]
    * @property {{id: string, name: string, type: string}|null} [related_entity]
@@ -74,9 +77,12 @@
   const priority = $derived(item.priority);
   const status = $derived(item.status || 'New');
   const dueDate = $derived(item.due_date);
+  const dueTime = $derived(item.due_time);
   const isOverdue = $derived(item.is_overdue || false);
   const assignees = $derived(item.assigned_to || []);
   const relatedEntity = $derived(item.related_entity);
+  const isBlocked = $derived(item.is_blocked || false);
+  const subtaskProgress = $derived(item.subtask_progress || '');
   const config = $derived(priority ? priorityConfig[priority] : null);
   const statusCfg = $derived(statusConfig[status] || statusConfig['New']);
 
@@ -196,15 +202,39 @@
           {#if isOverdue}
             <AlertCircle class="h-4 w-4 text-rose-600 dark:text-rose-400" />
             <span class="text-sm font-bold tracking-tight text-rose-700 dark:text-rose-300">
-              Atrasado: {formatDate(dueDate)}
+              Atrasado: {formatDate(dueDate)}{#if dueTime} · {dueTime.slice(0, 5)}{/if}
             </span>
           {:else}
             <Calendar class="h-4 w-4 text-slate-600 dark:text-slate-400" />
             <span class="text-sm font-medium tracking-tight text-slate-700 dark:text-slate-300">
-              {formatDate(dueDate)}
+              {formatDate(dueDate)}{#if dueTime} · {dueTime.slice(0, 5)}{/if}
             </span>
           {/if}
         </div>
+      </div>
+    {/if}
+
+    <!-- Subtask progress + Blocked indicator -->
+    {#if subtaskProgress || isBlocked}
+      <div class="mt-2.5 flex items-center gap-2">
+        {#if isBlocked}
+          <div
+            class="flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400"
+            title="Bloqueada por dependência"
+          >
+            <Lock class="h-3 w-3" />
+            <span class="text-[0.65rem] font-semibold">Bloqueada</span>
+          </div>
+        {/if}
+        {#if subtaskProgress && subtaskProgress !== '0/0'}
+          <div
+            class="text-muted-foreground flex items-center gap-1 text-[0.7rem]"
+            title="Subtarefas"
+          >
+            <ListChecks class="h-3 w-3" />
+            <span>{subtaskProgress}</span>
+          </div>
+        {/if}
       </div>
     {/if}
 

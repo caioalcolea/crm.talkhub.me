@@ -34,6 +34,15 @@ class Account(AssignableMixin, OrgScopedMixin, BaseModel):
     )
     website = models.URLField(_("Website"), blank=True, null=True)
 
+    # Tax / Registration
+    cnpj = models.CharField(
+        _("CNPJ"),
+        max_length=18,
+        blank=True,
+        null=True,
+        help_text="CNPJ da empresa (apenas dígitos ou formatado)",
+    )
+
     # Business Information
     industry = models.CharField(
         _("Industry"), max_length=255, choices=INDCHOICES, blank=True, null=True
@@ -99,6 +108,12 @@ class Account(AssignableMixin, OrgScopedMixin, BaseModel):
             models.CheckConstraint(
                 check=Q(annual_revenue__gte=0) | Q(annual_revenue__isnull=True),
                 name="account_revenue_non_negative",
+            ),
+            # Unique CNPJ per org (only for non-empty values)
+            models.UniqueConstraint(
+                fields=["cnpj", "org"],
+                condition=Q(cnpj__isnull=False) & ~Q(cnpj=""),
+                name="unique_cnpj_per_org",
             ),
         ]
 

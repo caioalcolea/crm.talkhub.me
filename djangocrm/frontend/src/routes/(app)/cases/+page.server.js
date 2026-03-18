@@ -30,6 +30,7 @@ export async function load({ url, locals, cookies }) {
   const limit = parseInt(url.searchParams.get('limit') || '10');
 
   // Parse filter params from URL
+  const quickFilter = url.searchParams.get('quick_filter') || '';
   const filters = {
     search: url.searchParams.get('search') || '',
     status: url.searchParams.get('status') || '',
@@ -38,7 +39,8 @@ export async function load({ url, locals, cookies }) {
     assigned_to: url.searchParams.getAll('assigned_to'),
     tags: url.searchParams.getAll('tags'),
     created_at_gte: url.searchParams.get('created_at_gte') || '',
-    created_at_lte: url.searchParams.get('created_at_lte') || ''
+    created_at_lte: url.searchParams.get('created_at_lte') || '',
+    quick_filter: quickFilter
   };
 
   try {
@@ -59,6 +61,7 @@ export async function load({ url, locals, cookies }) {
     filters.tags.forEach((id) => queryParams.append('tags', id));
     if (filters.created_at_gte) queryParams.append('created_at__gte', filters.created_at_gte);
     if (filters.created_at_lte) queryParams.append('created_at__lte', filters.created_at_lte);
+    if (filters.quick_filter) queryParams.append('quick_filter', filters.quick_filter);
 
     // Build kanban query params (reuse filter params)
     const kanbanQueryParams = new URLSearchParams();
@@ -106,6 +109,10 @@ export async function load({ url, locals, cookies }) {
       priority: caseItem.priority,
       caseType: caseItem.case_type,
       closedOn: caseItem.closed_on,
+      dueDate: caseItem.due_date || '',
+      dueTime: caseItem.due_time || '',
+      isOverdue: caseItem.is_overdue || false,
+      subtaskProgress: caseItem.subtask_progress || '',
       createdAt: caseItem.created_at,
       updatedAt: caseItem.updated_at,
       isActive: caseItem.is_active,
@@ -301,8 +308,10 @@ export const actions = {
       const name = form.get('title')?.toString().trim();
       const description = form.get('description')?.toString().trim();
       const accountId = form.get('accountId')?.toString();
-      const dueDateValue = form.get('dueDate');
-      const closedOn = dueDateValue ? dueDateValue.toString() : null;
+      const closedOnValue = form.get('closedOn');
+      const closedOn = closedOnValue ? closedOnValue.toString() : null;
+      const dueDate = form.get('dueDate')?.toString() || null;
+      const dueTime = form.get('dueTime')?.toString() || null;
       const priority = form.get('priority')?.toString() || 'Normal';
       const caseType = form.get('caseType')?.toString() || '';
       const assignedToJson = form.get('assignedTo')?.toString();
@@ -337,6 +346,8 @@ export const actions = {
         description,
         account: accountId || null,
         closed_on: closedOn,
+        due_date: dueDate,
+        due_time: dueTime,
         priority,
         case_type: caseType,
         assigned_to: assignedTo,
@@ -345,6 +356,10 @@ export const actions = {
         tags,
         status: 'New'
       };
+
+      // Pipeline stage
+      const stageId = form.get('stageId')?.toString() || null;
+      if (stageId) caseData.stage = stageId;
 
       const newCase = await apiRequest(
         '/cases/',
@@ -367,8 +382,10 @@ export const actions = {
       const form = await request.formData();
       const name = form.get('title')?.toString().trim();
       const description = form.get('description')?.toString().trim();
-      const dueDateValue = form.get('dueDate');
-      const closedOn = dueDateValue ? dueDateValue.toString() : null;
+      const closedOnValue = form.get('closedOn');
+      const closedOn = closedOnValue ? closedOnValue.toString() : null;
+      const dueDate = form.get('dueDate')?.toString() || null;
+      const dueTime = form.get('dueTime')?.toString() || null;
       const priority = form.get('priority')?.toString() || 'Normal';
       const status = form.get('status')?.toString() || 'New';
       const caseType = form.get('caseType')?.toString() || '';
@@ -404,6 +421,8 @@ export const actions = {
         name,
         description,
         closed_on: closedOn,
+        due_date: dueDate,
+        due_time: dueTime,
         priority,
         status,
         case_type: caseType,
@@ -412,6 +431,10 @@ export const actions = {
         teams,
         tags
       };
+
+      // Pipeline stage (null clears the stage)
+      const stageId = form.get('stageId')?.toString() || null;
+      caseData.stage = stageId;
 
       await apiRequest(
         `/cases/${caseId}/`,

@@ -15,7 +15,10 @@ from tasks.models import (
     BoardColumn,
     BoardMember,
     BoardTask,
+    Project,
+    Subtask,
     Task,
+    TaskDependency,
     TaskPipeline,
     TaskStage,
 )
@@ -146,6 +149,109 @@ class BoardListSerializer(serializers.ModelSerializer):
         return BoardTask.objects.filter(column__board=obj).count()
 
 
+class SubtaskSerializer(serializers.ModelSerializer):
+    """Serializer for subtask checklist items."""
+
+    completed_by_name = serializers.SerializerMethodField()
+    assigned_to_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Subtask
+        fields = [
+            "id",
+            "title",
+            "is_completed",
+            "completed_at",
+            "completed_by",
+            "completed_by_name",
+            "order",
+            "assigned_to",
+            "assigned_to_name",
+            "created_at",
+        ]
+        read_only_fields = ("id", "created_at", "completed_at", "completed_by", "completed_by_name")
+
+    def get_completed_by_name(self, obj):
+        if obj.completed_by:
+            return f"{obj.completed_by.first_name} {obj.completed_by.last_name}".strip() or obj.completed_by.email
+        return None
+
+    def get_assigned_to_name(self, obj):
+        if obj.assigned_to:
+            return str(obj.assigned_to)
+        return None
+
+
+class TaskDependencySerializer(serializers.ModelSerializer):
+    """Serializer for task dependencies."""
+
+    depends_on_title = serializers.CharField(source="depends_on.title", read_only=True)
+    depends_on_status = serializers.CharField(source="depends_on.status", read_only=True)
+    task_title = serializers.CharField(source="task.title", read_only=True)
+
+    class Meta:
+        model = TaskDependency
+        fields = [
+            "id",
+            "task",
+            "depends_on",
+            "depends_on_title",
+            "depends_on_status",
+            "task_title",
+            "dependency_type",
+            "created_at",
+        ]
+        read_only_fields = ("id", "created_at")
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    """Serializer for projects."""
+
+    owner_name = serializers.SerializerMethodField()
+    task_count = serializers.SerializerMethodField()
+    completed_task_count = serializers.SerializerMethodField()
+    progress_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Project
+        fields = [
+            "id",
+            "name",
+            "description",
+            "color",
+            "status",
+            "due_date",
+            "owner",
+            "owner_name",
+            "members",
+            "task_count",
+            "completed_task_count",
+            "progress_percent",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def get_owner_name(self, obj):
+        return str(obj.owner) if obj.owner else None
+
+    @extend_schema_field(int)
+    def get_task_count(self, obj):
+        return obj.tasks.count()
+
+    @extend_schema_field(int)
+    def get_completed_task_count(self, obj):
+        return obj.tasks.filter(status="Completed").count()
+
+    @extend_schema_field(int)
+    def get_progress_percent(self, obj):
+        total = obj.tasks.count()
+        if total == 0:
+            return 0
+        completed = obj.tasks.filter(status="Completed").count()
+        return round((completed / total) * 100)
+
+
 class TaskSerializer(serializers.ModelSerializer):
     created_by = UserSerializer()
     assigned_to = ProfileSerializer(read_only=True, many=True)
@@ -154,6 +260,13 @@ class TaskSerializer(serializers.ModelSerializer):
     tags = TagsSerializer(read_only=True, many=True)
     task_attachment = AttachmentsSerializer(read_only=True, many=True)
     task_comments = CommentSerializer(read_only=True, many=True)
+    subtasks = SubtaskSerializer(many=True, read_only=True)
+    subtask_progress = serializers.CharField(read_only=True)
+    is_overdue = serializers.BooleanField(read_only=True)
+    is_blocked = serializers.BooleanField(read_only=True)
+    priority_score = serializers.IntegerField(read_only=True)
+    dependencies = TaskDependencySerializer(many=True, read_only=True)
+    dependents = TaskDependencySerializer(many=True, read_only=True)
 
     class Meta:
         model = Task
@@ -163,11 +276,16 @@ class TaskSerializer(serializers.ModelSerializer):
             "status",
             "priority",
             "due_date",
+            "due_time",
+            "effort",
+            "impact",
+            "priority_score",
             "description",
             "account",
             "opportunity",
             "case",
             "lead",
+            "project",
             "created_by",
             "created_at",
             "contacts",
@@ -176,6 +294,14 @@ class TaskSerializer(serializers.ModelSerializer):
             "tags",
             "task_attachment",
             "task_comments",
+            "subtasks",
+            "subtask_progress",
+            "is_overdue",
+            "is_blocked",
+            "dependencies",
+            "dependents",
+            # Kanban
+            "stage",
         )
 
 
@@ -225,13 +351,19 @@ class TaskCreateSerializer(serializers.ModelSerializer):
             "status",
             "priority",
             "due_date",
+            "due_time",
+            "effort",
+            "impact",
             "description",
             "account",
             "opportunity",
             "case",
             "lead",
+            "project",
             "created_by",
             "created_at",
+            # Kanban
+            "stage",
         )
 
 
@@ -252,6 +384,7 @@ class TaskCreateSwaggerSerializer(serializers.ModelSerializer):
             "status",
             "priority",
             "due_date",
+            "due_time",
             "description",
             "account",
             "opportunity",
@@ -383,6 +516,9 @@ class TaskKanbanCardSerializer(serializers.ModelSerializer):
 
     assigned_to = ProfileSerializer(read_only=True, many=True)
     is_overdue = serializers.BooleanField(read_only=True)
+    is_blocked = serializers.BooleanField(read_only=True)
+    priority_score = serializers.IntegerField(read_only=True)
+    subtask_progress = serializers.CharField(read_only=True)
     related_entity = serializers.SerializerMethodField()
 
     class Meta:
@@ -393,11 +529,18 @@ class TaskKanbanCardSerializer(serializers.ModelSerializer):
             "status",
             "priority",
             "due_date",
+            "due_time",
+            "effort",
+            "impact",
+            "priority_score",
             "is_overdue",
+            "is_blocked",
+            "subtask_progress",
             "stage",
             "kanban_order",
             "assigned_to",
             "related_entity",
+            "project",
             "created_at",
         ]
 

@@ -27,6 +27,8 @@ class CaseSerializer(serializers.ModelSerializer):
     org = OrganizationSerializer()
     sla_indicators = serializers.SerializerMethodField()
     linked_tasks_count = serializers.SerializerMethodField()
+    subtask_progress = serializers.CharField(read_only=True)
+    is_overdue = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Case
@@ -37,6 +39,9 @@ class CaseSerializer(serializers.ModelSerializer):
             "priority",
             "case_type",
             "closed_on",
+            "due_date",
+            "due_time",
+            "is_overdue",
             "description",
             "created_by",
             "created_at",
@@ -58,6 +63,9 @@ class CaseSerializer(serializers.ModelSerializer):
             "is_sla_resolution_breached",
             "sla_indicators",
             "linked_tasks_count",
+            "subtask_progress",
+            # Kanban
+            "stage",
         )
 
     def get_sla_indicators(self, obj):
@@ -70,6 +78,8 @@ class CaseSerializer(serializers.ModelSerializer):
 
 class CaseCreateSerializer(serializers.ModelSerializer):
     closed_on = serializers.DateField(required=False, allow_null=True)
+    due_date = serializers.DateField(required=False, allow_null=True)
+    due_time = serializers.TimeField(required=False, allow_null=True)
     org = serializers.PrimaryKeyRelatedField(read_only=True)
 
     def __init__(self, *args, **kwargs):
@@ -102,10 +112,14 @@ class CaseCreateSerializer(serializers.ModelSerializer):
             "priority",
             "case_type",
             "closed_on",
+            "due_date",
+            "due_time",
             "description",
             "is_active",
             "account",
             "org",
+            # Kanban
+            "stage",
         )
         read_only_fields = ("org",)
 
@@ -245,6 +259,8 @@ class CaseKanbanCardSerializer(serializers.ModelSerializer):
     assigned_to = ProfileSerializer(read_only=True, many=True)
     account_name = serializers.SerializerMethodField()
     is_sla_breached = serializers.SerializerMethodField()
+    is_overdue = serializers.BooleanField(read_only=True)
+    subtask_progress = serializers.CharField(read_only=True)
 
     class Meta:
         model = Case
@@ -254,6 +270,10 @@ class CaseKanbanCardSerializer(serializers.ModelSerializer):
             "status",
             "priority",
             "case_type",
+            "due_date",
+            "due_time",
+            "is_overdue",
+            "subtask_progress",
             "stage",
             "kanban_order",
             "account_name",
