@@ -27,7 +27,12 @@
     Loader2,
     ArrowRightCircle,
     Banknote,
-    Filter
+    Filter,
+    CircleDot,
+    XCircle,
+    ArrowRightLeft,
+    Clock,
+    AlertTriangle
   } from '@lucide/svelte';
   import { page } from '$app/stores';
   import {
@@ -1339,15 +1344,17 @@
   const filters = $derived(data.filters);
   const filterOptions = $derived(data.filterOptions);
 
-  // Count active filters (excluding status since it's handled via chips in header)
+  // Count active filters
   const activeFiltersCount = $derived.by(() => {
     let count = 0;
     if (filters.search) count++;
+    if (filters.status) count++;
     if (filters.source) count++;
     if (filters.rating) count++;
     if (filters.assigned_to?.length > 0) count++;
     if (filters.tags?.length > 0) count++;
     if (filters.created_at_gte || filters.created_at_lte) count++;
+    if (filters.quick_filter) count++;
     return count;
   });
 
@@ -1366,7 +1373,8 @@
       'assigned_to',
       'tags',
       'created_at_gte',
-      'created_at_lte'
+      'created_at_lte',
+      'quick_filter'
     ].forEach((key) => url.searchParams.delete(key));
     // Set new params
     Object.entries(newFilters).forEach(([key, value]) => {
@@ -1407,46 +1415,54 @@
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
-  // Status counts for filter chips
-  const openStatuses = ['ASSIGNED', 'IN_PROCESS'];
-  const lostStatuses = ['CLOSED', 'RECYCLED'];
-  const openStatusIds = ['assigned', 'in process'];
-  const lostStatusIds = ['closed', 'recycled'];
-
-  // Calculate counts from kanban data or table data depending on view mode
-  const openCount = $derived.by(() => {
-    if (viewMode === 'kanban' && kanbanData?.columns) {
-      return kanbanData.columns
-        .filter((/** @type {any} */ c) => openStatusIds.includes(c.id))
-        .reduce((/** @type {number} */ sum, /** @type {any} */ c) => sum + c.lead_count, 0);
-    }
-    return leads.filter((/** @type {any} */ l) => openStatuses.includes(l.status)).length;
-  });
-  const lostCount = $derived.by(() => {
-    if (viewMode === 'kanban' && kanbanData?.columns) {
-      return kanbanData.columns
-        .filter((/** @type {any} */ c) => lostStatusIds.includes(c.id))
-        .reduce((/** @type {number} */ sum, /** @type {any} */ c) => sum + c.lead_count, 0);
-    }
-    return leads.filter((/** @type {any} */ l) => lostStatuses.includes(l.status)).length;
-  });
-
-  // Status chip filter state (quick filter from UI)
-  let statusChipFilter = $state('ALL');
-
   // Filter panel expansion state
   let filtersExpanded = $state(false);
 
-  // Leads are already filtered server-side, just apply chip filter if active
-  const filteredLeads = $derived.by(() => {
-    let filtered = leads;
-    if (statusChipFilter === 'open') {
-      filtered = filtered.filter((/** @type {any} */ l) => openStatuses.includes(l.status));
-    } else if (statusChipFilter === 'lost') {
-      filtered = filtered.filter((/** @type {any} */ l) => lostStatuses.includes(l.status));
-    }
-    return filtered;
+  // All filtering is server-side via URL params
+  const filteredLeads = $derived(leads);
+
+  // ---- Quick filter chips (unified: status + date shortcuts) ----
+  /** @type {{ value: string, label: string, color: string|null }[]} */
+  const quickFilterOptions = [
+    { value: '', label: 'Todos', color: null },
+    { value: 'open', label: 'Abertos', color: 'blue' },
+    { value: 'lost', label: 'Perdidos', color: 'rose' },
+    { value: 'converted', label: 'Convertidos', color: 'emerald' },
+    // separator at index 4
+    { value: 'recent', label: 'Recentes (7d)', color: null },
+    { value: 'stale', label: 'Sem Atividade (30d)', color: 'amber' },
+    { value: 'closing_soon', label: 'Fechamento Próximo', color: null },
+  ];
+
+  const activeQuickFilter = $derived(filters.quick_filter || '');
+
+  // Client-side counts for chip badges (approximate — from current page data)
+  const chipCounts = $derived.by(() => {
+    return {
+      '': totalLeadCount,
+      open: leads.filter((/** @type {any} */ l) => ['ASSIGNED', 'IN_PROCESS'].includes(l.status)).length,
+      lost: leads.filter((/** @type {any} */ l) => ['CLOSED', 'RECYCLED'].includes(l.status)).length,
+      converted: leads.filter((/** @type {any} */ l) => l.status === 'CONVERTED').length,
+      recent: leads.length, // approximate
+      stale: leads.length, // approximate
+      closing_soon: leads.length, // approximate
+    };
   });
+
+  /**
+   * Set quick filter — server-side via URL
+   * @param {string} value
+   */
+  async function setQuickFilter(value) {
+    const url = new URL($page.url);
+    url.searchParams.delete('quick_filter');
+    url.searchParams.delete('status');
+    if (value) {
+      url.searchParams.set('quick_filter', value);
+    }
+    url.searchParams.set('page', '1');
+    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+  }
 
   // Form references for server actions
   /** @type {HTMLFormElement} */
@@ -1712,63 +1728,6 @@
       <!-- View Toggle -->
       <ViewToggle view={viewMode} onchange={setViewMode} />
 
-      <div class="hidden 2xl:block mx-1 h-6 w-px bg-[var(--border-default)]"></div>
-
-      <!-- Status Filter Chips — hidden below 2xl (1536px) to prevent body-level overflow -->
-      <div class="hidden 2xl:flex gap-1">
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'ALL')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'ALL'
-            ? 'bg-[var(--text-primary)] text-[var(--surface-default)]'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Todos
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'ALL'
-              ? 'bg-[var(--text-secondary)] text-[var(--surface-default)]'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {totalLeadCount}
-          </span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'open')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'open'
-            ? 'bg-[var(--color-primary-default)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Abertos
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'open'
-              ? 'bg-[var(--color-primary-hover)] text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {openCount}
-          </span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'lost')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'lost'
-            ? 'bg-[var(--stage-lost)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Perdidos
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'lost'
-              ? 'bg-[var(--stage-lost)]/80 text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {lostCount}
-          </span>
-        </button>
-      </div>
-
       <div class="mx-1 h-6 w-px bg-[var(--border-default)]"></div>
 
       <!-- Filter Toggle Button -->
@@ -1849,6 +1808,19 @@
       class="w-64"
     />
     <SelectFilter
+      label="Status"
+      options={[
+        { value: '', label: 'Todos os Status' },
+        { value: 'assigned', label: 'Atribuído' },
+        { value: 'in process', label: 'Em Andamento' },
+        { value: 'converted', label: 'Convertido' },
+        { value: 'recycled', label: 'Reciclado' },
+        { value: 'closed', label: 'Fechado' },
+      ]}
+      value={filters.status}
+      onchange={(value) => updateFilters({ ...filters, status: value, quick_filter: '' })}
+    />
+    <SelectFilter
       label="Origem"
       options={filterOptions.sources}
       value={filters.source || 'ALL'}
@@ -1876,6 +1848,51 @@
       onchange={(ids) => updateFilters({ ...filters, tags: ids })}
     />
   </FilterBar>
+
+  <!-- Unified filter chips (status + date shortcuts) -->
+  <div class="flex flex-wrap items-center gap-1.5 px-1 pb-3">
+    {#each quickFilterOptions as option, i}
+      {#if i === 4}
+        <div class="mx-0.5 h-4 w-px bg-border"></div>
+      {/if}
+      {@const isActive = activeQuickFilter === option.value}
+      {@const count = chipCounts[option.value] ?? 0}
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors
+          {isActive
+            ? option.color === 'rose' ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800'
+              : option.color === 'amber' ? 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
+              : option.color === 'emerald' ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800'
+              : option.color === 'blue' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800'
+              : 'bg-primary text-primary-foreground border-primary'
+            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+          }"
+        onclick={() => setQuickFilter(option.value)}
+      >
+        {#if option.value === 'open'}
+          <CircleDot class="h-3 w-3" />
+        {:else if option.value === 'lost'}
+          <XCircle class="h-3 w-3" />
+        {:else if option.value === 'converted'}
+          <ArrowRightCircle class="h-3 w-3" />
+        {:else if option.value === 'recent'}
+          <Clock class="h-3 w-3" />
+        {:else if option.value === 'stale'}
+          <AlertTriangle class="h-3 w-3" />
+        {:else if option.value === 'closing_soon'}
+          <Calendar class="h-3 w-3" />
+        {/if}
+        {option.label}
+        {#if option.value === '' || option.value === 'open' || option.value === 'lost' || option.value === 'converted'}
+          <span class="rounded-full px-1.5 text-[10px] font-semibold
+            {isActive ? 'bg-black/10 dark:bg-white/15' : 'bg-muted text-muted-foreground'}">
+            {count}
+          </span>
+        {/if}
+      </button>
+    {/each}
+  </div>
 
   <!-- Content: Table or Kanban -->
   {#if viewMode === 'kanban'}

@@ -130,6 +130,14 @@ class CaseListView(APIView, LimitOffsetPagination):
                     ).exclude(
                         status__in=["Closed", "Rejected", "Duplicate"],
                     )
+                elif quick_filter == "open":
+                    queryset = queryset.filter(
+                        status__in=["New", "Assigned", "Pending"]
+                    )
+                elif quick_filter == "closed":
+                    queryset = queryset.filter(
+                        status__in=["Closed", "Rejected", "Duplicate"]
+                    )
 
         context = {}
 

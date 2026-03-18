@@ -1,4 +1,5 @@
 import json
+from datetime import date, timedelta
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError
@@ -105,6 +106,38 @@ class LeadListView(APIView, LimitOffsetPagination):
                 queryset = queryset.filter(
                     close_date__lte=params.get("close_date__lte")
                 )
+            # Quick filters
+            quick_filter = params.get("quick_filter")
+            if quick_filter:
+                today = date.today()
+                if quick_filter == "open":
+                    queryset = queryset.filter(
+                        status__in=["assigned", "in process"]
+                    )
+                elif quick_filter == "lost":
+                    queryset = queryset.filter(
+                        status__in=["closed", "recycled"]
+                    )
+                elif quick_filter == "converted":
+                    queryset = queryset.filter(status="converted")
+                elif quick_filter == "recent":
+                    week_ago = today - timedelta(days=7)
+                    queryset = queryset.filter(created_at__gte=week_ago)
+                elif quick_filter == "stale":
+                    month_ago = today - timedelta(days=30)
+                    queryset = queryset.filter(
+                        updated_at__lte=month_ago
+                    ).exclude(
+                        status__in=["closed", "recycled", "converted"]
+                    )
+                elif quick_filter == "closing_soon":
+                    next_week = today + timedelta(days=7)
+                    queryset = queryset.filter(
+                        close_date__lte=next_week,
+                        close_date__gte=today,
+                    ).exclude(
+                        status__in=["closed", "recycled", "converted"]
+                    )
         context = {}
         queryset_open = queryset.exclude(status="closed")
         results_leads_open = self.paginate_queryset(

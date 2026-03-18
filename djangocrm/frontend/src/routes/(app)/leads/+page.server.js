@@ -32,6 +32,7 @@ export async function load({ url, cookies, locals }) {
   const limit = parseInt(url.searchParams.get('limit') || '10');
 
   // Parse filter params from URL
+  const quickFilter = url.searchParams.get('quick_filter') || '';
   const filters = {
     search: url.searchParams.get('search') || '',
     status: url.searchParams.get('status') || '',
@@ -40,7 +41,8 @@ export async function load({ url, cookies, locals }) {
     assigned_to: url.searchParams.getAll('assigned_to'),
     tags: url.searchParams.getAll('tags'),
     created_at_gte: url.searchParams.get('created_at_gte') || '',
-    created_at_lte: url.searchParams.get('created_at_lte') || ''
+    created_at_lte: url.searchParams.get('created_at_lte') || '',
+    quick_filter: quickFilter
   };
 
   // Build query params for API
@@ -55,6 +57,7 @@ export async function load({ url, cookies, locals }) {
   filters.tags.forEach((id) => queryParams.append('tags', id));
   if (filters.created_at_gte) queryParams.append('created_at__gte', filters.created_at_gte);
   if (filters.created_at_lte) queryParams.append('created_at__lte', filters.created_at_lte);
+  if (filters.quick_filter) queryParams.append('quick_filter', filters.quick_filter);
 
   try {
     // Build kanban query params (without pagination for kanban view)

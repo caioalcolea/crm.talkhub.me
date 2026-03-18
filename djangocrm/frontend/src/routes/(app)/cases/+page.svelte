@@ -25,7 +25,10 @@
     Columns,
     BarChart3,
     Timer,
-    AlertTriangle
+    AlertTriangle,
+    CircleDot,
+    CheckCircle2,
+    Ban
   } from '@lucide/svelte';
   import { CaseKanban } from '$lib/components/ui/case-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
@@ -640,15 +643,17 @@
   // Type options for filter dropdown
   const typeFilterOptions = $derived([{ value: '', label: 'Todos os Tipos' }, ...caseTypeOptions]);
 
-  // Count active filters (excluding status since it's handled via chips in header)
+  // Count active filters
   const activeFiltersCount = $derived.by(() => {
     let count = 0;
     if (filters.search) count++;
+    if (filters.status) count++;
     if (filters.priority) count++;
     if (filters.case_type) count++;
     if (filters.assigned_to?.length > 0) count++;
     if (filters.tags?.length > 0) count++;
     if (filters.created_at_gte || filters.created_at_lte) count++;
+    if (filters.quick_filter) count++;
     return count;
   });
 
@@ -667,7 +672,8 @@
       'assigned_to',
       'tags',
       'created_at_gte',
-      'created_at_lte'
+      'created_at_lte',
+      'quick_filter'
     ].forEach((key) => url.searchParams.delete(key));
     // Set new params
     Object.entries(newFilters).forEach(([key, value]) => {
@@ -708,31 +714,11 @@
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
   }
 
-  // Status counts for filter chips
-  const openStatuses = ['New', 'Open', 'Pending', 'Assigned'];
-  const openCount = $derived(
-    casesData.filter((/** @type {any} */ c) => openStatuses.includes(c.status)).length
-  );
-  const closedCount = $derived(
-    casesData.filter((/** @type {any} */ c) => c.status === 'Closed').length
-  );
-
-  // Status chip filter state (client-side quick filter on top of server filters)
-  let statusChipFilter = $state('ALL');
-
   // Filter panel expansion state
   let filtersExpanded = $state(false);
 
-  // Filtered cases - server already applies main filters, just apply status chip
-  const filteredCases = $derived.by(() => {
-    let filtered = casesData;
-    if (statusChipFilter === 'open') {
-      filtered = filtered.filter((/** @type {any} */ c) => openStatuses.includes(c.status));
-    } else if (statusChipFilter === 'closed') {
-      filtered = filtered.filter((/** @type {any} */ c) => c.status === 'Closed');
-    }
-    return filtered;
-  });
+  // All filtering is server-side via URL params
+  const filteredCases = $derived(casesData);
 
   // ---- Subtask management for Cases ----
   let caseSubtasks = $state(/** @type {any[]} */ ([]));
@@ -849,24 +835,56 @@
     }
   });
 
-  // ---- Quick filter chips ----
+  // ---- Quick filter chips (unified: status + date shortcuts) ----
+  /** @type {{ value: string, label: string, color: string|null }[]} */
   const quickFilterOptions = [
-    { value: '', label: 'Todos' },
-    { value: 'overdue', label: 'Atrasados' },
-    { value: 'due_today', label: 'Vence Hoje' },
-    { value: 'due_this_week', label: 'Esta Semana' },
-    { value: 'no_date', label: 'Sem Data' },
-    { value: 'completed_this_week', label: 'Fechados' }
+    { value: '', label: 'Todos', color: null },
+    { value: 'open', label: 'Abertos', color: 'blue' },
+    { value: 'closed', label: 'Fechados', color: 'emerald' },
+    // separator at index 3
+    { value: 'overdue', label: 'Atrasados', color: 'rose' },
+    { value: 'due_today', label: 'Vence Hoje', color: 'amber' },
+    { value: 'due_this_week', label: 'Esta Semana', color: null },
+    { value: 'no_date', label: 'Sem Data', color: null },
   ];
 
   const activeQuickFilter = $derived(data.filters?.quick_filter || '');
 
+  // Client-side counts for chip badges (approximate — from current page data)
+  const chipCounts = $derived.by(() => {
+    const openStatuses = ['New', 'Assigned', 'Pending'];
+    const closedStatuses = ['Closed', 'Rejected', 'Duplicate'];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const mondayStr = monday.toISOString().slice(0, 10);
+    const sundayStr = sunday.toISOString().slice(0, 10);
+
+    return {
+      '': casesData.length,
+      open: casesData.filter((/** @type {any} */ c) => openStatuses.includes(c.status)).length,
+      closed: casesData.filter((/** @type {any} */ c) => closedStatuses.includes(c.status)).length,
+      overdue: casesData.filter((/** @type {any} */ c) => c.dueDate && c.dueDate < todayStr && !closedStatuses.includes(c.status)).length,
+      due_today: casesData.filter((/** @type {any} */ c) => c.dueDate?.slice(0, 10) === todayStr).length,
+      due_this_week: casesData.filter((/** @type {any} */ c) => c.dueDate && c.dueDate >= mondayStr && c.dueDate <= sundayStr).length,
+      no_date: casesData.filter((/** @type {any} */ c) => !c.dueDate && !closedStatuses.includes(c.status)).length,
+    };
+  });
+
+  /**
+   * Set quick filter — server-side via URL
+   * @param {string} value
+   */
   async function setQuickFilter(value) {
     const url = new URL($page.url);
+    url.searchParams.delete('quick_filter');
+    url.searchParams.delete('status');
     if (value) {
       url.searchParams.set('quick_filter', value);
-    } else {
-      url.searchParams.delete('quick_filter');
     }
     url.searchParams.set('page', '1');
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
@@ -1152,91 +1170,37 @@
 <PageHeader title="Chamados" subtitle="{filteredCases.length} de {casesData.length} chamados">
   {#snippet actions()}
     <div class="flex items-center gap-2">
-      <!-- Status Filter Chips — hidden below 2xl (1536px) to prevent body-level overflow on 1366px laptops -->
-      <div class="hidden 2xl:flex gap-1">
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'ALL')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'ALL'
-            ? 'bg-[var(--color-primary-default)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Todos
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'ALL'
-              ? 'bg-[var(--color-primary-dark)] text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {casesData.length}
-          </span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'open')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'open'
-            ? 'bg-[var(--stage-qualified)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Abertos
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'open'
-              ? 'bg-black/20 text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {openCount}
-          </span>
-        </button>
-        <button
-          type="button"
-          onclick={() => (statusChipFilter = 'closed')}
-          class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors {statusChipFilter ===
-          'closed'
-            ? 'bg-[var(--text-secondary)] text-white'
-            : 'bg-[var(--surface-sunken)] text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'}"
-        >
-          Fechados
-          <span
-            class="rounded-full px-1.5 py-0.5 text-xs {statusChipFilter === 'closed'
-              ? 'bg-[var(--text-tertiary)] text-white/90'
-              : 'bg-[var(--border-default)] text-[var(--text-tertiary)]'}"
-          >
-            {closedCount}
-          </span>
-        </button>
-      </div>
-
-      <div class="bg-border hidden 2xl:block mx-1 h-6 w-px"></div>
-
-      <!-- View Mode Toggle -->
+      <!-- View Mode Toggle — icon-only below md -->
       <div class="border-input bg-background inline-flex rounded-lg border p-1">
         <Button
           variant={viewMode === 'list' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('list')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Lista"
         >
-          <List class="mr-1.5 h-4 w-4" />
-          Lista
+          <List class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Lista</span>
         </Button>
         <Button
           variant={viewMode === 'kanban' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('kanban')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Quadro"
         >
-          <Columns class="mr-1.5 h-4 w-4" />
-          Quadro
+          <Columns class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Quadro</span>
         </Button>
         <Button
           variant={viewMode === 'workload' ? 'secondary' : 'ghost'}
           size="sm"
           onclick={() => updateViewMode('workload')}
-          class="h-8 px-3"
+          class="h-8 px-2 md:px-3"
+          title="Equipe"
         >
-          <BarChart3 class="mr-1.5 h-4 w-4" />
-          Equipe
+          <BarChart3 class="h-4 w-4 md:mr-1.5" />
+          <span class="hidden md:inline">Equipe</span>
         </Button>
       </div>
 
@@ -1324,6 +1288,20 @@
       placeholder="Buscar chamados..."
     />
     <SelectFilter
+      label="Status"
+      options={[
+        { value: '', label: 'Todos os Status' },
+        { value: 'New', label: 'Novo' },
+        { value: 'Assigned', label: 'Atribuído' },
+        { value: 'Pending', label: 'Pendente' },
+        { value: 'Closed', label: 'Fechado' },
+        { value: 'Rejected', label: 'Rejeitado' },
+        { value: 'Duplicate', label: 'Duplicado' },
+      ]}
+      value={filters.status}
+      onchange={(value) => updateFilters({ ...filters, status: value, quick_filter: '' })}
+    />
+    <SelectFilter
       label="Prioridade"
       options={priorityFilterOptions}
       value={filters.priority}
@@ -1391,19 +1369,48 @@
     </div>
   {/if}
 
-  <!-- Quick filter chips -->
-  <div class="flex flex-wrap gap-1.5 px-1 pb-3">
-    {#each quickFilterOptions as option}
+  <!-- Unified filter chips (status + date shortcuts) -->
+  <div class="flex flex-wrap items-center gap-1.5 px-1 pb-3">
+    {#each quickFilterOptions as option, i}
+      {#if i === 3}
+        <div class="mx-0.5 h-4 w-px bg-border"></div>
+      {/if}
+      {@const isActive = activeQuickFilter === option.value}
+      {@const count = chipCounts[option.value] ?? 0}
       <button
+        type="button"
         class={cn(
-          'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-          activeQuickFilter === option.value
-            ? 'bg-primary text-primary-foreground border-primary'
+          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+          isActive
+            ? option.color === 'rose' ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800'
+              : option.color === 'amber' ? 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
+              : option.color === 'emerald' ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800'
+              : option.color === 'blue' ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800'
+              : 'bg-primary text-primary-foreground border-primary'
             : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
         )}
         onclick={() => setQuickFilter(option.value)}
       >
+        {#if option.value === 'open'}
+          <CircleDot class="h-3 w-3" />
+        {:else if option.value === 'closed'}
+          <CheckCircle2 class="h-3 w-3" />
+        {:else if option.value === 'overdue'}
+          <AlertTriangle class="h-3 w-3" />
+        {:else if option.value === 'due_today'}
+          <Clock class="h-3 w-3" />
+        {:else if option.value === 'due_this_week'}
+          <Calendar class="h-3 w-3" />
+        {:else if option.value === 'no_date'}
+          <Ban class="h-3 w-3" />
+        {/if}
         {option.label}
+        <span class={cn(
+          'rounded-full px-1.5 text-[10px] font-semibold',
+          isActive ? 'bg-black/10 dark:bg-white/15' : 'bg-muted text-muted-foreground'
+        )}>
+          {count}
+        </span>
       </button>
     {/each}
   </div>
