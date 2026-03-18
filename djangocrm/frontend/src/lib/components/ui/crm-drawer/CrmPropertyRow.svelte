@@ -12,7 +12,7 @@
    * @type {{
    *   label: string,
    *   value?: any,
-   *   type?: 'text' | 'email' | 'number' | 'date' | 'select' | 'checkbox' | 'boolean' | 'multiselect' | 'textarea' | 'color' | 'combobox',
+   *   type?: 'text' | 'email' | 'number' | 'date' | 'time' | 'select' | 'checkbox' | 'boolean' | 'multiselect' | 'textarea' | 'color' | 'combobox',
    *   icon?: import('svelte').Component,
    *   options?: any[],
    *   placeholder?: string,
@@ -306,6 +306,22 @@
           <Calendar value={parseDateValue(value)} onValueChange={handleCalendarChange} />
         </Popover.Content>
       </Popover.Root>
+    {:else if type === 'time'}
+      <div class="flex items-center gap-2 px-2.5 py-1">
+        {#if icon}
+          <svelte:component this={icon} class="text-muted-foreground/60 h-3.5 w-3.5 shrink-0" />
+        {/if}
+        <input
+          type="time"
+          value={value || ''}
+          oninput={(e) => onchange?.(e.target.value)}
+          disabled={!editable}
+          class={cn(
+            'text-foreground bg-transparent border-0 text-sm font-medium outline-none',
+            !value && 'text-muted-foreground/50'
+          )}
+        />
+      </div>
     {:else if type === 'textarea'}
       <textarea
         oninput={handleInput}

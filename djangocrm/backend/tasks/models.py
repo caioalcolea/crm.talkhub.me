@@ -335,6 +335,7 @@ class Task(AssignableMixin, OrgScopedMixin, BaseModel):
     status = models.CharField(_("status"), max_length=50, choices=STATUS_CHOICES)
     priority = models.CharField(_("priority"), max_length=50, choices=PRIORITY_CHOICES)
     due_date = models.DateField(blank=True, null=True)
+    due_time = models.TimeField(_("due time"), blank=True, null=True)
     description = models.TextField(_("Notes"), blank=True, null=True)
     account = models.ForeignKey(
         Account,
@@ -397,6 +398,7 @@ class Task(AssignableMixin, OrgScopedMixin, BaseModel):
         indexes = [
             models.Index(fields=["status"]),
             models.Index(fields=["due_date"]),
+            models.Index(fields=["due_date", "due_time"]),
             models.Index(fields=["org", "-created_at"]),
             models.Index(fields=["status", "kanban_order"]),
             models.Index(fields=["stage", "kanban_order"]),
@@ -433,11 +435,17 @@ class Task(AssignableMixin, OrgScopedMixin, BaseModel):
 
     @property
     def is_overdue(self) -> bool:
-        """Check if task is overdue (past due date and not completed)."""
+        """Check if task is overdue (past due date/time and not completed)."""
         if self.status == "Completed":
             return False
-        if self.due_date:
-            return timezone.now().date() > self.due_date
+        if not self.due_date:
+            return False
+        now = timezone.now()
+        today = now.date()
+        if today > self.due_date:
+            return True
+        if today == self.due_date and self.due_time:
+            return timezone.localtime(now).time() > self.due_time
         return False
 
     @property

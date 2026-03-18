@@ -172,6 +172,7 @@ class TaskListView(APIView, LimitOffsetPagination):
             task_obj = serializer.save(
                 created_by=request.profile.user,
                 due_date=params.get("due_date"),
+                due_time=params.get("due_time") or None,
                 org=request.profile.org,
             )
             if params.get("contacts"):

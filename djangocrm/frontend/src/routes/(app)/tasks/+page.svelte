@@ -161,6 +161,13 @@
       getValue: getRelatedEntity
     },
     { key: 'dueDate', label: 'Prazo', type: 'date', width: 'w-36' },
+    {
+      key: 'dueTime',
+      label: 'Hora',
+      width: 'w-24',
+      canHide: true,
+      getValue: (/** @type {any} */ row) => ({ name: row.dueTime ? row.dueTime.slice(0, 5) : '—' })
+    },
     { key: 'priority', label: 'Prioridade', type: 'select', options: priorityOptions, width: 'w-28' },
     { key: 'status', label: 'Status', type: 'select', options: statusOptions, width: 'w-36' },
     {
@@ -637,6 +644,7 @@
     status: 'New',
     priority: 'Medium',
     dueDate: '',
+    dueTime: '',
     accountId: '',
     accountName: '',
     opportunityId: '',
@@ -668,6 +676,7 @@
     formState.status = field === 'status' ? value : row.status || 'New';
     formState.priority = field === 'priority' ? value : row.priority || 'Medium';
     formState.dueDate = row.dueDate ? row.dueDate.split('T')[0] : '';
+    formState.dueTime = row.dueTime || '';
     formState.accountId = row.account?.id || '';
     formState.opportunityId = row.opportunity?.id || '';
     formState.caseId = row.case_?.id || '';
@@ -790,6 +799,7 @@
         status: task.status || 'New',
         priority: task.priority || 'Medium',
         dueDate: task.dueDate ? task.dueDate.split('T')[0] : '',
+        dueTime: task.dueTime || '',
         accountId: task.account?.id || '',
         accountName: task.account?.name || '',
         opportunityId: task.opportunity?.id || '',
@@ -933,6 +943,42 @@
 
   const selectedTasks = $derived(tasksByDate[selectedDate] || []);
 
+  // Separate all-day vs timed tasks for the timeline
+  const allDayTasks = $derived(selectedTasks.filter((t) => !t.dueTime));
+  const timedTasks = $derived(
+    selectedTasks
+      .filter((t) => t.dueTime)
+      .sort((a, b) => a.dueTime.localeCompare(b.dueTime))
+  );
+
+  // Timeline hours (00:00 - 23:00)
+  const timelineHours = Array.from({ length: 24 }, (_, i) => i);
+
+  /**
+   * Get the next timed task for a given date (for calendar grid indicator)
+   * @param {any[]} dateTasks
+   * @param {boolean} isToday
+   */
+  function getNextTimedTask(dateTasks, isToday) {
+    const timed = dateTasks.filter((t) => t.dueTime).sort((a, b) => a.dueTime.localeCompare(b.dueTime));
+    if (!timed.length) return null;
+    if (isToday) {
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      return timed.find((t) => t.dueTime >= currentTime) || timed[0];
+    }
+    return timed[0];
+  }
+
+  /**
+   * Get tasks for a specific hour slot
+   * @param {number} hour
+   */
+  function getTasksForHour(hour) {
+    const hourStr = String(hour).padStart(2, '0');
+    return timedTasks.filter((t) => t.dueTime?.slice(0, 2) === hourStr);
+  }
+
   // Monthly stats for calendar
   const monthlyTaskDates = $derived(
     Object.keys(tasksByDate).filter((dateStr) => {
@@ -1043,6 +1089,7 @@
     { key: 'status', label: 'Status', type: 'select', icon: Circle, options: statusOptions },
     { key: 'priority', label: 'Prioridade', type: 'select', icon: Flag, options: priorityOptions },
     { key: 'dueDate', label: 'Prazo', type: 'date', icon: Calendar },
+    { key: 'dueTime', label: 'Hora', type: 'time', icon: Clock },
     // Parent entity field handling:
     // - In edit mode: show readonly for the existing parent entity
     // - In create mode with accountFromUrl: show account as readonly only
@@ -1113,6 +1160,7 @@
       status: formState.status,
       priority: formState.priority,
       dueDate: formState.dueDate,
+      dueTime: formState.dueTime,
       accountId: formState.accountId,
       accountName: formState.accountName,
       opportunityId: formState.opportunityId,
@@ -1583,6 +1631,8 @@
                       {date.getDate()}
                     </div>
                     {#if hasTasksOnDate(date)}
+                      {@const dateTasks = tasksByDate[formatDateString(date)]}
+                      {@const nextTimed = getNextTimedTask(dateTasks, isTodayDate(date))}
                       <div
                         class={cn(
                           'absolute right-1 bottom-1 h-2 w-2 rounded-full',
@@ -1593,13 +1643,16 @@
                       ></div>
                       <div
                         class={cn(
-                          'absolute bottom-1 left-1 text-xs font-medium',
+                          'absolute bottom-1 left-1 flex items-center gap-0.5',
                           formatDateString(date) === selectedDate
                             ? 'text-primary-foreground'
                             : 'text-primary'
                         )}
                       >
-                        {tasksByDate[formatDateString(date)].length}
+                        <span class="text-xs font-medium">{dateTasks.length}</span>
+                        {#if nextTimed}
+                          <span class="hidden text-[9px] opacity-70 sm:inline">· {nextTimed.dueTime.slice(0, 5)}</span>
+                        {/if}
                       </div>
                     {/if}
                   </button>
@@ -1612,12 +1665,12 @@
         </Card.Root>
       </div>
 
-      <!-- Tasks for Selected Date -->
+      <!-- Timeline for Selected Date -->
       <div class="lg:col-span-1">
         <Card.Root class="h-fit">
           <Card.Header class="border-b pb-4">
             <Card.Title class="text-base">
-              Tarefas para {new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR', {
+              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR', {
                 weekday: 'long',
                 month: 'long',
                 day: 'numeric'
@@ -1625,57 +1678,86 @@
             </Card.Title>
             <p class="text-muted-foreground text-sm">
               {selectedTasks.length} tarefa{selectedTasks.length !== 1 ? 's' : ''}
+              {#if timedTasks.length > 0}
+                · {timedTasks.length} com horário
+              {/if}
             </p>
           </Card.Header>
 
-          <Card.Content class="p-4">
+          <Card.Content class="p-0">
             {#if selectedTasks.length > 0}
-              <div class="space-y-3">
-                {#each selectedTasks as task}
-                  <button
-                    type="button"
-                    onclick={() => openTaskSheet(task.id)}
-                    class="hover:bg-muted bg-muted/50 block w-full rounded-lg border p-3 text-left transition-colors"
-                  >
-                    <div class="mb-2 flex items-start justify-between gap-2">
-                      <h4 class="text-foreground line-clamp-2 flex-1 font-medium">
-                        {task.subject}
-                      </h4>
-                      {#if task.status === 'Completed'}
-                        <CheckCircle2 class="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                      {:else}
-                        <Circle class="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                      {/if}
-                    </div>
-
-                    {#if task.description}
-                      <p class="text-muted-foreground mb-3 line-clamp-2 text-sm">
-                        {task.description}
-                      </p>
-                    {/if}
-
-                    <div class="flex flex-wrap items-center gap-2">
-                      {#if task.priority}
-                        <span
-                          class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {getOptionStyle(
-                            task.priority,
-                            priorityOptions
-                          )}"
-                        >
-                          <Flag class="h-3 w-3" />
-                          {task.priority}
-                        </span>
-                      {/if}
-                      <span
-                        class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {getOptionStyle(
-                          task.status,
-                          statusOptions
-                        )}"
+              <!-- All-day tasks section -->
+              {#if allDayTasks.length > 0}
+                <div class="border-b p-3">
+                  <div class="text-muted-foreground mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider">
+                    <Calendar class="h-3.5 w-3.5" />
+                    Dia Inteiro
+                  </div>
+                  <div class="space-y-1.5">
+                    {#each allDayTasks as task}
+                      <button
+                        type="button"
+                        onclick={() => openTaskSheet(task.id)}
+                        class="hover:bg-muted bg-muted/50 block w-full rounded-md px-2.5 py-1.5 text-left transition-colors"
                       >
-                        {task.status}
-                      </span>
+                        <div class="flex items-center justify-between gap-2">
+                          <span class="text-foreground truncate text-sm font-medium">{task.subject}</span>
+                          <span class="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">
+                            {task.priority}
+                          </span>
+                        </div>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Hourly timeline -->
+              <div class="max-h-[480px] overflow-y-auto">
+                {#each timelineHours as hour}
+                  {@const hourTasks = getTasksForHour(hour)}
+                  {@const hourStr = String(hour).padStart(2, '0') + ':00'}
+                  {@const now = new Date()}
+                  {@const isCurrentHour = selectedDate === now.toISOString().slice(0, 10) && now.getHours() === hour}
+                  <div class="group relative flex border-b last:border-b-0 {isCurrentHour ? 'bg-primary/5' : ''}">
+                    <!-- Hour label -->
+                    <div class="text-muted-foreground w-14 shrink-0 border-r py-2 pr-2 text-right text-xs font-medium {isCurrentHour ? 'text-primary font-semibold' : ''}">
+                      {hourStr}
                     </div>
-                  </button>
+                    <!-- Slot content -->
+                    <div class="min-h-[2.5rem] flex-1 px-2 py-1">
+                      {#if hourTasks.length > 0}
+                        {#each hourTasks as task}
+                          <button
+                            type="button"
+                            onclick={() => openTaskSheet(task.id)}
+                            class="bg-primary/10 hover:bg-primary/20 text-primary mb-1 block w-full rounded-md px-2.5 py-1.5 text-left transition-colors"
+                          >
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="truncate text-sm font-medium">{task.subject}</span>
+                              <span class="shrink-0 text-xs opacity-70">{task.dueTime?.slice(0, 5)}</span>
+                            </div>
+                          </button>
+                        {/each}
+                      {:else}
+                        <button
+                          type="button"
+                          onclick={() => {
+                            addNewTask();
+                            formState.dueDate = selectedDate;
+                            formState.dueTime = hourStr;
+                          }}
+                          class="h-full w-full cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+                        >
+                          <span class="text-muted-foreground/50 text-xs">+ Adicionar</span>
+                        </button>
+                      {/if}
+                    </div>
+                    <!-- Current time marker -->
+                    {#if isCurrentHour}
+                      <div class="bg-primary pointer-events-none absolute left-14 right-0 h-0.5" style="top: {(now.getMinutes() / 60) * 100}%"></div>
+                    {/if}
+                  </div>
                 {/each}
               </div>
             {:else}
@@ -1875,6 +1957,7 @@
   <input type="hidden" name="status" value={formState.status} />
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="dueTime" value={formState.dueTime} />
   <input type="hidden" name="accountId" value={formState.accountId} />
   <input type="hidden" name="opportunityId" value={formState.opportunityId} />
   <input type="hidden" name="caseId" value={formState.caseId} />
@@ -1899,6 +1982,7 @@
   <input type="hidden" name="status" value={formState.status} />
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="dueTime" value={formState.dueTime} />
   <input type="hidden" name="accountId" value={formState.accountId} />
   <input type="hidden" name="opportunityId" value={formState.opportunityId} />
   <input type="hidden" name="caseId" value={formState.caseId} />

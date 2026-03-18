@@ -47,6 +47,7 @@ ALLOWED_VARIABLES = {
         "task_priority",
         "assigned_to",
         "due_date",
+        "due_time",
     ],
     "invoices": [
         "invoice_number",
@@ -196,6 +197,7 @@ def build_context_for_task(task):
         "task_priority": getattr(task, "priority", ""),
         "assigned_to": str(assigned) if assigned else "",
         "due_date": str(task.due_date) if task.due_date else "",
+        "due_time": task.due_time.strftime("%H:%M") if task.due_time else "",
         "org_name": task.org.name,
         "current_date": str(date.today()),
     }

@@ -65,8 +65,14 @@ def _evaluate_due_date_trigger(policy, config):
     # Convert date to datetime if needed
     if isinstance(target_date, date) and not isinstance(target_date, datetime):
         import pytz
+        from datetime import time as time_type
         tz = pytz.timezone(policy.timezone)
-        target_date = tz.localize(datetime.combine(target_date, datetime.min.replace(hour=9).time()))
+        # Use target's due_time if available, else config time_of_day_hour, else 9 AM
+        target_time = getattr(target, 'due_time', None)
+        if not target_time:
+            hour = config.get('time_of_day_hour') or 9
+            target_time = time_type(hour=hour)
+        target_date = tz.localize(datetime.combine(target_date, target_time))
 
     now = timezone.now()
 

@@ -231,13 +231,14 @@ TASKS_PRESETS = {
         "trigger_config": {
             "date_field": "due_date",
             "offsets": [-1, 0, 1],
+            "time_of_day_hour": None,
         },
         "channel_config": {
             "channel_type": "internal",
             "destination_type": "assigned_email",
         },
         "task_config": {"enabled": False},
-        "message_template": "Tarefa '{{task_title}}' vence em {{due_date}}. Prioridade: {{task_priority}}.",
+        "message_template": "Tarefa '{{task_title}}' vence em {{due_date}} {{due_time}}. Prioridade: {{task_priority}}.",
         "approval_policy": "auto",
     },
     "task_overdue": {
@@ -254,7 +255,7 @@ TASKS_PRESETS = {
             "destination_type": "assigned_email",
         },
         "task_config": {"enabled": False},
-        "message_template": "Tarefa '{{task_title}}' está atrasada. Prazo: {{due_date}}. Status: {{task_status}}.",
+        "message_template": "Tarefa '{{task_title}}' está atrasada. Prazo: {{due_date}} {{due_time}}. Status: {{task_status}}.",
         "approval_policy": "auto",
     },
 }

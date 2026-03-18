@@ -161,6 +161,7 @@ export async function load({ locals, cookies, url }) {
       status: task.status,
       priority: task.priority,
       dueDate: task.due_date,
+      dueTime: task.due_time || '',
       createdAt: task.created_at,
       updatedAt: task.updated_at,
 
@@ -290,6 +291,7 @@ export const actions = {
       const status = form.get('status')?.toString() || 'New';
       const priority = form.get('priority')?.toString() || 'Medium';
       const dueDate = form.get('dueDate')?.toString() || null;
+      const dueTime = form.get('dueTime')?.toString() || null;
       const accountId = form.get('accountId')?.toString() || null;
       const opportunityId = form.get('opportunityId')?.toString() || null;
       const caseId = form.get('caseId')?.toString() || null;
@@ -317,6 +319,7 @@ export const actions = {
         status: status,
         priority: priority,
         due_date: dueDate,
+        due_time: dueTime || null,
         assigned_to: assignedTo,
         contacts: contacts,
         teams: teams,
@@ -358,6 +361,7 @@ export const actions = {
       const status = form.get('status')?.toString() || 'New';
       const priority = form.get('priority')?.toString() || 'Medium';
       const dueDate = form.get('dueDate')?.toString() || null;
+      const dueTime = form.get('dueTime')?.toString() || null;
       const accountId = form.get('accountId')?.toString() || null;
       const opportunityId = form.get('opportunityId')?.toString() || null;
       const caseId = form.get('caseId')?.toString() || null;
@@ -385,6 +389,7 @@ export const actions = {
         status: status,
         priority: priority,
         due_date: dueDate,
+        due_time: dueTime || null,
         assigned_to: assignedTo,
         contacts: contacts,
         teams: teams,
