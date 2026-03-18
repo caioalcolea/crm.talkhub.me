@@ -346,6 +346,10 @@ export const actions = {
         status: 'New'
       };
 
+      // Pipeline stage
+      const stageId = form.get('stageId')?.toString() || null;
+      if (stageId) caseData.stage = stageId;
+
       const newCase = await apiRequest(
         '/cases/',
         {
@@ -412,6 +416,10 @@ export const actions = {
         teams,
         tags
       };
+
+      // Pipeline stage (null clears the stage)
+      const stageId = form.get('stageId')?.toString() || null;
+      caseData.stage = stageId;
 
       await apiRequest(
         `/cases/${caseId}/`,

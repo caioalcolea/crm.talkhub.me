@@ -602,6 +602,14 @@
   const leadPipelines = $derived(data.pipelines || []);
   let activePipelineId = $state('');
 
+  // Pipeline/stage form state for drawer create/edit
+  let formPipelineId = $state('');
+  let formStageId = $state('');
+  const selectedPipelineStages = $derived(
+    leadPipelines.find(p => p.id === formPipelineId)?.stages
+      ?.slice().sort((a, b) => a.order - b.order) ?? []
+  );
+
   $effect(() => {
     if (data.pipelineId) {
       const exists = leadPipelines.some(p => p.id === data.pipelineId);
@@ -1047,6 +1055,17 @@
       // Lead data is already in the correct format (from table view)
       drawerData = lead;
     }
+
+    // Pre-populate pipeline/stage from lead data
+    const stageId = drawerData?.stage;
+    if (stageId) {
+      const pipelineForStage = leadPipelines.find(p => p.stages?.some(s => s.id === stageId));
+      formPipelineId = pipelineForStage?.id ?? '';
+      formStageId = stageId;
+    } else {
+      formPipelineId = '';
+      formStageId = '';
+    }
   }
 
   /**
@@ -1092,6 +1111,21 @@
     updateUrl(null, 'create');
     // Lazy load form options when drawer opens
     loadFormOptions();
+
+    // Auto-select active pipeline when creating from kanban
+    if (activePipelineId) {
+      const pipeline = leadPipelines.find(p => p.id === activePipelineId);
+      if (pipeline?.stages?.length) {
+        formPipelineId = pipeline.id;
+        formStageId = pipeline.stages.slice().sort((a, b) => a.order - b.order)[0].id;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
+    } else {
+      formPipelineId = '';
+      formStageId = '';
+    }
   }
 
   /**
@@ -2002,6 +2036,38 @@
         </a>
       </div>
     {/if}
+
+    <!-- Pipeline / Stage selector -->
+    {#if leadPipelines.length > 0}
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Pipeline</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formPipelineId}
+            onchange={() => { formStageId = ''; }}
+          >
+            <option value="">Nenhum</option>
+            {#each leadPipelines as pipeline}
+              <option value={pipeline.id}>{pipeline.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Estágio</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formStageId}
+            disabled={!formPipelineId}
+          >
+            <option value="">Selecione...</option>
+            {#each selectedPipelineStages as stage}
+              <option value={stage.id}>{stage.name}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet activitySection()}
@@ -2112,6 +2178,7 @@
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form
@@ -2158,6 +2225,7 @@
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form

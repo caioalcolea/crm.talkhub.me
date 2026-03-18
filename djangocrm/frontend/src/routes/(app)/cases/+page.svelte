@@ -213,6 +213,14 @@
   const casePipelines = $derived(data.pipelines || []);
   let activeCasePipelineId = $state('');
 
+  // Pipeline/stage form state for drawer create/edit
+  let formPipelineId = $state('');
+  let formStageId = $state('');
+  const selectedPipelineStages = $derived(
+    casePipelines.find(p => p.id === formPipelineId)?.stages
+      ?.slice().sort((a, b) => a.order - b.order) ?? []
+  );
+
   $effect(() => {
     if (data.pipelineId) {
       const exists = casePipelines.some(p => p.id === data.pipelineId);
@@ -381,9 +389,40 @@
 
       drawer.openCreate();
 
+      // Auto-select active pipeline when creating
+      if (activeCasePipelineId) {
+        const pipeline = casePipelines.find(p => p.id === activeCasePipelineId);
+        if (pipeline?.stages?.length) {
+          formPipelineId = pipeline.id;
+          formStageId = pipeline.stages.slice().sort((a, b) => a.order - b.order)[0].id;
+        } else {
+          formPipelineId = '';
+          formStageId = '';
+        }
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
+
       // Set account in form data after drawer opens
       if (accountIdParam) {
         drawerFormData.accountId = accountIdParam;
+      }
+    }
+  });
+
+  // Pre-populate pipeline/stage when opening edit drawer
+  $effect(() => {
+    const caseItem = drawer.selected;
+    if (caseItem && drawer.mode !== 'create') {
+      const stageId = caseItem.stage;
+      if (stageId) {
+        const pipelineForStage = casePipelines.find(p => p.stages?.some(s => s.id === stageId));
+        formPipelineId = pipelineForStage?.id ?? '';
+        formStageId = stageId;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
       }
     }
   });
@@ -1063,7 +1102,16 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
 
-      <Button onclick={drawer.openCreate}>
+      <Button onclick={() => {
+        drawer.openCreate();
+        if (activeCasePipelineId) {
+          const pipeline = casePipelines.find(p => p.id === activeCasePipelineId);
+          if (pipeline?.stages?.length) {
+            formPipelineId = pipeline.id;
+            formStageId = pipeline.stages.slice().sort((a, b) => a.order - b.order)[0].id;
+          } else { formPipelineId = ''; formStageId = ''; }
+        } else { formPipelineId = ''; formStageId = ''; }
+      }}>
         <Plus class="mr-2 h-4 w-4" />
         Novo Chamado
       </Button>
@@ -1214,6 +1262,38 @@
         </a>
       </div>
     {/if}
+
+    <!-- Pipeline / Stage selector -->
+    {#if casePipelines.length > 0}
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Pipeline</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formPipelineId}
+            onchange={() => { formStageId = ''; }}
+          >
+            <option value="">Nenhum</option>
+            {#each casePipelines as pipeline}
+              <option value={pipeline.id}>{pipeline.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Estágio</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formStageId}
+            disabled={!formPipelineId}
+          >
+            <option value="">Selecione...</option>
+            {#each selectedPipelineStages as stage}
+              <option value={stage.id}>{stage.name}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet activitySection()}
@@ -1291,6 +1371,7 @@
   <input type="hidden" name="priority" value={formState.priority} />
   <input type="hidden" name="caseType" value={formState.caseType} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form
@@ -1311,6 +1392,7 @@
   <input type="hidden" name="caseType" value={formState.caseType} />
   <input type="hidden" name="status" value={formState.status} />
   <input type="hidden" name="dueDate" value={formState.dueDate} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form

@@ -484,6 +484,14 @@
   let activeTaskPipelineId = $state('');
   let isTaskAdmin = $derived(data.userRole === 'ADMIN');
 
+  // Pipeline/stage form state for drawer create/edit
+  let formPipelineId = $state('');
+  let formStageId = $state('');
+  const selectedPipelineStages = $derived(
+    taskPipelines.find(p => p.id === formPipelineId)?.stages
+      ?.slice().sort((a, b) => a.order - b.order) ?? []
+  );
+
   $effect(() => {
     if (data.pipelineId) {
       const exists = taskPipelines.some(p => p.id === data.pipelineId);
@@ -741,6 +749,21 @@
       tags: []
     };
     sheetOpen = true;
+
+    // Auto-select active pipeline when creating from kanban
+    if (activeTaskPipelineId) {
+      const pipeline = taskPipelines.find(p => p.id === activeTaskPipelineId);
+      if (pipeline?.stages?.length) {
+        formPipelineId = pipeline.id;
+        formStageId = pipeline.stages.slice().sort((a, b) => a.order - b.order)[0].id;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
+    } else {
+      formPipelineId = '';
+      formStageId = '';
+    }
   }
 
   // URL sync for action param (quick action from account page)
@@ -780,6 +803,16 @@
         teams: (task.teams || []).map((/** @type {any} */ t) => t.id),
         tags: (task.tags || []).map((/** @type {any} */ t) => t.id)
       };
+      // Pre-populate pipeline/stage from task data
+      const stageId = task.stage;
+      if (stageId) {
+        const pipelineForStage = taskPipelines.find(p => p.stages?.some(s => s.id === stageId));
+        formPipelineId = pipelineForStage?.id ?? '';
+        formStageId = stageId;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
     }
     sheetOpen = true;
   }
@@ -1724,6 +1757,38 @@
         </a>
       </div>
     {/if}
+
+    <!-- Pipeline / Stage selector -->
+    {#if taskPipelines.length > 0}
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Pipeline</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formPipelineId}
+            onchange={() => { formStageId = ''; }}
+          >
+            <option value="">Nenhum</option>
+            {#each taskPipelines as pipeline}
+              <option value={pipeline.id}>{pipeline.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Estágio</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formStageId}
+            disabled={!formPipelineId}
+          >
+            <option value="">Selecione...</option>
+            {#each selectedPipelineStages as stage}
+              <option value={stage.id}>{stage.name}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet activitySection()}
@@ -1818,6 +1883,7 @@
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form
@@ -1841,6 +1907,7 @@
   <input type="hidden" name="contacts" value={JSON.stringify(formState.contacts)} />
   <input type="hidden" name="teams" value={JSON.stringify(formState.teams)} />
   <input type="hidden" name="tags" value={JSON.stringify(formState.tags)} />
+  <input type="hidden" name="stageId" value={formStageId} />
 </form>
 
 <form

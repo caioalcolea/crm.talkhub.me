@@ -400,6 +400,10 @@ export const actions = {
       if (lastContacted) leadData.last_contacted = lastContacted;
       if (nextFollowUp) leadData.next_follow_up = nextFollowUp;
 
+      // Pipeline stage
+      const stageId = form.get('stageId')?.toString() || null;
+      if (stageId) leadData.stage = stageId;
+
       await apiRequest(
         '/leads/',
         {
@@ -541,6 +545,10 @@ export const actions = {
       if (country) leadData.country = country;
       if (lastContacted) leadData.last_contacted = lastContacted;
       if (nextFollowUp) leadData.next_follow_up = nextFollowUp;
+
+      // Pipeline stage (null clears the stage)
+      const stageId = form.get('stageId')?.toString() || null;
+      leadData.stage = stageId;
 
       await apiRequest(
         `/leads/${leadId}/`,

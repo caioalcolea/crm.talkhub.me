@@ -327,6 +327,10 @@ export const actions = {
         lead: leadId || null
       };
 
+      // Pipeline stage
+      const stageId = form.get('stageId')?.toString() || null;
+      if (stageId) djangoData.stage = stageId;
+
       await apiRequest(
         '/tasks/',
         {
@@ -390,6 +394,10 @@ export const actions = {
         case: caseId || null,
         lead: leadId || null
       };
+
+      // Pipeline stage (null clears the stage)
+      const stageId = form.get('stageId')?.toString() || null;
+      djangoData.stage = stageId;
 
       await apiRequest(
         `/tasks/${taskId}/`,
