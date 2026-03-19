@@ -15,7 +15,9 @@ import { error, fail } from '@sveltejs/kit';
 import { apiRequest } from '$lib/api-helpers.js';
 
 /** @type {import('./$types').PageServerLoad} */
-export async function load({ url, cookies, locals }) {
+export async function load({ url, cookies, locals, depends }) {
+  depends('app:leads');
+
   const user = locals.user;
   const org = locals.org;
 
@@ -74,8 +76,8 @@ export async function load({ url, cookies, locals }) {
     const queryString = queryParams.toString();
     const kanbanQueryString = kanbanQueryParams.toString();
 
-    // Fetch data based on view mode + form options for drawer
-    const [response, tagsResponse, kanbanResponse, usersResponse, teamsResponse, contactsResponse, accountsResponse, pipelinesResponse] =
+    // Fetch only essential data — form options loaded lazily on client when drawer opens
+    const [response, tagsResponse, kanbanResponse, pipelinesResponse] =
       await Promise.all([
         apiRequest(`/leads/${queryString ? `?${queryString}` : ''}`, {}, { cookies, org }),
         apiRequest('/tags/', {}, { cookies, org }).catch(() => ({ tags: [] })),
@@ -86,13 +88,6 @@ export async function load({ url, cookies, locals }) {
               { cookies, org }
             ).catch(() => null)
           : Promise.resolve(null),
-        // Form options for drawer (preload server-side to avoid client-side auth issues)
-        apiRequest('/users/', {}, { cookies, org }).catch(() => ({
-          active_users: { active_users: [] }
-        })),
-        apiRequest('/teams/', {}, { cookies, org }).catch(() => ({ teams: [] })),
-        apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({ contact_obj_list: [] })),
-        apiRequest('/accounts/', {}, { cookies, org }).catch(() => ({})),
         apiRequest('/leads/pipelines/', {}, { cookies, org }).catch(() => [])
       ]);
 
@@ -197,16 +192,6 @@ export async function load({ url, cookies, locals }) {
       color: t.color || 'blue'
     }));
 
-    // Extract form options from responses
-    const users = usersResponse?.active_users?.active_users || usersResponse?.users || [];
-    const teams = teamsResponse?.teams || [];
-    const contacts = contactsResponse?.contact_obj_list || contactsResponse?.results || [];
-    // Accounts: flatten Django's nested active_accounts structure
-    const rawAccounts =
-      accountsResponse?.active_accounts?.open_accounts ||
-      accountsResponse?.results ||
-      (Array.isArray(accountsResponse) ? accountsResponse : []);
-
     return {
       leads: transformedLeads,
       tags,
@@ -244,27 +229,12 @@ export async function load({ url, cookies, locals }) {
           { value: 'COLD', label: 'Cold' }
         ]
       },
-      // Pre-loaded form options for drawer (avoids client-side auth issues)
+      // Form options loaded lazily on client when drawer opens (see +page.svelte loadFormOptions)
       formOptions: {
-        users: users.map((/** @type {any} */ u) => ({
-          id: u.id,
-          email: u.user_details?.email || '',
-          name: u.user_details?.email || 'N/A'
-        })),
-        teams: teams.map((/** @type {any} */ t) => ({
-          id: t.id,
-          name: t.name
-        })),
-        contacts: contacts.map((/** @type {any} */ c) => ({
-          id: c.id,
-          name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email,
-          email: c.email
-        })),
-        // Accounts for company autocomplete — value stored as name string (Django lead uses company_name text field)
-        accounts: rawAccounts.map((/** @type {any} */ a) => ({
-          id: a.name,   // intentional: id = name so combobox stores the name string
-          name: a.name
-        }))
+        users: [],
+        teams: [],
+        contacts: [],
+        accounts: []
       }
     };
   } catch (err) {

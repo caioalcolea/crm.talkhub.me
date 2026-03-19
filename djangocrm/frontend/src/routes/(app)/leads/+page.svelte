@@ -1,6 +1,6 @@
 <script>
   import { enhance, deserialize } from '$app/forms';
-  import { invalidateAll, goto } from '$app/navigation';
+  import { invalidate, goto } from '$app/navigation';
   import { tick, onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import {
@@ -626,6 +626,13 @@
     }
   });
 
+  // Eagerly load form options when in kanban view (PipelineManager needs teams/users)
+  $effect(() => {
+    if (viewMode === 'kanban' && browser && !formOptionsLoaded) {
+      loadFormOptions();
+    }
+  });
+
   async function handleLeadPipelineSelect(pipelineId) {
     activePipelineId = pipelineId;
     const url = new URL($page.url);
@@ -635,7 +642,7 @@
       url.searchParams.delete('pipeline_id');
     }
     url.searchParams.set('viewMode', 'kanban');
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   async function handleLeadPipelineCreate(pipelineData) {
@@ -645,7 +652,7 @@
         body: pipelineData
       });
       toast.success('Pipeline criado');
-      await invalidateAll();
+      await invalidate('app:leads');
     } catch (err) {
       toast.error(err?.message || 'Erro ao criar pipeline');
       throw err;
@@ -657,7 +664,7 @@
       await clientApiRequest(`/leads/pipelines/${pipelineId}/`, { method: 'DELETE' });
       toast.success('Pipeline excluído');
       if (activePipelineId === pipelineId) activePipelineId = '';
-      await invalidateAll();
+      await invalidate('app:leads');
     } catch (err) {
       toast.error(err?.message || 'Erro ao excluir pipeline');
       throw err;
@@ -671,7 +678,7 @@
         body: pipelineData
       });
       toast.success('Pipeline atualizado');
-      await invalidateAll();
+      await invalidate('app:leads');
     } catch (err) {
       toast.error(err?.message || 'Erro ao atualizar pipeline');
       throw err;
@@ -685,7 +692,7 @@
         body: stageData
       });
       toast.success('Estágio criado');
-      await invalidateAll();
+      await invalidate('app:leads');
     } catch (err) {
       toast.error(err?.message || 'Erro ao criar estágio');
       throw err;
@@ -698,7 +705,7 @@
         method: 'PATCH',
         body: stageData
       });
-      await invalidateAll();
+      await invalidate('app:leads');
     } catch (err) {
       toast.error(err?.message || 'Erro ao atualizar estágio');
       throw err;
@@ -709,7 +716,7 @@
     try {
       await clientApiRequest(`/leads/stages/${stageId}/`, { method: 'DELETE' });
       toast.success('Estágio removido');
-      await invalidateAll();
+      await invalidate('app:leads');
     } catch (err) {
       toast.error(err?.message || 'Erro ao remover estágio');
       throw err;
@@ -722,7 +729,7 @@
         method: 'POST',
         body: { stage_ids: stageOrder }
       });
-      await invalidateAll();
+      await invalidate('app:leads');
     } catch (err) {
       toast.error(err?.message || 'Erro ao reordenar estágios');
       throw err;
@@ -730,6 +737,7 @@
   }
 
   let isLeadAdmin = $derived(data.userRole === 'ADMIN');
+  let pageLoading = $state(false);
 
   // Total lead count - use kanban data when in kanban mode for accurate count
   const totalLeadCount = $derived(
@@ -750,42 +758,47 @@
   let formOptionsLoading = $state(false);
 
   /**
-   * Load form options for drawer - uses pre-loaded server data
+   * Load form options for drawer — fetches lazily from client API (not on page load)
    */
-  function loadFormOptions() {
+  async function loadFormOptions() {
     if (formOptionsLoaded || formOptionsLoading) return;
 
     formOptionsLoading = true;
     try {
-      // Use pre-loaded data from server (avoids client-side auth issues)
-      const serverFormOptions = data.formOptions || { users: [], teams: [], contacts: [] };
+      const [usersRes, teamsRes, contactsRes, accountsRes, tagsRes] = await Promise.all([
+        clientApiRequest('/users/').catch(() => ({ active_users: { active_users: [] } })),
+        clientApiRequest('/teams/').catch(() => ({ teams: [] })),
+        clientApiRequest('/contacts/').catch(() => ({ contact_obj_list: [] })),
+        clientApiRequest('/accounts/').catch(() => ({})),
+        clientApiRequest('/tags/').catch(() => ({ tags: [] }))
+      ]);
 
-      const users = serverFormOptions.users.map((/** @type {any} */ u) => ({
+      const users = (usersRes?.active_users?.active_users || usersRes?.users || []).map((/** @type {any} */ u) => ({
         id: u.id,
-        name: u.email || u.name || 'Unknown',
-        email: u.email
+        name: u.user_details?.email || 'N/A',
+        email: u.user_details?.email || ''
       }));
 
-      const teamsList = serverFormOptions.teams.map((/** @type {any} */ t) => ({
+      const teamsList = (teamsRes?.teams || []).map((/** @type {any} */ t) => ({
         id: t.id,
         name: t.name || 'Unknown'
       }));
 
-      const contactsList = serverFormOptions.contacts.map((/** @type {any} */ c) => ({
+      const contactsList = (contactsRes?.contact_obj_list || contactsRes?.results || []).map((/** @type {any} */ c) => ({
         id: c.id,
-        name: c.name || c.email || 'Unknown',
+        name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email,
         email: c.email
       }));
 
-      // Tags are already loaded in the page data
-      const tagsList = (data.tags || []).map((/** @type {any} */ t) => ({
-        id: t.id,
-        name: t.name || 'Unknown'
+      const rawAccounts = accountsRes?.active_accounts?.open_accounts || accountsRes?.results || (Array.isArray(accountsRes) ? accountsRes : []);
+      const accountsList = rawAccounts.map((/** @type {any} */ a) => ({
+        id: a.name,
+        name: a.name
       }));
 
-      const accountsList = (serverFormOptions.accounts || []).map((/** @type {any} */ a) => ({
-        id: a.id,
-        name: a.name
+      const tagsList = (tagsRes?.tags || data.tags || []).map((/** @type {any} */ t) => ({
+        id: t.id,
+        name: t.name || 'Unknown'
       }));
 
       formOptions = { users, teamsList, contactsList, tagsList, accountsList };
@@ -1149,11 +1162,13 @@
    * @param {'table' | 'kanban'} mode
    */
   async function setViewMode(mode) {
+    pageLoading = true;
     const url = new URL($page.url);
     url.searchParams.set('viewMode', mode);
     // Reset to first page when switching views
     url.searchParams.set('page', '1');
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
+    pageLoading = false;
   }
 
   /**
@@ -1363,6 +1378,7 @@
    * @param {Record<string, any>} newFilters
    */
   async function updateFilters(newFilters) {
+    pageLoading = true;
     const url = new URL($page.url);
     // Clear existing filter params (preserve view/action)
     [
@@ -1384,7 +1400,8 @@
         url.searchParams.set(key, value);
       }
     });
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
+    pageLoading = false;
   }
 
   /**
@@ -1401,7 +1418,7 @@
   async function handlePageChange(newPage) {
     const url = new URL($page.url);
     url.searchParams.set('page', newPage.toString());
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   /**
@@ -1412,7 +1429,7 @@
     const url = new URL($page.url);
     url.searchParams.set('limit', newLimit.toString());
     url.searchParams.set('page', '1'); // Reset to first page
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   // Filter panel expansion state
@@ -1439,7 +1456,7 @@
   // Client-side counts for chip badges (approximate — from current page data)
   const chipCounts = $derived.by(() => {
     return {
-      '': totalLeadCount,
+      '': pagination.total,
       open: leads.filter((/** @type {any} */ l) => ['ASSIGNED', 'IN_PROCESS'].includes(l.status)).length,
       lost: leads.filter((/** @type {any} */ l) => ['CLOSED', 'RECYCLED'].includes(l.status)).length,
       converted: leads.filter((/** @type {any} */ l) => l.status === 'CONVERTED').length,
@@ -1454,6 +1471,7 @@
    * @param {string} value
    */
   async function setQuickFilter(value) {
+    pageLoading = true;
     const url = new URL($page.url);
     url.searchParams.delete('quick_filter');
     url.searchParams.delete('status');
@@ -1461,7 +1479,8 @@
       url.searchParams.set('quick_filter', value);
     }
     url.searchParams.set('page', '1');
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
+    pageLoading = false;
   }
 
   // Form references for server actions
@@ -1702,7 +1721,7 @@
           if (shouldCloseDrawer) {
             await closeDrawer();
           }
-          await invalidateAll();
+          await invalidate('app:leads');
         } else if (result.type === 'failure') {
           toast.error(result.data?.error || 'Operação falhou');
         } else if (result.type === 'error') {
@@ -1792,6 +1811,10 @@
 </PageHeader>
 
 <div class="relative z-20 flex-1">
+  {#if pageLoading}
+    <div class="h-0.5 w-full animate-pulse rounded-full bg-primary/40"></div>
+  {/if}
+
   <!-- Collapsible Filter Bar -->
   <FilterBar
     minimal={true}
@@ -1910,8 +1933,8 @@
         onStageDelete={handleLeadStageDelete}
         onStageReorder={handleLeadStageReorder}
         canManage={isLeadAdmin}
-        teams={data.formOptions?.teams || []}
-        users={data.formOptions?.users || []}
+        teams={formOptions.teamsList || []}
+        users={formOptions.users || []}
         module="leads"
       />
     </div>
