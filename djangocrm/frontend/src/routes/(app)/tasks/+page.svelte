@@ -1655,7 +1655,7 @@
   <title>Tarefas - TalkHub CRM</title>
 </svelte:head>
 
-<PageHeader title="Tarefas" subtitle="{filteredTasks.length} de {tasks.length} tarefas">
+<PageHeader title="Tarefas" subtitle="{activeQuickFilter ? `${tasks.length} filtrada${tasks.length !== 1 ? 's' : ''}` : `${pagination.total} tarefa${pagination.total !== 1 ? 's' : ''}`}">
   {#snippet actions()}
     <div class="flex items-center gap-2">
       <!-- View Toggle — icon-only below md, icon+text on md+ -->
@@ -1772,7 +1772,7 @@
   {/snippet}
 </PageHeader>
 
-<div class="flex-1">
+<div class="relative z-20 flex-1">
   <!-- Collapsible Filter Bar -->
   <FilterBar
     minimal={true}
@@ -1813,17 +1813,17 @@
   </FilterBar>
 
   <!-- Unified filter chips (status + date shortcuts) -->
-  <div class="flex flex-wrap items-center gap-1.5 px-1 pb-3">
+  <div class="flex items-center gap-1.5 overflow-x-auto px-4 pb-4" style="-ms-overflow-style:none;scrollbar-width:none">
     {#each quickFilterOptions as option, i}
       {#if i === 3}
-        <div class="mx-0.5 h-4 w-px bg-border"></div>
+        <div class="mx-0.5 h-4 w-px shrink-0 bg-border"></div>
       {/if}
       {@const isActive = activeQuickFilter === option.value}
       {@const count = chipCounts[option.value] ?? 0}
       <button
         type="button"
         class={cn(
-          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+          'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-colors',
           isActive
             ? option.color === 'rose' ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800'
               : option.color === 'amber' ? 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
