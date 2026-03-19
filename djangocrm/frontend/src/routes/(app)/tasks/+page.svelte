@@ -1,6 +1,6 @@
 <script>
   import { enhance } from '$app/forms';
-  import { invalidateAll, goto } from '$app/navigation';
+  import { invalidateAll, invalidate, goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, tick } from 'svelte';
   import { toast } from 'svelte-sonner';
@@ -317,19 +317,104 @@
   const tasks = $derived(data.tasks || []);
   const pagination = $derived(data.pagination || { page: 1, limit: 10, total: 0, totalPages: 0 });
 
-  // Dropdown options from server (loaded with page data)
-  const formOptions = $derived(data.formOptions || {});
-  const accounts = $derived(formOptions.accounts || []);
-  const users = $derived(formOptions.users || []);
-  const contacts = $derived(formOptions.contacts || []);
-  const teams = $derived(formOptions.teams || []);
-  const opportunities = $derived(formOptions.opportunities || []);
-  const cases = $derived(formOptions.cases || []);
-  const leads = $derived(formOptions.leads || []);
-  const allTags = $derived(formOptions.tags || []);
+  // Form options — loaded LAZILY on client when drawer opens (not on every page load)
+  let formOptionsLoaded = $state(false);
+  let formOptionsLoading = $state(false);
+  let lazyFormOptions = $state({
+    users: /** @type {any[]} */ ([]),
+    accounts: /** @type {any[]} */ ([]),
+    contacts: /** @type {any[]} */ ([]),
+    teams: /** @type {any[]} */ ([]),
+    opportunities: /** @type {any[]} */ ([]),
+    cases: /** @type {any[]} */ ([]),
+    leads: /** @type {any[]} */ ([]),
+    tags: /** @type {any[]} */ ([])
+  });
 
-  // Dropdown options are now loaded server-side with page data
-  // No lazy loading needed
+  async function loadFormOptions() {
+    if (formOptionsLoaded || formOptionsLoading) return;
+    formOptionsLoading = true;
+    try {
+      const [usersRes, accountsRes, contactsRes, teamsRes, opportunitiesRes, casesRes, leadsRes, tagsRes] = await Promise.all([
+        clientApiRequest('/users/').catch(() => ({})),
+        clientApiRequest('/accounts/').catch(() => ({})),
+        clientApiRequest('/contacts/').catch(() => ({})),
+        clientApiRequest('/teams/').catch(() => ({})),
+        clientApiRequest('/opportunities/').catch(() => ({})),
+        clientApiRequest('/cases/').catch(() => ({})),
+        clientApiRequest('/leads/').catch(() => ({})),
+        clientApiRequest('/tags/').catch(() => ({}))
+      ]);
+
+      // Transform responses (same logic as old +page.server.js)
+      const usersList = (usersRes.active_users?.active_users || []).map((/** @type {any} */ u) => ({
+        id: u.id,
+        name: u.user_details?.email || u.email
+      }));
+
+      let accountsList = [];
+      if (accountsRes.active_accounts?.open_accounts) {
+        accountsList = accountsRes.active_accounts.open_accounts;
+      } else if (accountsRes.results) {
+        accountsList = accountsRes.results;
+      } else if (Array.isArray(accountsRes)) {
+        accountsList = accountsRes;
+      }
+
+      let contactsList = [];
+      if (contactsRes.contact_obj_list) {
+        contactsList = contactsRes.contact_obj_list;
+      } else if (contactsRes.results) {
+        contactsList = contactsRes.results;
+      } else if (Array.isArray(contactsRes)) {
+        contactsList = contactsRes;
+      }
+
+      lazyFormOptions = {
+        users: usersList,
+        accounts: accountsList.map((/** @type {any} */ a) => ({ id: a.id, name: a.name })),
+        contacts: contactsList.map((/** @type {any} */ c) => ({
+          id: c.id,
+          name: c.first_name ? `${c.first_name} ${c.last_name || ''}`.trim() : c.email || 'Unknown'
+        })),
+        teams: (teamsRes.teams || teamsRes.results || []).map((/** @type {any} */ t) => ({
+          id: t.id,
+          name: t.name
+        })),
+        opportunities: (opportunitiesRes.opportunities || opportunitiesRes.results || []).map(
+          (/** @type {any} */ o) => ({ id: o.id, name: o.name })
+        ),
+        cases: (casesRes.cases || casesRes.results || []).map((/** @type {any} */ c) => ({
+          id: c.id,
+          name: c.name
+        })),
+        leads: (leadsRes.leads || leadsRes.results || []).map((/** @type {any} */ l) => ({
+          id: l.id,
+          name: l.first_name || l.last_name
+            ? `${l.first_name || ''} ${l.last_name || ''}`.trim()
+            : l.title || 'Lead'
+        })),
+        tags: (tagsRes.tags || tagsRes.results || []).map((/** @type {any} */ t) => ({
+          id: t.id,
+          name: t.name,
+          color: t.color || 'blue'
+        }))
+      };
+      formOptionsLoaded = true;
+    } catch (err) {
+      console.error('Error loading form options:', err);
+    }
+    formOptionsLoading = false;
+  }
+
+  const accounts = $derived(lazyFormOptions.accounts);
+  const users = $derived(lazyFormOptions.users);
+  const contacts = $derived(lazyFormOptions.contacts);
+  const teams = $derived(lazyFormOptions.teams);
+  const opportunities = $derived(lazyFormOptions.opportunities);
+  const cases = $derived(lazyFormOptions.cases);
+  const leads = $derived(lazyFormOptions.leads);
+  const allTags = $derived(lazyFormOptions.tags);
 
   /**
    * Get account name from server-provided accounts list
@@ -387,6 +472,7 @@
    * @param {Record<string, any>} newFilters
    */
   async function updateFilters(newFilters) {
+    pageLoading = true;
     const url = new URL($page.url);
     // Clear existing filter params
     ['search', 'status', 'priority', 'assigned_to', 'tags', 'due_date_gte', 'due_date_lte', 'quick_filter'].forEach(
@@ -401,6 +487,7 @@
       }
     });
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    pageLoading = false;
   }
 
   /**
@@ -433,6 +520,9 @@
 
   // Filter panel expansion state
   let filtersExpanded = $state(false);
+
+  // Loading state for filter/navigation feedback
+  let pageLoading = $state(false);
 
   // Filtered tasks — all filtering is server-side via URL params
   const filteredTasks = $derived(tasks);
@@ -520,7 +610,7 @@
         body: pipelineData
       });
       toast.success('Pipeline criado');
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch (err) {
       toast.error(err?.message || 'Erro ao criar pipeline');
       throw err;
@@ -534,7 +624,7 @@
       if (activeTaskPipelineId === id) {
         activeTaskPipelineId = '';
       }
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch (err) {
       toast.error(err?.message || 'Erro ao excluir pipeline');
       throw err;
@@ -548,7 +638,7 @@
         body: pipelineData
       });
       toast.success('Pipeline atualizado');
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch (err) {
       toast.error(err?.message || 'Erro ao atualizar pipeline');
       throw err;
@@ -562,7 +652,7 @@
         body: stageData
       });
       toast.success('Estágio criado');
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch (err) {
       toast.error(err?.message || 'Erro ao criar estágio');
       throw err;
@@ -575,7 +665,7 @@
         method: 'PATCH',
         body: stageData
       });
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch (err) {
       toast.error(err?.message || 'Erro ao atualizar estágio');
       throw err;
@@ -586,7 +676,7 @@
     try {
       await clientApiRequest(`/tasks/stages/${stageId}/`, { method: 'DELETE' });
       toast.success('Estágio removido');
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch (err) {
       toast.error(err?.message || 'Erro ao remover estágio');
       throw err;
@@ -599,7 +689,7 @@
         method: 'POST',
         body: { stage_ids: stageOrder }
       });
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch (err) {
       toast.error(err?.message || 'Erro ao reordenar estágios');
       throw err;
@@ -723,6 +813,7 @@
   }
 
   async function addNewTask() {
+    loadFormOptions(); // Lazy-load form options (fire-and-forget)
     // Check for account pre-fill from URL params
     const accountIdParam = $page.url.searchParams.get('accountId');
     if (accountIdParam && !accountFromUrl) {
@@ -780,6 +871,7 @@
    * @param {string} stageId
    */
   function handleKanbanAddItem(stageId) {
+    loadFormOptions(); // Lazy-load form options (fire-and-forget)
     selectedTaskId = null;
     selectedContact = null;
     formState = {
@@ -822,7 +914,7 @@
       });
       if (response.tag) {
         toast.success(`Tag "${name}" criada`);
-        await invalidateAll();
+        await invalidate('app:tasks');
       }
     } catch (err) {
       toast.error('Erro ao criar tag');
@@ -843,6 +935,7 @@
    * @param {string} taskId
    */
   function openTaskSheet(taskId) {
+    loadFormOptions(); // Lazy-load form options (fire-and-forget)
     selectedTaskId = taskId;
     const task = localTasks.find((t) => t.id === taskId);
     if (task) {
@@ -1016,7 +1109,7 @@
       });
       toast.success('Tarefa concluída');
       await loadMyDay();
-      await invalidateAll();
+      await invalidate('app:tasks');
     } catch {
       toast.error('Erro ao concluir tarefa');
     }
@@ -1137,7 +1230,7 @@
     const sundayStr = toLocalDateString(sunday);
 
     return {
-      '': tasks.length,
+      '': pagination.total,
       active: tasks.filter((/** @type {any} */ t) => ['New', 'In Progress'].includes(t.status)).length,
       completed: tasks.filter((/** @type {any} */ t) => t.status === 'Completed').length,
       overdue: tasks.filter((/** @type {any} */ t) => t.dueDate && t.dueDate < todayStr && t.status !== 'Completed').length,
@@ -1148,6 +1241,7 @@
   });
 
   async function setQuickFilter(value) {
+    pageLoading = true;
     const url = new URL($page.url);
     // Clear both params to avoid conflicts
     url.searchParams.delete('quick_filter');
@@ -1157,6 +1251,7 @@
     }
     url.searchParams.set('page', '1');
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    pageLoading = false;
   }
 
   // Get selected task data
@@ -1177,7 +1272,7 @@
           if (closeSheet) {
             closeTaskSheet();
           }
-          await invalidateAll();
+          await invalidate('app:tasks');
         } else if (result.type === 'failure') {
           toast.error(result.data?.error || 'Operação falhou');
         } else if (result.type === 'error') {
@@ -1544,6 +1639,7 @@
    * @param {'list' | 'kanban' | 'calendar' | 'today' | 'workload'} mode
    */
   async function updateViewMode(mode) {
+    pageLoading = true;
     viewMode = mode;
     const url = new URL($page.url);
     if (mode === 'list') {
@@ -1552,6 +1648,7 @@
       url.searchParams.set('view', mode);
     }
     await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    pageLoading = false;
   }
 
   /**
@@ -1811,6 +1908,13 @@
       onchange={(ids) => updateFilters({ ...filters, tags: ids })}
     />
   </FilterBar>
+
+  <!-- Loading indicator for filter/navigation -->
+  {#if pageLoading}
+    <div class="h-0.5 w-full overflow-hidden bg-primary/20">
+      <div class="h-full w-1/3 animate-pulse rounded-full bg-primary"></div>
+    </div>
+  {/if}
 
   <!-- Unified filter chips (status + date shortcuts) -->
   <div class="flex items-center gap-1.5 overflow-x-auto px-4 pb-4" style="-ms-overflow-style:none;scrollbar-width:none">

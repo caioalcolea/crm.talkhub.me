@@ -8,13 +8,19 @@
  * - title, status, priority, due_date, description, account
  * - contacts (M2M), teams (M2M), assigned_to (M2M)
  * - created_by, created_at, updated_at
+ *
+ * PERFORMANCE: Only fetches tasks + kanban + pipelines (3 calls).
+ * Form options (users, accounts, contacts, etc.) are loaded lazily
+ * on the client side when the drawer opens.
  */
 
 import { error, fail } from '@sveltejs/kit';
 import { apiRequest, buildQueryParams } from '$lib/api-helpers.js';
 
 /** @type {import('./$types').PageServerLoad} */
-export async function load({ locals, cookies, url }) {
+export async function load({ locals, cookies, url, depends }) {
+  depends('app:tasks');
+
   const user = locals.user;
   const org = locals.org;
 
@@ -73,21 +79,11 @@ export async function load({ locals, cookies, url }) {
     if (filters.quick_filter) kanbanQueryParams.append('quick_filter', filters.quick_filter);
     if (pipelineId) kanbanQueryParams.append('pipeline_id', pipelineId);
 
-    // Fetch tasks (or kanban data) and dropdown options in parallel
+    // PERFORMANCE: Only fetch tasks + kanban + pipelines (3 calls max)
+    // Form options (users, accounts, contacts, teams, etc.) are loaded
+    // lazily on the client side when the drawer opens.
     const kanbanQueryString = kanbanQueryParams.toString();
-    const [
-      tasksResponse,
-      kanbanResponse,
-      pipelinesResponse,
-      usersRes,
-      accountsRes,
-      contactsRes,
-      teamsRes,
-      opportunitiesRes,
-      casesRes,
-      leadsRes,
-      tagsRes
-    ] = await Promise.all([
+    const [tasksResponse, kanbanResponse, pipelinesResponse] = await Promise.all([
       apiRequest(`/tasks/?${queryParams.toString()}`, {}, { cookies, org }),
       viewMode === 'kanban'
         ? apiRequest(
@@ -96,15 +92,7 @@ export async function load({ locals, cookies, url }) {
             { cookies, org }
           )
         : Promise.resolve(null),
-      apiRequest('/tasks/pipelines/', {}, { cookies, org }).catch(() => []),
-      apiRequest('/users/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/accounts/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/teams/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/opportunities/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/cases/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/leads/', {}, { cookies, org }).catch(() => ({})),
-      apiRequest('/tags/', {}, { cookies, org }).catch(() => ({}))
+      apiRequest('/tasks/pipelines/', {}, { cookies, org }).catch(() => [])
     ]);
 
     // Handle Django response structure
@@ -118,47 +106,8 @@ export async function load({ locals, cookies, url }) {
       tasks = tasksResponse.results;
     }
 
-    // Transform accounts first (needed for task account name lookup)
-    let accountsList = [];
-    if (accountsRes.active_accounts?.open_accounts) {
-      accountsList = accountsRes.active_accounts.open_accounts;
-    } else if (accountsRes.results) {
-      accountsList = accountsRes.results;
-    } else if (Array.isArray(accountsRes)) {
-      accountsList = accountsRes;
-    }
-    const accounts = accountsList.map((a) => ({ id: a.id, name: a.name }));
-
-    // Transform cases, opportunities, leads early (needed for task field name lookups)
-    const cases = (casesRes.cases || casesRes.results || []).map((c) => ({
-      id: c.id,
-      name: c.name
-    }));
-    const opportunities = (opportunitiesRes.opportunities || opportunitiesRes.results || []).map(
-      (o) => ({ id: o.id, name: o.name })
-    );
-    const leads = (leadsRes.leads || leadsRes.results || []).map((l) => ({
-      id: l.id,
-      name:
-        l.first_name || l.last_name
-          ? `${l.first_name || ''} ${l.last_name || ''}`.trim()
-          : l.title || 'Lead'
-    }));
-
-    // Helper to look up related entity name from list
-    const getRelatedName = (data, list, fallback) => {
-      if (!data) return null;
-      // If it's an object with name, use it
-      if (typeof data === 'object' && data.name) {
-        return { id: data.id, name: data.name };
-      }
-      // If it's just an ID (string), look up from list
-      const id = typeof data === 'object' ? data.id : data;
-      const found = list.find((item) => item.id === id);
-      return { id, name: found?.name || fallback };
-    };
-
     // Transform Django tasks to frontend structure
+    // Uses inline *_name fields from TaskSerializer (no extra API calls needed)
     const transformedTasks = tasks.map((task) => ({
       id: task.id,
       subject: task.title,
@@ -199,17 +148,19 @@ export async function load({ locals, cookies, url }) {
         name: t.name
       })),
 
-      // Account (FK) - lookup name from accounts list if needed
-      account: getRelatedName(task.account, accounts, 'Unknown Account'),
-
-      // Opportunity (FK) - lookup name from opportunities list if needed
-      opportunity: getRelatedName(task.opportunity, opportunities, 'Unknown Opportunity'),
-
-      // Case (FK) - lookup name from cases list if needed
-      case_: getRelatedName(task.case, cases, 'Unknown Case'),
-
-      // Lead (FK) - lookup name from leads list if needed
-      lead: getRelatedName(task.lead, leads, 'Unknown Lead'),
+      // Related entities — uses inline *_name fields from serializer
+      account: task.account
+        ? { id: task.account, name: task.account_name || 'Conta' }
+        : null,
+      opportunity: task.opportunity
+        ? { id: task.opportunity, name: task.opportunity_name || 'Oportunidade' }
+        : null,
+      case_: task.case
+        ? { id: task.case, name: task.case_name || 'Chamado' }
+        : null,
+      lead: task.lead
+        ? { id: task.lead, name: task.lead_name || 'Lead' }
+        : null,
 
       // Created by
       createdBy: task.created_by
@@ -217,46 +168,14 @@ export async function load({ locals, cookies, url }) {
             id: task.created_by.id,
             name: task.created_by.email
           }
-        : null
+        : null,
+
+      // Stage (for kanban pipeline)
+      stage: task.stage || null
     }));
 
     // Get total count from response
     const total = tasksResponse.tasks_count || tasksResponse.count || transformedTasks.length;
-
-    // Transform dropdown options
-    const users = (usersRes.active_users?.active_users || []).map((u) => ({
-      id: u.id,
-      name: u.user_details?.email || u.email
-    }));
-
-    // accounts already transformed above for task account name lookup
-
-    let contactsList = [];
-    if (contactsRes.contact_obj_list) {
-      contactsList = contactsRes.contact_obj_list;
-    } else if (contactsRes.results) {
-      contactsList = contactsRes.results;
-    } else if (Array.isArray(contactsRes)) {
-      contactsList = contactsRes;
-    }
-    const contacts = contactsList.map((c) => ({
-      id: c.id,
-      name: c.first_name ? `${c.first_name} ${c.last_name || ''}`.trim() : c.email || 'Unknown'
-    }));
-
-    const teams = (teamsRes.teams || teamsRes.results || []).map((t) => ({
-      id: t.id,
-      name: t.name
-    }));
-
-    // opportunities, cases, leads already transformed above for task field name lookups
-
-    // Transform tags (include color for TagFilter)
-    const tags = (tagsRes.tags || tagsRes.results || []).map((t) => ({
-      id: t.id,
-      name: t.name,
-      color: t.color || 'blue'
-    }));
 
     return {
       tasks: transformedTasks,
@@ -270,17 +189,19 @@ export async function load({ locals, cookies, url }) {
       viewMode,
       pipelineId: pipelineId || kanbanResponse?.pipeline?.id || '',
       kanbanData: kanbanResponse,
-      pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
-      // Dropdown options for drawer form
+      pipelines: Array.isArray(pipelinesResponse)
+        ? pipelinesResponse
+        : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
+      // Form options loaded lazily on client side — empty here
       formOptions: {
-        users,
-        accounts,
-        contacts,
-        teams,
-        opportunities,
-        cases,
-        leads,
-        tags
+        users: [],
+        accounts: [],
+        contacts: [],
+        teams: [],
+        opportunities: [],
+        cases: [],
+        leads: [],
+        tags: []
       }
     };
   } catch (err) {

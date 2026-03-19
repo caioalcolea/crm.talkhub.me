@@ -267,6 +267,11 @@ class TaskSerializer(serializers.ModelSerializer):
     priority_score = serializers.IntegerField(read_only=True)
     dependencies = TaskDependencySerializer(many=True, read_only=True)
     dependents = TaskDependencySerializer(many=True, read_only=True)
+    # Related entity names (avoids extra API calls on frontend)
+    account_name = serializers.SerializerMethodField()
+    opportunity_name = serializers.SerializerMethodField()
+    case_name = serializers.SerializerMethodField()
+    lead_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -302,7 +307,27 @@ class TaskSerializer(serializers.ModelSerializer):
             "dependents",
             # Kanban
             "stage",
+            # Related entity names
+            "account_name",
+            "opportunity_name",
+            "case_name",
+            "lead_name",
         )
+
+    def get_account_name(self, obj):
+        return obj.account.name if obj.account else None
+
+    def get_opportunity_name(self, obj):
+        return obj.opportunity.name if obj.opportunity else None
+
+    def get_case_name(self, obj):
+        return obj.case.name if obj.case else None
+
+    def get_lead_name(self, obj):
+        if not obj.lead:
+            return None
+        name = f"{obj.lead.first_name or ''} {obj.lead.last_name or ''}".strip()
+        return name or obj.lead.title or "Lead"
 
 
 class TaskCreateSerializer(serializers.ModelSerializer):
