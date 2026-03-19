@@ -1,6 +1,6 @@
 <script>
   import { enhance } from '$app/forms';
-  import { invalidateAll, goto } from '$app/navigation';
+  import { invalidate, goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, tick } from 'svelte';
   import { toast } from 'svelte-sonner';
@@ -259,7 +259,7 @@
       url.searchParams.delete('pipeline_id');
     }
     url.searchParams.set('view', 'kanban');
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   async function handleCasePipelineCreate(pipelineData) {
@@ -269,7 +269,7 @@
         body: pipelineData
       });
       toast.success('Pipeline criado');
-      await invalidateAll();
+      await invalidate('app:cases');
     } catch (err) {
       toast.error(err?.message || 'Erro ao criar pipeline');
       throw err;
@@ -281,7 +281,7 @@
       await clientApiRequest(`/cases/pipelines/${pipelineId}/`, { method: 'DELETE' });
       toast.success('Pipeline excluído');
       if (activeCasePipelineId === pipelineId) activeCasePipelineId = '';
-      await invalidateAll();
+      await invalidate('app:cases');
     } catch (err) {
       toast.error(err?.message || 'Erro ao excluir pipeline');
       throw err;
@@ -295,7 +295,7 @@
         body: pipelineData
       });
       toast.success('Pipeline atualizado');
-      await invalidateAll();
+      await invalidate('app:cases');
     } catch (err) {
       toast.error(err?.message || 'Erro ao atualizar pipeline');
       throw err;
@@ -309,7 +309,7 @@
         body: stageData
       });
       toast.success('Estágio criado');
-      await invalidateAll();
+      await invalidate('app:cases');
     } catch (err) {
       toast.error(err?.message || 'Erro ao criar estágio');
       throw err;
@@ -322,7 +322,7 @@
         method: 'PATCH',
         body: stageData
       });
-      await invalidateAll();
+      await invalidate('app:cases');
     } catch (err) {
       toast.error(err?.message || 'Erro ao atualizar estágio');
       throw err;
@@ -333,7 +333,7 @@
     try {
       await clientApiRequest(`/cases/stages/${stageId}/`, { method: 'DELETE' });
       toast.success('Estágio removido');
-      await invalidateAll();
+      await invalidate('app:cases');
     } catch (err) {
       toast.error(err?.message || 'Erro ao remover estágio');
       throw err;
@@ -346,7 +346,7 @@
         method: 'POST',
         body: { stage_ids: stageOrder }
       });
-      await invalidateAll();
+      await invalidate('app:cases');
     } catch (err) {
       toast.error(err?.message || 'Erro ao reordenar estágios');
       throw err;
@@ -354,16 +354,114 @@
   }
 
   let isCaseAdmin = $derived(data.userRole === 'ADMIN');
+  let pageLoading = $state(false);
 
-  // Dropdown options from server (loaded with page data)
-  const formOptions = $derived(data.formOptions || {});
-  const accounts = $derived(formOptions.accounts || []);
-  const users = $derived(formOptions.users || []);
-  const contacts = $derived(formOptions.contacts || []);
-  const teams = $derived(formOptions.teams || []);
-  const tags = $derived(formOptions.tags || []);
-  // Tags with color for filter dropdown
-  const allTags = $derived(formOptions.tags || []);
+  // Lazy-loaded form options (only fetched when drawer opens or kanban view loads)
+  let formOptionsLoaded = $state(false);
+  let formOptionsLoading = $state(false);
+  let lazyFormOptions = $state(
+    /** @type {{ accounts: any[], users: any[], contacts: any[], teams: any[], tags: any[] }} */ ({
+      accounts: [],
+      users: [],
+      contacts: [],
+      teams: [],
+      tags: []
+    })
+  );
+
+  // Tags from server (always available for TagFilter chip)
+  const allTags = $derived(data.formOptions?.tags || []);
+
+  // Derived from lazy-loaded options (used in drawerColumns)
+  const accounts = $derived(lazyFormOptions.accounts);
+  const users = $derived(lazyFormOptions.users);
+  const contacts = $derived(lazyFormOptions.contacts);
+  const teams = $derived(lazyFormOptions.teams);
+  const tags = $derived(lazyFormOptions.tags.length > 0 ? lazyFormOptions.tags : allTags);
+
+  /**
+   * Load form options for drawer — fetches lazily from client API (not on page load)
+   */
+  async function loadFormOptions() {
+    if (formOptionsLoaded || formOptionsLoading) return;
+
+    formOptionsLoading = true;
+    try {
+      const [accountsRes, usersRes, contactsRes, teamsRes, tagsRes] = await Promise.all([
+        clientApiRequest('/accounts/').catch(() => ({})),
+        clientApiRequest('/users/').catch(() => ({})),
+        clientApiRequest('/contacts/').catch(() => ({})),
+        clientApiRequest('/teams/').catch(() => ({})),
+        clientApiRequest('/tags/').catch(() => ({}))
+      ]);
+
+      // Transform accounts
+      let accountsList = [];
+      if (accountsRes?.active_accounts?.open_accounts) {
+        accountsList = accountsRes.active_accounts.open_accounts;
+      } else if (accountsRes?.results) {
+        accountsList = accountsRes.results;
+      } else if (Array.isArray(accountsRes)) {
+        accountsList = accountsRes;
+      }
+
+      // Transform users
+      const usersList = (usersRes?.active_users?.active_users || []).map((/** @type {any} */ u) => ({
+        id: u.id,
+        name:
+          u.user_details?.first_name && u.user_details?.last_name
+            ? `${u.user_details.first_name} ${u.user_details.last_name}`
+            : u.user_details?.email || u.email
+      }));
+
+      // Transform contacts
+      let contactsList = [];
+      if (contactsRes?.contact_obj_list) {
+        contactsList = contactsRes.contact_obj_list;
+      } else if (contactsRes?.results) {
+        contactsList = contactsRes.results;
+      } else if (Array.isArray(contactsRes)) {
+        contactsList = contactsRes;
+      }
+
+      // Transform teams
+      const teamsList = (teamsRes?.teams || teamsRes?.results || []).map((/** @type {any} */ t) => ({
+        id: t.id,
+        name: t.name
+      }));
+
+      // Transform tags
+      const tagsList = (tagsRes?.tags || tagsRes?.results || allTags || []).map((/** @type {any} */ t) => ({
+        id: t.id,
+        name: t.name,
+        color: t.color || 'blue'
+      }));
+
+      lazyFormOptions = {
+        accounts: accountsList.map((/** @type {any} */ a) => ({ id: a.id, name: a.name })),
+        users: usersList,
+        contacts: contactsList.map((/** @type {any} */ c) => ({
+          id: c.id,
+          name: c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : c.email,
+          email: c.email
+        })),
+        teams: teamsList,
+        tags: tagsList
+      };
+      formOptionsLoaded = true;
+    } catch (err) {
+      console.error('Failed to load form options:', err);
+    } finally {
+      formOptionsLoading = false;
+    }
+  }
+
+  // Eagerly load form options when in kanban view (PipelineManager needs teams/users)
+  $effect(() => {
+    if (viewMode === 'kanban' && !formOptionsLoaded) {
+      loadFormOptions();
+    }
+  });
 
   /**
    * Get account name from server-provided accounts list
@@ -385,7 +483,7 @@
     const url = new URL($page.url);
     url.searchParams.delete('action');
     url.searchParams.delete('accountId');
-    goto(url.pathname, { replaceState: true, invalidateAll: true });
+    goto(url.pathname, { replaceState: true });
     accountFromUrl = false;
     accountName = '';
     accountIdFromUrl = '';
@@ -408,6 +506,7 @@
       }
 
       drawer.openCreate();
+      loadFormOptions();
 
       // Auto-select active pipeline when creating
       if (activeCasePipelineId) {
@@ -662,6 +761,7 @@
    * @param {Record<string, any>} newFilters
    */
   async function updateFilters(newFilters) {
+    pageLoading = true;
     const url = new URL($page.url);
     // Clear existing filter params
     [
@@ -683,7 +783,8 @@
         url.searchParams.set(key, value);
       }
     });
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
+    pageLoading = false;
   }
 
   /**
@@ -700,7 +801,7 @@
   async function handlePageChange(newPage) {
     const url = new URL($page.url);
     url.searchParams.set('page', newPage.toString());
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   /**
@@ -711,7 +812,7 @@
     const url = new URL($page.url);
     url.searchParams.set('limit', newLimit.toString());
     url.searchParams.set('page', '1'); // Reset to first page
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   // Filter panel expansion state
@@ -865,7 +966,7 @@
     const sundayStr = sunday.toISOString().slice(0, 10);
 
     return {
-      '': casesData.length,
+      '': pagination.total,
       open: casesData.filter((/** @type {any} */ c) => openStatuses.includes(c.status)).length,
       closed: casesData.filter((/** @type {any} */ c) => closedStatuses.includes(c.status)).length,
       overdue: casesData.filter((/** @type {any} */ c) => c.dueDate && c.dueDate < todayStr && !closedStatuses.includes(c.status)).length,
@@ -880,6 +981,7 @@
    * @param {string} value
    */
   async function setQuickFilter(value) {
+    pageLoading = true;
     const url = new URL($page.url);
     url.searchParams.delete('quick_filter');
     url.searchParams.delete('status');
@@ -887,7 +989,8 @@
       url.searchParams.set('quick_filter', value);
     }
     url.searchParams.set('page', '1');
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
+    pageLoading = false;
   }
 
   // Form references for server actions
@@ -1023,7 +1126,7 @@
           if (accountFromUrl) {
             clearUrlParams();
           }
-          await invalidateAll();
+          await invalidate('app:cases');
         } else if (result.type === 'failure') {
           toast.error(result.data?.error || 'Operação falhou');
         } else if (result.type === 'error') {
@@ -1103,6 +1206,7 @@
    * @param {'list' | 'kanban'} mode
    */
   async function updateViewMode(mode) {
+    pageLoading = true;
     viewMode = mode;
     const url = new URL($page.url);
     if (mode === 'list') {
@@ -1110,7 +1214,8 @@
     } else {
       url.searchParams.set('view', mode);
     }
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
+    pageLoading = false;
   }
 
   /**
@@ -1144,6 +1249,7 @@
    * @param {any} caseItem
    */
   function handleKanbanCardClick(caseItem) {
+    loadFormOptions();
     // Find full case data and open drawer
     const fullCase = casesData.find((c) => c.id === caseItem.id);
     if (fullCase) {
@@ -1258,6 +1364,7 @@
 
       <Button onclick={() => {
         drawer.openCreate();
+        loadFormOptions();
         if (activeCasePipelineId) {
           const pipeline = casePipelines.find(p => p.id === activeCasePipelineId);
           if (pipeline?.stages?.length) {
@@ -1274,6 +1381,10 @@
 </PageHeader>
 
 <div class="relative z-20 flex-1">
+  {#if pageLoading}
+    <div class="h-0.5 w-full animate-pulse rounded-full bg-primary/40"></div>
+  {/if}
+
   <!-- Collapsible Filter Bar -->
   <FilterBar
     minimal={true}
@@ -1421,7 +1532,7 @@
       {columns}
       bind:visibleColumns
       onRowChange={handleRowChange}
-      onRowClick={(row) => drawer.openDetail(row)}
+      onRowClick={(row) => { loadFormOptions(); drawer.openDetail(row); }}
     >
       {#snippet emptyState()}
         <div class="flex flex-col items-center justify-center py-16 text-center">
@@ -1524,8 +1635,8 @@
         onStageDelete={handleCaseStageDelete}
         onStageReorder={handleCaseStageReorder}
         canManage={isCaseAdmin}
-        teams={data.formOptions?.teams || []}
-        users={data.formOptions?.users || []}
+        teams={lazyFormOptions.teams || []}
+        users={lazyFormOptions.users || []}
         module="cases"
       />
     </div>

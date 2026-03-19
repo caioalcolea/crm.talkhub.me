@@ -13,7 +13,9 @@ import { fail, redirect, error } from '@sveltejs/kit';
 import { apiRequest, buildQueryParams } from '$lib/api-helpers.js';
 
 /** @type {import('./$types').PageServerLoad} */
-export async function load({ url, locals, cookies }) {
+export async function load({ url, locals, cookies, depends }) {
+  depends('app:cases');
+
   const org = locals.org;
   const user = locals.user;
 
@@ -71,8 +73,8 @@ export async function load({ url, locals, cookies }) {
     filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
     if (pipelineId) kanbanQueryParams.append('pipeline_id', pipelineId);
 
-    // Fetch cases, kanban data, and dropdown options in parallel
-    const [casesResponse, kanbanResponse, accountsRes, usersRes, contactsRes, teamsRes, tagsRes, pipelinesResponse] =
+    // Fetch only essential data — form options loaded lazily on client when drawer opens
+    const [casesResponse, kanbanResponse, tagsRes, pipelinesResponse] =
       await Promise.all([
         apiRequest(`/cases/?${queryParams.toString()}`, {}, { cookies, org }),
         viewMode === 'kanban'
@@ -82,10 +84,6 @@ export async function load({ url, locals, cookies }) {
               { cookies, org }
             )
           : Promise.resolve(null),
-        apiRequest('/accounts/', {}, { cookies, org }).catch(() => ({})),
-        apiRequest('/users/', {}, { cookies, org }).catch(() => ({})),
-        apiRequest('/contacts/', {}, { cookies, org }).catch(() => ({})),
-        apiRequest('/teams/', {}, { cookies, org }).catch(() => ({})),
         apiRequest('/tags/', {}, { cookies, org }).catch(() => ({})),
         apiRequest('/cases/pipelines/', {}, { cookies, org }).catch(() => [])
       ]);
@@ -222,48 +220,7 @@ export async function load({ url, locals, cookies }) {
     // Get total count from response
     const total = casesResponse.cases_count || casesResponse.count || transformedCases.length;
 
-    // Transform accounts for dropdown/lookup
-    let accountsList = [];
-    if (accountsRes.active_accounts?.open_accounts) {
-      accountsList = accountsRes.active_accounts.open_accounts;
-    } else if (accountsRes.results) {
-      accountsList = accountsRes.results;
-    } else if (Array.isArray(accountsRes)) {
-      accountsList = accountsRes;
-    }
-    const accounts = accountsList.map((a) => ({ id: a.id, name: a.name }));
-
-    // Transform users
-    const users = (usersRes.active_users?.active_users || []).map((u) => ({
-      id: u.id,
-      name:
-        u.user_details?.first_name && u.user_details?.last_name
-          ? `${u.user_details.first_name} ${u.user_details.last_name}`
-          : u.user_details?.email || u.email
-    }));
-
-    // Transform contacts
-    let contactsList = [];
-    if (contactsRes.contact_obj_list) {
-      contactsList = contactsRes.contact_obj_list;
-    } else if (contactsRes.results) {
-      contactsList = contactsRes.results;
-    } else if (Array.isArray(contactsRes)) {
-      contactsList = contactsRes;
-    }
-    const contacts = contactsList.map((c) => ({
-      id: c.id,
-      name: c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : c.email,
-      email: c.email
-    }));
-
-    // Transform teams
-    const teams = (teamsRes.teams || teamsRes.results || []).map((t) => ({
-      id: t.id,
-      name: t.name
-    }));
-
-    // Transform tags (include color for TagFilter)
+    // Transform tags (include color for TagFilter — still server-loaded for filter chips)
     const tags = (tagsRes.tags || tagsRes.results || []).map((t) => ({
       id: t.id,
       name: t.name,
@@ -285,12 +242,12 @@ export async function load({ url, locals, cookies }) {
       pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
       statusOptions,
       caseTypeOptions,
-      // Dropdown options loaded server-side
+      // Form options loaded lazily on client when drawer opens (see +page.svelte loadFormOptions)
       formOptions: {
-        accounts,
-        users,
-        contacts,
-        teams,
+        accounts: [],
+        users: [],
+        contacts: [],
+        teams: [],
         tags
       }
     };
