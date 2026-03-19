@@ -1,5 +1,5 @@
 <script>
-  import { ChevronDown, X, Check, Search } from '@lucide/svelte';
+  import { ChevronDown, X, Check, Search, Plus } from '@lucide/svelte';
   import * as Popover from '$lib/components/ui/popover/index.js';
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { cn } from '$lib/utils.js';
@@ -19,6 +19,7 @@
    *   emptyText?: string,
    *   disabled?: boolean,
    *   onchange?: (value: string[]) => void,
+   *   oncreate?: ((name: string) => Promise<any>) | null,
    *   class?: string,
    *   maxDisplay?: number,
    * }}
@@ -30,6 +31,7 @@
     emptyText = 'Nenhum selecionado',
     disabled = false,
     onchange,
+    oncreate = null,
     class: className,
     maxDisplay = 3
   } = $props();
@@ -90,6 +92,16 @@
         )
       : options
   );
+
+  /**
+   * Handle inline creation of a new option
+   */
+  async function handleCreate() {
+    if (oncreate && searchQuery.trim()) {
+      await oncreate(searchQuery.trim());
+      searchQuery = '';
+    }
+  }
 
   /**
    * Focus search input when popover opens
@@ -161,11 +173,11 @@
       </div>
       <!-- Options list -->
       <div class="max-h-56 overflow-y-auto p-1">
-        {#if filteredOptions.length === 0}
+        {#if filteredOptions.length === 0 && !(searchQuery.trim() && oncreate)}
           <div class="text-muted-foreground px-2 py-4 text-center text-sm">
             {searchQuery ? 'Nenhum resultado' : 'Nenhuma opção disponível'}
           </div>
-        {:else}
+        {:else if filteredOptions.length > 0}
           {#each filteredOptions as opt (opt.id)}
             {@const isSelected = value.includes(opt.id)}
             <button
@@ -197,6 +209,16 @@
               </div>
             </button>
           {/each}
+        {/if}
+        {#if searchQuery.trim() && oncreate}
+          <button
+            type="button"
+            onclick={handleCreate}
+            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer text-primary"
+          >
+            <Plus class="h-4 w-4" />
+            <span>Criar "<strong>{searchQuery.trim()}</strong>"</span>
+          </button>
         {/if}
       </div>
       <!-- Selection count footer -->

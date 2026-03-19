@@ -35,7 +35,8 @@
    *   onItemMove: (itemId: string, newStatus: string, columnId: string) => Promise<void>,
    *   onCardClick: (item: any) => void,
    *   CardComponent: any,
-   *   emptyMessage?: string
+   *   emptyMessage?: string,
+   *   onAddItem?: ((columnId: string) => void) | null
    * }}
    */
   let {
@@ -46,7 +47,8 @@
     onItemMove,
     onCardClick,
     CardComponent,
-    emptyMessage = 'Nenhum dado disponível'
+    emptyMessage = 'Nenhum dado disponível',
+    onAddItem = null
   } = $props();
 
   // Local mutable copy of columns for optimistic updates
@@ -364,7 +366,7 @@
     <!-- Kanban Columns -->
     <div class="columns-container flex flex-1 min-h-0 gap-4 overflow-x-auto pb-4 px-3">
       {#each sortedColumns as column, index (column.id)}
-        <div class="column-animate" style="animation-delay: {index * 80}ms">
+        <div>
           <KanbanColumn
             {column}
             {itemName}
@@ -377,6 +379,7 @@
             {onCardClick}
             onCardDragStart={(e, item) => handleDragStart(e, item, column.id)}
             onCardDragEnd={handleDragEnd}
+            {onAddItem}
           />
         </div>
       {/each}
@@ -436,6 +439,16 @@
             </span>
           </div>
         {/if}
+
+        {#if onAddItem}
+          <button
+            type="button"
+            class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-200/60 py-2.5 text-sm font-medium text-gray-400 transition-colors hover:border-blue-300 hover:bg-blue-50/50 hover:text-blue-600 dark:border-white/[0.06] dark:text-gray-500 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/5 dark:hover:text-blue-400"
+            onclick={() => onAddItem(activeMobileColumn.id)}
+          >
+            + Adicionar {itemName}
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -456,23 +469,6 @@
 {/if}
 
 <style>
-  /* Column entrance animation */
-  .column-animate {
-    opacity: 0;
-    animation: column-slide-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-
-  @keyframes column-slide-in {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   /* Horizontal scroll with fade indicators */
   .columns-container {
     scrollbar-width: thin;

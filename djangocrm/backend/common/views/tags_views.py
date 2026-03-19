@@ -71,14 +71,7 @@ class TagsListView(APIView, LimitOffsetPagination):
         },
     )
     def post(self, request, *args, **kwargs):
-        """Create a new tag (admin only)."""
-        # Admin only for create
-        if request.profile.role != "ADMIN" and not request.user.is_superuser:
-            return Response(
-                {"error": True, "errors": "Only admins can create tags"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Create a new tag (any authenticated user in org)."""
         params = request.data
         name = params.get("name", "").strip()
 

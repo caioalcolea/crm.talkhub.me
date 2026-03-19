@@ -62,13 +62,15 @@ export async function load({ locals, cookies, url }) {
     if (filters.due_date_lte) queryParams.append('due_date__lte', filters.due_date_lte);
     if (filters.quick_filter) queryParams.append('quick_filter', filters.quick_filter);
 
-    // Build kanban query params (similar filters)
+    // Build kanban query params (same filters as list, except status which is column-based)
     const kanbanQueryParams = new URLSearchParams();
     if (filters.search) kanbanQueryParams.append('search', filters.search);
     if (filters.priority) kanbanQueryParams.append('priority', filters.priority);
     filters.assigned_to.forEach((id) => kanbanQueryParams.append('assigned_to', id));
+    filters.tags.forEach((id) => kanbanQueryParams.append('tags', id));
     if (filters.due_date_gte) kanbanQueryParams.append('due_date__gte', filters.due_date_gte);
     if (filters.due_date_lte) kanbanQueryParams.append('due_date__lte', filters.due_date_lte);
+    if (filters.quick_filter) kanbanQueryParams.append('quick_filter', filters.quick_filter);
     if (pipelineId) kanbanQueryParams.append('pipeline_id', pipelineId);
 
     // Fetch tasks (or kanban data) and dropdown options in parallel

@@ -3,6 +3,7 @@ Kanban views for task management.
 Supports both status-based (default) and custom pipeline-based kanban boards.
 """
 
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import transaction
@@ -163,6 +164,28 @@ class TaskKanbanView(APIView):
             queryset = queryset.filter(case_id=params.get("case"))
         if params.get("tags"):
             queryset = queryset.filter(tags__id=params.get("tags"))
+        # Quick filters (same logic as TaskListView)
+        quick_filter = params.get("quick_filter")
+        if quick_filter:
+            today = date.today()
+            if quick_filter == "overdue":
+                queryset = queryset.filter(due_date__lt=today).exclude(
+                    status="Completed"
+                )
+            elif quick_filter == "due_today":
+                queryset = queryset.filter(due_date=today)
+            elif quick_filter == "due_this_week":
+                monday = today - timedelta(days=today.weekday())
+                sunday = monday + timedelta(days=6)
+                queryset = queryset.filter(due_date__range=[monday, sunday])
+            elif quick_filter == "no_date":
+                queryset = queryset.filter(due_date__isnull=True).exclude(
+                    status="Completed"
+                )
+            elif quick_filter == "active":
+                queryset = queryset.filter(status__in=["New", "In Progress"])
+            elif quick_filter == "completed":
+                queryset = queryset.filter(status="Completed")
         return queryset
 
     def _get_status_kanban(self, queryset):

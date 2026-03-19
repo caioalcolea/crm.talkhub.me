@@ -775,6 +775,60 @@
     }
   }
 
+  /**
+   * Handle add-item click from a kanban column — opens create drawer with that stage
+   * @param {string} stageId
+   */
+  function handleKanbanAddItem(stageId) {
+    selectedTaskId = null;
+    selectedContact = null;
+    formState = {
+      taskId: '',
+      subject: '',
+      description: '',
+      status: 'New',
+      priority: 'Medium',
+      dueDate: '',
+      dueTime: '',
+      effort: '',
+      impact: '',
+      accountId: '',
+      accountName: '',
+      opportunityId: '',
+      opportunityName: '',
+      caseId: '',
+      caseName: '',
+      leadId: '',
+      leadName: '',
+      assignedTo: [],
+      contacts: [],
+      teams: [],
+      tags: []
+    };
+    formPipelineId = activeTaskPipelineId || '';
+    formStageId = stageId;
+    sheetOpen = true;
+  }
+
+  /**
+   * Create a new tag inline from the multiselect dropdown
+   * @param {string} name
+   */
+  async function handleCreateTag(name) {
+    try {
+      const response = await clientApiRequest('/tags/', {
+        method: 'POST',
+        body: { name, color: 'blue' }
+      });
+      if (response.tag) {
+        toast.success(`Tag "${name}" criada`);
+        await invalidateAll();
+      }
+    } catch (err) {
+      toast.error('Erro ao criar tag');
+    }
+  }
+
   // URL sync for action param (quick action from account page)
   $effect(() => {
     const action = $page.url.searchParams.get('action');
@@ -1417,7 +1471,7 @@
       options: contactOptions
     },
     { key: 'teams', label: 'Equipes', type: 'multiselect', icon: Users, options: teamOptions },
-    { key: 'tags', label: 'Etiquetas', type: 'multiselect', icon: Tag, options: tagOptions },
+    { key: 'tags', label: 'Etiquetas', type: 'multiselect', icon: Tag, options: tagOptions, onCreate: handleCreateTag },
     { key: 'description', label: 'Descrição', type: 'textarea' }
   ]);
 
@@ -1850,6 +1904,7 @@
       loading={false}
       onStatusChange={handleKanbanStatusChange}
       onCardClick={handleKanbanCardClick}
+      onAddItem={handleKanbanAddItem}
     />
   {:else if viewMode === 'today'}
     <!-- My Day View -->

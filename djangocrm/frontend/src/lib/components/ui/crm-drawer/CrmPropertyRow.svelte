@@ -399,6 +399,7 @@
         emptyText={emptyText || 'Nenhum selecionado'}
         disabled={!editable}
         onchange={handleMultiSelectChange}
+        {oncreate}
       />
     {:else if type === 'combobox'}
       <Popover.Root bind:open={comboboxOpen}>

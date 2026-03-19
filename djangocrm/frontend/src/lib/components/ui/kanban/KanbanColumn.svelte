@@ -1,5 +1,5 @@
 <script>
-  import { TrendingUp, DollarSign } from '@lucide/svelte';
+  import { TrendingUp, DollarSign, Plus } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Column
@@ -24,7 +24,8 @@
    *   onDrop: (e: DragEvent) => void,
    *   onCardClick: (item: any) => void,
    *   onCardDragStart: (e: DragEvent, item: any) => void,
-   *   onCardDragEnd: () => void
+   *   onCardDragEnd: () => void,
+   *   onAddItem?: ((columnId: string) => void) | null
    * }}
    */
   let {
@@ -38,7 +39,8 @@
     onDrop,
     onCardClick,
     onCardDragStart,
-    onCardDragEnd
+    onCardDragEnd,
+    onAddItem = null
   } = $props();
 
   // Check if column is at WIP limit
@@ -207,7 +209,7 @@
       dark:border-white/[0.04] dark:from-white/[0.02] dark:to-white/[0.01]"
   >
     {#each column.items as item, index (item.id)}
-      <div class="card-wrapper animate-in" style="animation-delay: {Math.min(index * 40, 300)}ms">
+      <div class="card-wrapper">
         {#if CardComponent}
           <CardComponent
             {item}
@@ -244,6 +246,17 @@
           Nenhum {itemName} ainda
         </span>
       </div>
+    {/if}
+
+    {#if onAddItem}
+      <button
+        type="button"
+        class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-200/60 py-2 text-xs font-medium text-gray-400 transition-colors hover:border-blue-300 hover:bg-blue-50/50 hover:text-blue-600 dark:border-white/[0.06] dark:text-gray-500 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/5 dark:hover:text-blue-400"
+        onclick={() => onAddItem(column.id)}
+      >
+        <Plus class="h-3.5 w-3.5" />
+        Adicionar {itemName}
+      </button>
     {/if}
   </div>
 
@@ -294,23 +307,6 @@
 
   :global(.dark) .kanban-column.wip-exceeded .column-header {
     background: linear-gradient(to right, rgba(251, 113, 133, 0.15), rgba(251, 113, 133, 0.05));
-  }
-
-  /* Card animation on load */
-  .card-wrapper {
-    opacity: 0;
-    animation: card-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-
-  @keyframes card-fade-in {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 
   /* Scrollbar styling */
