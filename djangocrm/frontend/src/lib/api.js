@@ -8,7 +8,7 @@
  */
 
 import { env } from '$env/dynamic/public';
-import { goto } from '$app/navigation';
+import { goto, invalidateAll } from '$app/navigation';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -215,8 +215,25 @@ export async function apiRequest(endpoint, options = {}) {
         fetchOptions.headers = requestHeaders;
         response = await fetch(url, fetchOptions);
       } else {
-        // Refresh failed — clear stale access token to stop further 401 loops
-        _accessToken = null;
+        // Client-side refresh failed (no refresh token in memory).
+        // Trigger server-side refresh via invalidateAll() — hooks.server.js
+        // will refresh the token from the httpOnly jwt_refresh cookie and
+        // pass the new accessToken via layout data → initClientAuth().
+        try {
+          await invalidateAll();
+          // After invalidateAll, initClientAuth should have set the new token
+          const refreshedToken = getAccessToken();
+          if (refreshedToken) {
+            requestHeaders['Authorization'] = `Bearer ${refreshedToken}`;
+            fetchOptions.headers = requestHeaders;
+            response = await fetch(url, fetchOptions);
+          } else {
+            // Both refresh paths failed — token is truly expired
+            _accessToken = null;
+          }
+        } catch {
+          _accessToken = null;
+        }
       }
     }
 
