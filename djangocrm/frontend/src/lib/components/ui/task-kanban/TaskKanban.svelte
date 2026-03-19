@@ -35,7 +35,7 @@
   let { data = null, loading = false, onStatusChange, onCardClick, onAddItem = null } = $props();
 
   // Transform data to use generic field names
-  const transformedData = $derived(() => {
+  const transformedData = $derived.by(() => {
     if (!data) return null;
 
     return {
@@ -52,7 +52,7 @@
 </script>
 
 <KanbanBoard
-  data={transformedData()}
+  data={transformedData}
   {loading}
   itemName="tarefa"
   itemNamePlural="tarefas"

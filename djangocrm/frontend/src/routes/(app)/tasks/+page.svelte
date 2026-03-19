@@ -1,6 +1,6 @@
 <script>
   import { enhance } from '$app/forms';
-  import { invalidateAll, invalidate, goto } from '$app/navigation';
+  import { invalidate, goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, tick } from 'svelte';
   import { toast } from 'svelte-sonner';
@@ -436,7 +436,7 @@
     const url = new URL($page.url);
     url.searchParams.delete('action');
     url.searchParams.delete('accountId');
-    goto(url.pathname, { replaceState: true, invalidateAll: true });
+    goto(url.pathname, { replaceState: true });
     accountFromUrl = false;
     accountNameFromUrl = '';
     accountIdFromUrl = '';
@@ -486,7 +486,7 @@
         url.searchParams.set(key, value);
       }
     });
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
     pageLoading = false;
   }
 
@@ -504,7 +504,7 @@
   async function handlePageChange(newPage) {
     const url = new URL($page.url);
     url.searchParams.set('page', newPage.toString());
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   /**
@@ -515,7 +515,7 @@
     const url = new URL($page.url);
     url.searchParams.set('limit', newLimit.toString());
     url.searchParams.set('page', '1'); // Reset to first page
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   // Filter panel expansion state
@@ -600,7 +600,7 @@
       url.searchParams.delete('pipeline_id');
     }
     url.searchParams.set('view', 'kanban');
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
   }
 
   async function handleTaskPipelineCreate(pipelineData) {
@@ -1250,7 +1250,7 @@
       url.searchParams.set('quick_filter', value);
     }
     url.searchParams.set('page', '1');
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
     pageLoading = false;
   }
 
@@ -1647,7 +1647,7 @@
     } else {
       url.searchParams.set('view', mode);
     }
-    await goto(url.toString(), { replaceState: true, noScroll: true, invalidateAll: true });
+    await goto(url.toString(), { replaceState: true, noScroll: true });
     pageLoading = false;
   }
 
@@ -1911,9 +1911,18 @@
 
   <!-- Loading indicator for filter/navigation -->
   {#if pageLoading}
-    <div class="h-0.5 w-full overflow-hidden bg-primary/20">
-      <div class="h-full w-1/3 animate-pulse rounded-full bg-primary"></div>
+    <div class="mx-4 h-0.5 overflow-hidden rounded-full bg-muted">
+      <div
+        class="h-full w-2/5 rounded-full bg-primary"
+        style="animation: loading-slide 1s ease-in-out infinite alternate"
+      ></div>
     </div>
+    <style>
+      @keyframes loading-slide {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(150%); }
+      }
+    </style>
   {/if}
 
   <!-- Unified filter chips (status + date shortcuts) -->
