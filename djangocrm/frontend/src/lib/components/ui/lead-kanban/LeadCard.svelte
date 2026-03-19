@@ -1,5 +1,5 @@
 <script>
-  import { Building2, DollarSign, Flame, Snowflake, Thermometer, Sparkles } from '@lucide/svelte';
+  import { Building2, DollarSign, Flame, Snowflake, Thermometer, Sparkles, Clock, Calendar } from '@lucide/svelte';
 
   /**
    * @typedef {Object} Lead
@@ -18,6 +18,8 @@
    * @property {string} [nextFollowUp]
    * @property {boolean} [is_follow_up_overdue]
    * @property {boolean} [isFollowUpOverdue]
+   * @property {string} [last_contacted]
+   * @property {number} [days_since_last_contact]
    * @property {Array<{id: string, user_details?: {email?: string}, email?: string}>} [assigned_to]
    * @property {Array<{id: string, user_details?: {email?: string}, email?: string}>} [assignedTo]
    */
@@ -63,6 +65,9 @@
   const rating = $derived(item.rating);
   const assignees = $derived(item.assigned_to || item.assignedTo || []);
   const config = $derived(rating ? ratingConfig[rating] : null);
+  const daysSinceContact = $derived(item.days_since_last_contact ?? 0);
+  const lastContacted = $derived(item.last_contacted);
+  const email = $derived(item.email || '');
 
   /**
    * Format currency amount with compact notation
@@ -182,6 +187,32 @@
         <span class="truncate text-sm text-gray-600 dark:text-gray-400">{company}</span>
       </div>
     {/if}
+
+    <!-- Activity indicators -->
+    <div class="mt-2 flex flex-col gap-0.5">
+      {#if daysSinceContact > 30}
+        <div class="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          <Clock class="h-3 w-3 shrink-0" />
+          <span>Sem contato há {daysSinceContact}d</span>
+        </div>
+      {:else if lastContacted}
+        <div class="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Clock class="h-3 w-3 shrink-0" />
+          <span>Contato: {daysSinceContact}d atrás</span>
+        </div>
+      {/if}
+      {#if followUp}
+        <div class="flex items-center gap-1 text-[10px] {isOverdue ? 'font-medium text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}">
+          <Calendar class="h-3 w-3 shrink-0" />
+          <span>{isOverdue ? 'Follow-up atrasado' : `Follow-up: ${followUp}`}</span>
+        </div>
+      {/if}
+      {#if email && !company}
+        <div class="flex items-center gap-1 text-[10px] text-muted-foreground truncate">
+          <span class="truncate">{email}</span>
+        </div>
+      {/if}
+    </div>
 
     <!-- Amount - Featured Display -->
     {#if amount}

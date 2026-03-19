@@ -61,6 +61,7 @@
   import CrmDrawer from '$lib/components/ui/crm-drawer/CrmDrawer.svelte';
   import { CommentSection } from '$lib/components/ui/comment-section';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
+  import FinancialSummaryCard from '$lib/components/financeiro/FinancialSummaryCard.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
   import { RelatedEntitiesPanel } from '$lib/components/ui/related-entities/index.js';
   import ContactAutocomplete from '$lib/components/contacts/ContactAutocomplete.svelte';
@@ -1006,7 +1007,13 @@
       contacts: (lead.contacts || []).map((/** @type {any} */ c) => c.id),
       tags: (lead.tags || []).map((/** @type {any} */ t) => t.id),
       comments: lead.lead_comments || [],
-      attachments: lead.lead_attachment || []
+      attachments: lead.lead_attachment || [],
+      // Kanban / Pipeline
+      stage: lead.stage || null,
+      // Activity health
+      daysSinceLastContact: lead.days_since_last_contact || 0,
+      isStale: lead.is_stale || false,
+      isFollowUpOverdue: lead.is_follow_up_overdue || false
     };
   }
 
@@ -2125,6 +2132,40 @@
         </div>
       </div>
     {/if}
+
+    <!-- Activity health pills -->
+    {#if drawerMode !== 'create' && drawerData}
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        {#if drawerData.isFollowUpOverdue}
+          <span class="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+            <AlertTriangle class="h-3 w-3" />
+            Follow-up atrasado
+          </span>
+        {:else if drawerData.nextFollowUp}
+          <span class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
+            <Calendar class="h-3 w-3" />
+            Follow-up: {formatDate(drawerData.nextFollowUp)}
+          </span>
+        {/if}
+        {#if drawerData.isStale}
+          <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+            <Clock class="h-3 w-3" />
+            Sem atividade há {drawerData.daysSinceLastContact} dias
+          </span>
+        {:else if drawerData.daysSinceLastContact > 0}
+          <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+            <Clock class="h-3 w-3" />
+            Último contato: {drawerData.daysSinceLastContact}d
+          </span>
+        {/if}
+        {#if drawerData.probability}
+          <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+            <Percent class="h-3 w-3" />
+            {drawerData.probability}%
+          </span>
+        {/if}
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet activitySection()}
@@ -2136,8 +2177,11 @@
         <RelatedEntitiesPanel
           entityId={drawerData.id}
           entityType="lead"
-          sections={['opportunities', 'tasks']}
+          sections={['opportunities', 'tasks', 'conversations']}
         />
+      </div>
+      <div class="mt-4 border-t border-[var(--border-default)] pt-4">
+        <FinancialSummaryCard entityId={drawerData.id} entityType="lead" />
       </div>
       <div class="mt-4 border-t border-[var(--border-default)] pt-4">
         <ReminderSection

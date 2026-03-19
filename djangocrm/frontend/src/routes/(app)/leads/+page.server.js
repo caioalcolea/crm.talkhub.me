@@ -175,6 +175,14 @@ export async function load({ url, cookies, locals, depends }) {
       primaryContactPhone: lead.primary_contact_phone || null,
       primaryContactId: lead.contacts?.[0]?.id || null,
 
+      // Kanban / Pipeline
+      stage: lead.stage || null,
+
+      // Activity health (computed by backend)
+      daysSinceLastContact: lead.days_since_last_contact || 0,
+      isStale: lead.is_stale || false,
+      isFollowUpOverdue: lead.is_follow_up_overdue || false,
+
       // Related data
       contacts: (lead.contacts || []).map((c) => c.id),
       tags: (lead.tags || []).map((t) => t.id),
@@ -773,7 +781,13 @@ export const actions = {
         contacts: (lead.contacts || []).map((/** @type {any} */ c) => c.id),
         tags: (lead.tags || []).map((/** @type {any} */ t) => t.id),
         comments: lead.lead_comments || [],
-        attachments: lead.lead_attachment || []
+        attachments: lead.lead_attachment || [],
+        // Kanban / Pipeline
+        stage: lead.stage || null,
+        // Activity health
+        daysSinceLastContact: lead.days_since_last_contact || 0,
+        isStale: lead.is_stale || false,
+        isFollowUpOverdue: lead.is_follow_up_overdue || false
       };
 
       return { success: true, lead: transformedLead };

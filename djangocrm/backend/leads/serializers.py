@@ -27,6 +27,11 @@ class LeadSerializer(serializers.ModelSerializer):
     primary_contact_email = serializers.SerializerMethodField()
     primary_contact_phone = serializers.SerializerMethodField()
 
+    # Activity health computed fields
+    days_since_last_contact = serializers.SerializerMethodField()
+    is_stale = serializers.SerializerMethodField()
+    is_follow_up_overdue = serializers.SerializerMethodField()
+
     class Meta:
         model = Lead
         fields = (
@@ -80,7 +85,20 @@ class LeadSerializer(serializers.ModelSerializer):
             "primary_contact_name",
             "primary_contact_email",
             "primary_contact_phone",
+            # Activity health computed
+            "days_since_last_contact",
+            "is_stale",
+            "is_follow_up_overdue",
         )
+
+    def get_days_since_last_contact(self, obj):
+        return obj.days_since_last_contact
+
+    def get_is_stale(self, obj):
+        return obj.is_stale
+
+    def get_is_follow_up_overdue(self, obj):
+        return obj.is_follow_up_overdue
 
     def _get_primary_contact(self, obj):
         """Cache e retorna o primary_contact para evitar queries repetidas."""
@@ -381,6 +399,7 @@ class LeadKanbanCardSerializer(serializers.ModelSerializer):
 
     assigned_to = ProfileSerializer(read_only=True, many=True)
     full_name = serializers.SerializerMethodField()
+    days_since_last_contact = serializers.SerializerMethodField()
 
     class Meta:
         model = Lead
@@ -396,14 +415,19 @@ class LeadKanbanCardSerializer(serializers.ModelSerializer):
             "status",
             "stage",
             "kanban_order",
+            "last_contacted",
             "next_follow_up",
             "is_follow_up_overdue",
+            "days_since_last_contact",
             "assigned_to",
             "created_at",
         ]
 
     def get_full_name(self, obj):
         return str(obj)
+
+    def get_days_since_last_contact(self, obj):
+        return obj.days_since_last_contact
 
 
 class LeadMoveSerializer(serializers.Serializer):
