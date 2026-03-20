@@ -162,6 +162,7 @@ export async function load({ locals, cookies, url }) {
       name: opp.name,
       amount: opp.amount ? Number(opp.amount) : null,
       stage: opp.stage,
+      pipeline_stage: opp.pipeline_stage?.id || opp.pipeline_stage || null,
       opportunityType: opp.opportunity_type,
       currency: opp.currency,
       probability: opp.probability,
@@ -344,6 +345,10 @@ export const actions = {
         tags: parseJsonArray(formData, 'tags')
       };
 
+      // Pipeline stage
+      const pipelineStageId = formData.get('pipelineStageId')?.toString() || null;
+      if (pipelineStageId) opportunityData.pipeline_stage = pipelineStageId;
+
       // Create via API
       await apiRequest(
         '/opportunities/',
@@ -397,6 +402,9 @@ export const actions = {
       }
       if (formData.has('accountId')) {
         opportunityData.account = formData.get('accountId')?.toString() || null;
+      }
+      if (formData.has('pipelineStageId')) {
+        opportunityData.pipeline_stage = formData.get('pipelineStageId')?.toString() || null;
       }
 
       // Number fields

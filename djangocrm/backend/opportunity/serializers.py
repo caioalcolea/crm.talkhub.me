@@ -244,6 +244,7 @@ class OpportunityCreateSerializer(serializers.ModelSerializer):
             "name",
             "account",
             "stage",
+            "pipeline_stage",
             "opportunity_type",
             # Financial Information
             "currency",

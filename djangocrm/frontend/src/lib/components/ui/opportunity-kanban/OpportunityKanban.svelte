@@ -28,10 +28,11 @@
    *   data: KanbanData | null,
    *   loading?: boolean,
    *   onStatusChange: (oppId: string, newStatus: string, columnId: string) => Promise<void>,
-   *   onCardClick: (opp: any) => void
+   *   onCardClick: (opp: any) => void,
+   *   onAddItem?: ((columnId: string) => void) | null
    * }}
    */
-  let { data = null, loading = false, onStatusChange, onCardClick } = $props();
+  let { data = null, loading = false, onStatusChange, onCardClick, onAddItem = null } = $props();
 
   // Transform data to use generic field names
   const transformedData = $derived.by(() => {
@@ -57,6 +58,7 @@
   itemNamePlural="oportunidades"
   onItemMove={onStatusChange}
   {onCardClick}
+  {onAddItem}
   CardComponent={OpportunityCard}
   emptyMessage="Nenhum dado do quadro disponível"
 />

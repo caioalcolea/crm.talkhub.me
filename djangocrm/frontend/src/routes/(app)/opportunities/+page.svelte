@@ -247,6 +247,15 @@
     }
   });
 
+  // Pipeline/stage form state for drawer create/edit
+  let formPipelineId = $state('');
+  let formStageId = $state('');
+
+  const selectedPipelineStages = $derived(
+    pipelines.find(p => p.id === formPipelineId)?.stages
+      ?.slice().sort((a, b) => a.order - b.order) ?? []
+  );
+
   // Kanban move form reference
   let moveFormEl = $state(null);
   let kanbanFormState = $state({
@@ -510,6 +519,9 @@
       accountName = 'Conta desconhecida';
     }
   }
+
+  // Form options are loaded server-side, no lazy loading needed
+  function loadFormOptions() { /* no-op: options come from data.options */ }
 
   // Local accounts created inline via combobox
   let localAccounts = $state(/** @type {any[]} */ ([]));
@@ -1033,8 +1045,21 @@
         teams: (row.teams || []).map((/** @type {any} */ t) => t.id),
         tags: (row.tags || []).map((/** @type {any} */ t) => t.id)
       };
+
+      // Pre-populate pipeline/stage from opportunity data
+      const pipelineStage = row.pipeline_stage;
+      if (pipelineStage) {
+        const pipelineForStage = pipelines.find(p => p.stages?.some(s => s.id === pipelineStage));
+        formPipelineId = pipelineForStage?.id ?? '';
+        formStageId = pipelineStage;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
     }
     drawerOpen = true;
+    // Lazy load form options when drawer opens
+    loadFormOptions();
   }
 
   function openCreate() {
@@ -1047,6 +1072,41 @@
       account: accountIdFromUrl || '',
       contacts: contactIdFromUrl ? [contactIdFromUrl] : []
     };
+    drawerOpen = true;
+    // Lazy load form options when drawer opens
+    loadFormOptions();
+
+    // Auto-select active pipeline when creating
+    if (activePipelineId) {
+      const pipeline = pipelines.find(p => p.id === activePipelineId);
+      if (pipeline?.stages?.length) {
+        formPipelineId = pipeline.id;
+        formStageId = pipeline.stages.slice().sort((a, b) => a.order - b.order)[0].id;
+      } else {
+        formPipelineId = '';
+        formStageId = '';
+      }
+    } else {
+      formPipelineId = '';
+      formStageId = '';
+    }
+  }
+
+  /**
+   * Handle add-item click from a kanban column — opens create drawer with that stage pre-selected
+   * @param {string} stageId
+   */
+  function handleKanbanAddItem(stageId) {
+    loadFormOptions();
+    selectedRowId = null;
+    drawerMode = 'create';
+    selectedContact = null;
+    drawerFormData = {
+      ...emptyOpportunity,
+      currency: $orgSettings.default_currency || 'BRL'
+    };
+    formPipelineId = activePipelineId || '';
+    formStageId = stageId;
     drawerOpen = true;
   }
 
@@ -1081,9 +1141,8 @@
       form.append('stage', drawerFormData.stage || 'PROSPECTING');
       form.append('amount', drawerFormData.amount?.toString() || '0');
       form.append('probability', drawerFormData.probability?.toString() || '50');
-      if (drawerFormData.account) {
-        form.append('accountId', drawerFormData.account);
-      }
+      // Always send accountId (even empty) so clearing account persists
+      form.append('accountId', drawerFormData.account || '');
       if (drawerFormData.opportunityType) {
         form.append('opportunityType', drawerFormData.opportunityType);
       }
@@ -1096,8 +1155,12 @@
       if (drawerFormData.leadSource) {
         form.append('leadSource', drawerFormData.leadSource);
       }
-      if (drawerFormData.description) {
-        form.append('description', drawerFormData.description);
+      if (drawerFormData.description !== undefined) {
+        form.append('description', drawerFormData.description || '');
+      }
+      // Pipeline stage
+      if (formStageId) {
+        form.append('pipelineStageId', formStageId);
       }
       // Multi-select fields - send as JSON arrays
       form.append('contacts', JSON.stringify(drawerFormData.contacts || []));
@@ -1136,11 +1199,9 @@
       form.append('stage', drawerFormData.stage || 'PROSPECTING');
       form.append('amount', drawerFormData.amount?.toString() || '0');
       form.append('probability', drawerFormData.probability?.toString() || '50');
-      // Use drawerFormData.account or fall back to accountIdFromUrl
-      const accountId = drawerFormData.account || accountIdFromUrl;
-      if (accountId) {
-        form.append('accountId', accountId);
-      }
+      // Always send accountId (even empty)
+      const accountId = drawerFormData.account || accountIdFromUrl || '';
+      form.append('accountId', accountId);
       if (drawerFormData.opportunityType) {
         form.append('opportunityType', drawerFormData.opportunityType);
       }
@@ -1155,6 +1216,10 @@
       }
       if (drawerFormData.description) {
         form.append('description', drawerFormData.description);
+      }
+      // Pipeline stage
+      if (formStageId) {
+        form.append('pipelineStageId', formStageId);
       }
       // Multi-select fields - send as JSON arrays
       if (drawerFormData.contacts?.length > 0) {
@@ -1612,6 +1677,7 @@
       data={kanbanData}
       onStatusChange={handleKanbanMove}
       onCardClick={(opp) => openDrawer(opp.id)}
+      onAddItem={handleKanbanAddItem}
     />
   {:else}
     <!-- Table View -->
@@ -1716,6 +1782,38 @@
           <User class="size-4 text-[var(--text-tertiary)]" />
           <span class="font-medium text-[var(--text-primary)]">{selectedRow.contacts[0].name || selectedRow.contacts[0].firstName || ''}</span>
         </a>
+      </div>
+    {/if}
+
+    <!-- Pipeline / Stage selector -->
+    {#if pipelines.length > 0}
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Pipeline</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formPipelineId}
+            onchange={() => { formStageId = ''; }}
+          >
+            <option value="">Nenhum</option>
+            {#each pipelines as pipeline}
+              <option value={pipeline.id}>{pipeline.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-muted-foreground">Estágio</label>
+          <select
+            class="w-full rounded-md border border-[var(--border-default)] bg-transparent px-3 py-1.5 text-sm"
+            bind:value={formStageId}
+            disabled={!formPipelineId}
+          >
+            <option value="">Selecione...</option>
+            {#each selectedPipelineStages as stage}
+              <option value={stage.id}>{stage.name}</option>
+            {/each}
+          </select>
+        </div>
       </div>
     {/if}
   {/snippet}

@@ -214,6 +214,15 @@ class OpportunityListView(APIView, LimitOffsetPagination):
                 org=request.profile.org,
             )
 
+            # Auto-update legacy stage from pipeline_stage.maps_to_stage
+            if (
+                opportunity_obj.pipeline_stage
+                and opportunity_obj.pipeline_stage.maps_to_stage
+                and opportunity_obj.stage == "PROSPECTING"
+            ):
+                opportunity_obj.stage = opportunity_obj.pipeline_stage.maps_to_stage
+                opportunity_obj.save(update_fields=["stage"])
+
             if params.get("contacts"):
                 contacts_list = params.get("contacts")
                 if isinstance(contacts_list, str):
@@ -361,6 +370,15 @@ class OpportunityDetailView(APIView):
 
         if serializer.is_valid():
             opportunity_object = serializer.save(closed_on=params.get("closed_on"))
+
+            # Auto-update legacy stage from pipeline_stage.maps_to_stage
+            if (
+                opportunity_object.pipeline_stage
+                and opportunity_object.pipeline_stage.maps_to_stage
+            ):
+                opportunity_object.stage = opportunity_object.pipeline_stage.maps_to_stage
+                opportunity_object.save(update_fields=["stage"])
+
             previous_assigned_to_users = list(
                 opportunity_object.assigned_to.all().values_list("id", flat=True)
             )
@@ -737,6 +755,14 @@ class OpportunityDetailView(APIView):
                 if "closed_on" in params
                 else opportunity_object.closed_on
             )
+
+            # Auto-update legacy stage from pipeline_stage.maps_to_stage
+            if (
+                opportunity_object.pipeline_stage
+                and opportunity_object.pipeline_stage.maps_to_stage
+            ):
+                opportunity_object.stage = opportunity_object.pipeline_stage.maps_to_stage
+                opportunity_object.save(update_fields=["stage"])
 
             # Handle M2M fields if present in request
             if "contacts" in params:
