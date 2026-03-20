@@ -217,7 +217,9 @@ class OpportunityMoveView(APIView):
     def patch(self, request, pk):
         """Move opportunity to different column and/or position."""
         org = request.profile.org
-        opp = get_object_or_404(Opportunity, pk=pk, org=org)
+        opp = get_object_or_404(
+            Opportunity.objects.select_for_update(), pk=pk, org=org
+        )
 
         if request.profile.role != "ADMIN" and not request.profile.is_admin:
             if not (
@@ -283,17 +285,28 @@ class OpportunityMoveView(APIView):
             opp.stage == "CLOSED_WON"
             or (opp.pipeline_stage and opp.pipeline_stage.maps_to_stage == "CLOSED_WON")
         )
-        if data.get("skip_auto_lancamento", False) and is_moving_to_won:
+        skip_lancamento = data.get("skip_auto_lancamento", False) and is_moving_to_won
+        if skip_lancamento:
             opp._skip_auto_lancamento = True
 
-            # Create notification for org admins
+        # Calculate new order
+        new_order = self._calculate_order(data, opp, org)
+        opp.kanban_order = new_order
+
+        opp.save()
+
+        # Create notification for org admins AFTER successful save
+        if skip_lancamento:
             from assistant.models import Notification
             from common.models import Profile
 
             admin_profiles = Profile.objects.filter(
                 org=org, role="ADMIN", is_active=True
             )
-            amount_str = f"{opp.currency or 'BRL'} {opp.amount}" if opp.amount else "valor não definido"
+            if opp.amount:
+                amount_str = f"{opp.currency or 'BRL'} {opp.amount:,.2f}"
+            else:
+                amount_str = "valor não definido"
             for admin in admin_profiles:
                 Notification.objects.create(
                     org=org,
@@ -313,12 +326,6 @@ class OpportunityMoveView(APIView):
                         "currency": opp.currency or "",
                     },
                 )
-
-        # Calculate new order
-        new_order = self._calculate_order(data, opp, org)
-        opp.kanban_order = new_order
-
-        opp.save()
 
         return Response(
             {

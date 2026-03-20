@@ -529,8 +529,8 @@ export const actions = {
       // Kanban ordering hints
       const aboveId = formData.get('aboveId')?.toString();
       const belowId = formData.get('belowId')?.toString();
-      if (aboveId) moveData.above_id = aboveId;
-      if (belowId) moveData.below_id = belowId;
+      if (aboveId) moveData.above_opportunity_id = aboveId;
+      if (belowId) moveData.below_opportunity_id = belowId;
 
       await apiRequest(
         `/opportunities/${opportunityId}/move/`,

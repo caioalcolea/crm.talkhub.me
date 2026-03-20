@@ -237,6 +237,13 @@ class OpportunityCreateSerializer(serializers.ModelSerializer):
                 )
         return name
 
+    def validate_pipeline_stage(self, value):
+        if value and hasattr(self, "org") and value.org_id != self.org.id:
+            raise serializers.ValidationError(
+                "Pipeline stage does not belong to your organization"
+            )
+        return value
+
     class Meta:
         model = Opportunity
         fields = (

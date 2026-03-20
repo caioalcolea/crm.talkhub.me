@@ -691,13 +691,14 @@
           emptyText: 'Nenhuma empresa',
           onCreate: handleCreateAccount
         },
-    {
+    // Only show legacy stage dropdown when no pipelines (pipeline/stage selector is in headerContent)
+    ...(pipelines.length === 0 ? [{
       key: 'stage',
       label: 'Etapa',
       type: 'select',
       icon: Target,
       options: stageOptions
-    },
+    }] : []),
     {
       key: 'opportunityType',
       label: 'Tipo',
@@ -1720,7 +1721,7 @@
   {/snippet}
 </PageHeader>
 
-<div class="flex-1">
+<div class="relative z-20 flex-1">
   <!-- Collapsible Filter Bar -->
   <FilterBar
     minimal={true}

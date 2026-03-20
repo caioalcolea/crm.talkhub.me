@@ -208,20 +208,22 @@ class OpportunityListView(APIView, LimitOffsetPagination):
         params = request.data
         serializer = OpportunityCreateSerializer(data=params, request_obj=request)
         if serializer.is_valid():
-            opportunity_obj = serializer.save(
+            # Resolve pipeline_stage → legacy stage mapping before save
+            # so the signal sees the correct stage on first save
+            save_kwargs = dict(
                 created_by=request.profile.user,
                 closed_on=params.get("closed_on"),
                 org=request.profile.org,
             )
-
-            # Auto-update legacy stage from pipeline_stage.maps_to_stage
+            pipeline_stage = serializer.validated_data.get("pipeline_stage")
             if (
-                opportunity_obj.pipeline_stage
-                and opportunity_obj.pipeline_stage.maps_to_stage
-                and opportunity_obj.stage == "PROSPECTING"
+                pipeline_stage
+                and pipeline_stage.maps_to_stage
+                and serializer.validated_data.get("stage", "PROSPECTING") == "PROSPECTING"
             ):
-                opportunity_obj.stage = opportunity_obj.pipeline_stage.maps_to_stage
-                opportunity_obj.save(update_fields=["stage"])
+                save_kwargs["stage"] = pipeline_stage.maps_to_stage
+
+            opportunity_obj = serializer.save(**save_kwargs)
 
             if params.get("contacts"):
                 contacts_list = params.get("contacts")
@@ -369,15 +371,13 @@ class OpportunityDetailView(APIView):
         )
 
         if serializer.is_valid():
-            opportunity_object = serializer.save(closed_on=params.get("closed_on"))
+            # Resolve pipeline_stage → legacy stage mapping before save
+            save_kwargs = {"closed_on": params.get("closed_on")}
+            pipeline_stage = serializer.validated_data.get("pipeline_stage")
+            if pipeline_stage and pipeline_stage.maps_to_stage:
+                save_kwargs["stage"] = pipeline_stage.maps_to_stage
 
-            # Auto-update legacy stage from pipeline_stage.maps_to_stage
-            if (
-                opportunity_object.pipeline_stage
-                and opportunity_object.pipeline_stage.maps_to_stage
-            ):
-                opportunity_object.stage = opportunity_object.pipeline_stage.maps_to_stage
-                opportunity_object.save(update_fields=["stage"])
+            opportunity_object = serializer.save(**save_kwargs)
 
             previous_assigned_to_users = list(
                 opportunity_object.assigned_to.all().values_list("id", flat=True)
@@ -750,19 +750,17 @@ class OpportunityDetailView(APIView):
         )
 
         if serializer.is_valid():
-            opportunity_object = serializer.save(
-                closed_on=params.get("closed_on")
+            # Resolve pipeline_stage → legacy stage mapping before save
+            save_kwargs = {
+                "closed_on": params.get("closed_on")
                 if "closed_on" in params
                 else opportunity_object.closed_on
-            )
+            }
+            pipeline_stage = serializer.validated_data.get("pipeline_stage")
+            if pipeline_stage and pipeline_stage.maps_to_stage:
+                save_kwargs["stage"] = pipeline_stage.maps_to_stage
 
-            # Auto-update legacy stage from pipeline_stage.maps_to_stage
-            if (
-                opportunity_object.pipeline_stage
-                and opportunity_object.pipeline_stage.maps_to_stage
-            ):
-                opportunity_object.stage = opportunity_object.pipeline_stage.maps_to_stage
-                opportunity_object.save(update_fields=["stage"])
+            opportunity_object = serializer.save(**save_kwargs)
 
             # Handle M2M fields if present in request
             if "contacts" in params:

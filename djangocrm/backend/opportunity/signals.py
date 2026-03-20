@@ -36,8 +36,11 @@ def create_lancamento_on_closed_won(sender, instance, **kwargs):
         try:
             if instance.pipeline_stage.maps_to_stage == "CLOSED_WON":
                 is_won = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "Error checking pipeline_stage.maps_to_stage for Opportunity %s: %s",
+                instance.pk, e,
+            )
 
     # Fall back to legacy stage field
     if not is_won and instance.stage == "CLOSED_WON":
