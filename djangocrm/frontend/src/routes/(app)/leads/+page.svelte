@@ -1155,6 +1155,53 @@
   }
 
   /**
+   * Handle add-item click from a kanban column — opens create drawer with that stage pre-selected
+   * @param {string} stageId
+   */
+  function handleKanbanAddItem(stageId) {
+    loadFormOptions();
+    createFormData = {
+      title: '',
+      salutation: '',
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      jobTitle: '',
+      company: '',
+      website: '',
+      linkedinUrl: '',
+      status: 'ASSIGNED',
+      rating: '',
+      leadSource: '',
+      industry: '',
+      opportunityAmount: '',
+      probability: '',
+      closeDate: '',
+      lastContacted: '',
+      nextFollowUp: '',
+      addressLine: '',
+      city: '',
+      state: '',
+      postcode: '',
+      country: '',
+      description: '',
+      assignedTo: [],
+      teams: [],
+      contacts: [],
+      tags: []
+    };
+    drawerData = null;
+    drawerMode = 'create';
+    drawerOpen = true;
+    selectedContact = null;
+
+    // Pre-fill pipeline and specific stage from kanban column
+    formPipelineId = activePipelineId || '';
+    formStageId = stageId;
+  }
+
+  /**
    * Close drawer
    * @returns {Promise<void>}
    */
@@ -2041,6 +2088,7 @@
       data={kanbanData}
       onStatusChange={handleKanbanStatusChange}
       onCardClick={(lead) => openLead(lead, true)}
+      onAddItem={handleKanbanAddItem}
     />
   {:else}
     <!-- Table View -->
