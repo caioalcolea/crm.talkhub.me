@@ -91,11 +91,29 @@ def _do_create_opportunity(lead):
         first_contact = contacts.first()
         opp_name = f"{first_contact.first_name} - {pipeline.name}"
 
+        # Determine target opportunity pipeline & stage
+        target_pipeline_stage = None
+        target_legacy_stage = "PROSPECTING"
+
+        if getattr(pipeline, "target_opp_stage_id", None):
+            target_pipeline_stage = pipeline.target_opp_stage
+            target_legacy_stage = (
+                getattr(target_pipeline_stage, "maps_to_stage", "") or "PROSPECTING"
+            )
+        elif getattr(pipeline, "target_opp_pipeline_id", None):
+            first_stage = pipeline.target_opp_pipeline.stages.order_by("order").first()
+            if first_stage:
+                target_pipeline_stage = first_stage
+                target_legacy_stage = (
+                    getattr(first_stage, "maps_to_stage", "") or "PROSPECTING"
+                )
+
         opp = Opportunity.objects.create(
             org=lead.org,
             name=opp_name,
             lead=lead,
-            stage="PROSPECTING",
+            stage=target_legacy_stage,
+            pipeline_stage=target_pipeline_stage,
             probability=lead.probability or 50,
             amount=lead.opportunity_amount or 0,
             description=f"Auto-created from lead: {lead.title}",

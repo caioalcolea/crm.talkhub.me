@@ -33,7 +33,8 @@
    *   canManage?: boolean,
    *   teams?: Array<{id: string, name: string}>,
    *   users?: Array<{id: string, name: string, email?: string}>,
-   *   module?: string
+   *   module?: string,
+   *   opportunityPipelines?: Array<any>
    * }}
    */
   let {
@@ -50,7 +51,8 @@
     canManage = false,
     teams = [],
     users = [],
-    module = 'leads'
+    module = 'leads',
+    opportunityPipelines = []
   } = $props();
 
   // Create dialog state
@@ -266,6 +268,7 @@
     {onStageUpdate}
     {onStageDelete}
     {onStageReorder}
+    {opportunityPipelines}
     onConfirmDelete={confirmDelete}
   />
 {/if}

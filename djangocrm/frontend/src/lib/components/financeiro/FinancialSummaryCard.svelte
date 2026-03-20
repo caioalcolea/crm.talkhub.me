@@ -26,8 +26,8 @@
     try {
       report = await financeiro.entityReport(entityId, entityType);
     } catch (e) {
-      // 404 = no financial data, not an error
-      if (e?.status === 404) {
+      // 404 = no financial data, 403 = no financial access — both silent
+      if (e?.status === 404 || e?.status === 403) {
         report = null;
       } else {
         error = 'Erro ao carregar resumo financeiro';

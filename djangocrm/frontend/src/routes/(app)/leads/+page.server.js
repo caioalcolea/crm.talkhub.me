@@ -77,7 +77,7 @@ export async function load({ url, cookies, locals, depends }) {
     const kanbanQueryString = kanbanQueryParams.toString();
 
     // Fetch only essential data — form options loaded lazily on client when drawer opens
-    const [response, tagsResponse, kanbanResponse, pipelinesResponse] =
+    const [response, tagsResponse, kanbanResponse, pipelinesResponse, oppPipelinesResponse] =
       await Promise.all([
         apiRequest(`/leads/${queryString ? `?${queryString}` : ''}`, {}, { cookies, org }),
         apiRequest('/tags/', {}, { cookies, org }).catch(() => ({ tags: [] })),
@@ -88,7 +88,8 @@ export async function load({ url, cookies, locals, depends }) {
               { cookies, org }
             ).catch(() => null)
           : Promise.resolve(null),
-        apiRequest('/leads/pipelines/', {}, { cookies, org }).catch(() => [])
+        apiRequest('/leads/pipelines/', {}, { cookies, org }).catch(() => []),
+        apiRequest('/opportunities/pipelines/', {}, { cookies, org }).catch(() => ({ pipelines: [] }))
       ]);
 
     // Handle Django response format
@@ -214,6 +215,7 @@ export async function load({ url, cookies, locals, depends }) {
       pipelineId: pipelineId || kanbanResponse?.pipeline?.id || '',
       kanbanData: kanbanResponse,
       pipelines: Array.isArray(pipelinesResponse) ? pipelinesResponse : pipelinesResponse?.pipelines || pipelinesResponse?.results || [],
+      oppPipelines: oppPipelinesResponse?.pipelines || [],
       filterOptions: {
         statuses: [
           { value: 'ASSIGNED', label: 'Atribuído' },

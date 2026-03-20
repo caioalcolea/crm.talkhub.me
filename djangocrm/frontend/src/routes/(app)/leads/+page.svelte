@@ -2080,6 +2080,7 @@
         teams={formOptions.teamsList || []}
         users={formOptions.users || []}
         module="leads"
+        opportunityPipelines={data.oppPipelines || []}
       />
     </div>
 

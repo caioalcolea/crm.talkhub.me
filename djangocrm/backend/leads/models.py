@@ -269,6 +269,22 @@ class LeadPipeline(OrgScopedMixin, BaseModel):
         default=True,
         help_text="Se True, cria Opportunity automaticamente quando Lead entra neste pipeline",
     )
+    target_opp_pipeline = models.ForeignKey(
+        "opportunity.OpportunityPipeline",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Pipeline de oportunidade onde o negócio será criado",
+    )
+    target_opp_stage = models.ForeignKey(
+        "opportunity.OpportunityStage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Etapa inicial da oportunidade criada (padrão: 1ª etapa do pipeline)",
+    )
     visible_to_teams = models.ManyToManyField(
         Teams, blank=True, related_name="visible_lead_pipelines",
         help_text="Se vazio = visível para todos. Se preenchido = apenas estes times.",

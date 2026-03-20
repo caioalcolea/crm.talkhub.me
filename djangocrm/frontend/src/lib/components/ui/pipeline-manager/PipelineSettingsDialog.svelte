@@ -28,7 +28,9 @@
    *   onStageUpdate?: (stageId: string, data: any) => Promise<void>,
    *   onStageDelete?: (stageId: string) => Promise<void>,
    *   onStageReorder?: (pipelineId: string, order: string[]) => Promise<void>,
-   *   onConfirmDelete?: (id: string) => void
+   *   onConfirmDelete?: (id: string) => void,
+   *   opportunityPipelines?: Array<{id: string, name: string, stages: Array<{id: string, name: string, order: number}>}>,
+   *   module?: string
    * }}
    */
   let {
@@ -43,14 +45,32 @@
     onStageDelete,
     onStageReorder,
     onConfirmDelete,
-    module = 'leads'
+    module = 'leads',
+    opportunityPipelines = []
   } = $props();
 
   // Local state
   let pipelineName = $state(pipeline?.name || '');
   let pipelineDescription = $state(pipeline?.description || '');
   let autoCreateOpportunity = $state(pipeline?.auto_create_opportunity ?? true);
+  let targetOppPipeline = $state(pipeline?.target_opp_pipeline || '');
+  let targetOppStage = $state(pipeline?.target_opp_stage || '');
   let saving = $state(false);
+
+  // Stages for the selected target opportunity pipeline
+  let targetOppStages = $derived(
+    opportunityPipelines.find(p => p.id === targetOppPipeline)?.stages?.sort((a, b) => a.order - b.order) || []
+  );
+  // Auto-default target opp pipeline/stage when toggle is ON and nothing selected
+  $effect(() => {
+    if (autoCreateOpportunity && !targetOppPipeline && opportunityPipelines.length > 0) {
+      const first = opportunityPipelines[0];
+      targetOppPipeline = first.id;
+      const stages = [...(first.stages || [])].sort((a, b) => a.order - b.order);
+      targetOppStage = stages[0]?.id || '';
+    }
+  });
+
   let addingStageName = $state('');
   let addingStage = $state(false);
 
@@ -113,6 +133,8 @@
         pipelineName = p.name || '';
         pipelineDescription = p.description || '';
         autoCreateOpportunity = p.auto_create_opportunity ?? true;
+        targetOppPipeline = p.target_opp_pipeline || '';
+        targetOppStage = p.target_opp_stage || '';
         selectedTeams = new Set(p.visible_to_teams?.map(String) || []);
         selectedUsers = new Set(p.visible_to_users?.map(String) || []);
       }
@@ -136,7 +158,9 @@
         description: pipelineDescription,
         visible_to_teams: [...selectedTeams],
         visible_to_users: [...selectedUsers],
-        auto_create_opportunity: autoCreateOpportunity
+        auto_create_opportunity: autoCreateOpportunity,
+        target_opp_pipeline: targetOppPipeline || null,
+        target_opp_stage: targetOppStage || null
       });
     } catch (err) {
       console.error('Failed to update pipeline:', err);
@@ -506,6 +530,46 @@
               <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform {autoCreateOpportunity ? 'translate-x-5' : 'translate-x-0'}" />
             </button>
           </div>
+
+          <!-- Target opportunity pipeline/stage (when auto-create is ON) -->
+          {#if autoCreateOpportunity && opportunityPipelines.length > 0}
+            <div class="ml-2 space-y-2 border-l-2 border-primary/20 pl-3">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted-foreground">Pipeline de destino</label>
+                <select
+                  bind:value={targetOppPipeline}
+                  onchange={() => {
+                    // Auto-select first stage when pipeline changes
+                    const stages = opportunityPipelines.find(p => p.id === targetOppPipeline)?.stages || [];
+                    const sorted = [...stages].sort((a, b) => a.order - b.order);
+                    targetOppStage = sorted[0]?.id || '';
+                  }}
+                  class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                >
+                  <option value="">Nenhum (apenas lista)</option>
+                  {#each opportunityPipelines as p (p.id)}
+                    <option value={p.id}>{p.name}</option>
+                  {/each}
+                </select>
+              </div>
+              {#if targetOppPipeline && targetOppStages.length > 0}
+                <div>
+                  <label class="mb-1 block text-xs font-medium text-muted-foreground">Etapa inicial</label>
+                  <select
+                    bind:value={targetOppStage}
+                    class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                  >
+                    {#each targetOppStages as s (s.id)}
+                      <option value={s.id}>{s.name}</option>
+                    {/each}
+                  </select>
+                </div>
+              {/if}
+              <p class="text-[10px] text-muted-foreground">
+                Define onde o negócio aparecerá no kanban de Oportunidades.
+              </p>
+            </div>
+          {/if}
         {/if}
 
         <!-- Danger zone -->
