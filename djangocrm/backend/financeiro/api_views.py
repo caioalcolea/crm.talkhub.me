@@ -198,6 +198,7 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         "contact",
         "opportunity",
         "invoice",
+        "product",
         "forma_pagamento",
     ).prefetch_related("parcelas")
 
@@ -279,6 +280,25 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
 
         lancamento = serializer.save(org=org, **extra)
         lancamento.generate_parcelas()
+
+        # Stock deduction for tracked physical products
+        product = lancamento.product
+        if product and product.track_inventory and product.product_type == "product":
+            from invoices.models import StockMovement
+
+            qty = lancamento.quantity or 1
+            StockMovement.objects.create(
+                product=product,
+                movement_type="out",
+                quantity=qty,
+                unit_cost=product.cost_price,
+                reference_type="lancamento",
+                reference_id=lancamento.pk,
+                notes=f"Lançamento: {lancamento.descricao}",
+                org=lancamento.org,
+            )
+            product.stock_quantity -= qty
+            product.save(update_fields=["stock_quantity"])
 
     def perform_update(self, serializer):
         instance = serializer.instance
@@ -1010,6 +1030,13 @@ class FormOptionsView(APIView):
         contacts = Contact.objects.filter(org=org).order_by("first_name", "last_name").only("id", "first_name", "last_name", "email")
         opportunities = Opportunity.objects.filter(org=org).order_by("name").only("id", "name")
 
+        from invoices.models import Product
+        products = Product.objects.filter(org=org, is_active=True).order_by("name").only(
+            "id", "name", "product_type", "price", "cost_price", "currency",
+            "track_inventory", "stock_quantity",
+            "default_plano_receita_id", "default_plano_custo_id",
+        )
+
         return Response(
             {
                 "plano_grupos": [
@@ -1036,6 +1063,21 @@ class FormOptionsView(APIView):
                 ],
                 "opportunities": [
                     {"id": str(o.id), "name": o.name} for o in opportunities[:100]
+                ],
+                "products": [
+                    {
+                        "id": str(p.id),
+                        "name": p.name,
+                        "product_type": p.product_type,
+                        "price": str(p.price),
+                        "cost_price": str(p.cost_price),
+                        "currency": p.currency or "",
+                        "track_inventory": p.track_inventory,
+                        "stock_quantity": str(p.stock_quantity),
+                        "default_plano_receita": str(p.default_plano_receita_id) if p.default_plano_receita_id else None,
+                        "default_plano_custo": str(p.default_plano_custo_id) if p.default_plano_custo_id else None,
+                    }
+                    for p in products[:200]
                 ],
                 "currencies": [
                     {"code": code, "label": label, "symbol": FINANCEIRO_CURRENCY_SYMBOLS.get(code, code)}

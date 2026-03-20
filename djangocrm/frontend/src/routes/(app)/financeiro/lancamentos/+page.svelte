@@ -59,6 +59,8 @@
     contact: '',
     opportunity: '',
     invoice: '',
+    product: '',
+    quantity: 1,
     currency: 'BRL',
     valor_total: '',
     exchange_rate_to_base: '1',
@@ -81,6 +83,8 @@
       contact: '',
       opportunity: '',
       invoice: '',
+      product: '',
+      quantity: 1,
       exchange_rate_type: 'FIXO',
       currency: defaultCurrency,
       valor_total: '',
@@ -242,6 +246,9 @@
           >
             <td class="max-w-[220px] px-3 py-2.5">
               <span class="block truncate font-medium">{item.descricao}</span>
+              {#if item.product_name}
+                <span class="text-muted-foreground block truncate text-[10px]">{item.product_name}{item.quantity > 1 ? ` x${item.quantity}` : ''}</span>
+              {/if}
               {#if item.recorrencia_label}
                 <span class="inline-flex items-center gap-0.5 text-[10px] text-blue-600 dark:text-blue-400">
                   <Repeat class="size-2.5" /> {item.recorrencia_label}

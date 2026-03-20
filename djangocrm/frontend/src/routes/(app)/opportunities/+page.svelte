@@ -322,6 +322,8 @@
         account: '',
         contact: '',
         opportunity: oppId,
+        product: '',
+        quantity: 1,
         currency: oppData?.currency || $orgSettings.default_currency || 'BRL',
         valor_total: oppData?.amount || '',
         exchange_rate_to_base: '1',

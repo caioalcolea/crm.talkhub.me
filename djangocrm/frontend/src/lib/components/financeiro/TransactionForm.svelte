@@ -84,6 +84,39 @@
   let currencyOptions = $derived(
     (formOptions.currencies || []).map((c) => ({ value: c.code, label: `${c.code} - ${c.symbol}` }))
   );
+  let productOptions = $derived(
+    (formOptions.products || []).map((p) => ({
+      value: p.id,
+      label: `${p.name}${p.product_type === 'service' ? ' (Serviço)' : ''}${p.track_inventory ? ` [${p.stock_quantity}]` : ''}`
+    }))
+  );
+
+  // Auto-fill fields when product is selected
+  let _lastProductId = '';
+  $effect(() => {
+    const productId = formData.product;
+    if (!productId || productId === _lastProductId) return;
+    _lastProductId = productId;
+    const prod = (formOptions.products || []).find((p) => p.id === productId);
+    if (!prod) return;
+    // Auto-fill valor_total only if empty
+    if (!formData.valor_total || formData.valor_total === '') {
+      const qty = parseFloat(formData.quantity) || 1;
+      formData.valor_total = (parseFloat(prod.price) * qty).toFixed(2);
+    }
+    // Auto-fill currency if product has one
+    if (prod.currency && formData.currency === orgCurrency) {
+      formData.currency = prod.currency;
+    }
+    // Auto-fill plano de contas
+    if (!formData.plano_de_contas) {
+      if (formData.tipo === 'RECEBER' && prod.default_plano_receita) {
+        formData.plano_de_contas = prod.default_plano_receita;
+      } else if (formData.tipo === 'PAGAR' && prod.default_plano_custo) {
+        formData.plano_de_contas = prod.default_plano_custo;
+      }
+    }
+  });
 
   // Auto-set exchange rate to 1 when same currency
   $effect(() => {
@@ -290,6 +323,37 @@
       </div>
     </div>
   </div>
+
+  <!-- Produto / Serviço (optional) -->
+  {#if productOptions.length > 0}
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div class="{formData.product ? 'sm:col-span-2' : 'sm:col-span-3'}">
+        <label class="text-sm font-medium">Produto / Serviço</label>
+        <div class="mt-1">
+          <SearchableSelect
+            bind:value={formData.product}
+            options={productOptions}
+            placeholder="Selecione (opcional)..."
+            searchPlaceholder="Buscar produto..."
+            emptyText="Nenhum produto encontrado."
+          />
+        </div>
+      </div>
+      {#if formData.product}
+        <div>
+          <label for="quantity" class="text-sm font-medium">Quantidade</label>
+          <input
+            id="quantity"
+            type="number"
+            step="0.01"
+            min="0.01"
+            bind:value={formData.quantity}
+            class="border-input bg-background mt-1 flex h-9 w-full rounded-md border px-3 py-1 text-sm focus-visible:outline-none"
+          />
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Currency + Value + Exchange Rate (only for create or full-edit) -->
   {#if showFinancials}

@@ -75,6 +75,8 @@ export const actions = {
       contact: form.get('contact') || null,
       opportunity: form.get('opportunity') || null,
       invoice: form.get('invoice') || null,
+      product: form.get('product') || null,
+      quantity: parseFloat(form.get('quantity') || '1'),
       currency: form.get('currency') || 'BRL',
       valor_total: form.get('valor_total'),
       exchange_rate_to_base: form.get('exchange_rate_to_base') || '1',

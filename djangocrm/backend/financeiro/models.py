@@ -147,6 +147,18 @@ class Lancamento(BaseOrgModel):
         null=True,
         blank=True,
     )
+    product = models.ForeignKey(
+        "invoices.Product",
+        on_delete=models.SET_NULL,
+        related_name="lancamentos",
+        null=True,
+        blank=True,
+        help_text="Produto/serviço associado (opcional)",
+    )
+    quantity = models.DecimalField(
+        max_digits=12, decimal_places=2, default=1,
+        help_text="Quantidade do produto/serviço",
+    )
 
     # Currency & values
     currency = models.CharField(

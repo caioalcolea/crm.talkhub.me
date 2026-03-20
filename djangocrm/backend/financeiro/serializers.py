@@ -198,6 +198,7 @@ class LancamentoListSerializer(serializers.ModelSerializer):
     can_edit_financials = serializers.SerializerMethodField()
     valor_parcela_display = serializers.SerializerMethodField()
     recorrencia_label = serializers.SerializerMethodField()
+    product_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Lancamento
@@ -213,6 +214,9 @@ class LancamentoListSerializer(serializers.ModelSerializer):
             "contact_name",
             "opportunity",
             "invoice",
+            "product",
+            "product_name",
+            "quantity",
             "currency",
             "currency_symbol",
             "valor_total",
@@ -250,6 +254,9 @@ class LancamentoListSerializer(serializers.ModelSerializer):
         if obj.contact:
             return f"{obj.contact.first_name} {obj.contact.last_name}".strip()
         return None
+
+    def get_product_name(self, obj):
+        return obj.product.name if obj.product else None
 
     def get_parcelas_pagas(self, obj):
         pagas = obj.parcelas.filter(status="PAGO").count()
@@ -334,6 +341,8 @@ class LancamentoCreateSerializer(serializers.ModelSerializer):
             "contact",
             "opportunity",
             "invoice",
+            "product",
+            "quantity",
             "currency",
             "valor_total",
             "exchange_rate_to_base",
@@ -401,6 +410,8 @@ class LancamentoFullUpdateSerializer(serializers.ModelSerializer):
             "contact",
             "opportunity",
             "invoice",
+            "product",
+            "quantity",
             "forma_pagamento",
             "valor_total",
             "numero_parcelas",
