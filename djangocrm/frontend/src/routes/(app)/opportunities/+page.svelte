@@ -671,7 +671,7 @@
 
   // Drawer column definitions for CrmDrawer (derived since some options come from data)
   const drawerColumns = $derived([
-    { key: 'name', label: 'Nome', type: 'text' },
+    { key: 'name', label: 'Nome', type: 'text', essential: true },
     // Account field: readonly when pre-filled from URL, combobox otherwise
     accountFromUrl
       ? {
@@ -679,6 +679,7 @@
           label: 'Empresa',
           type: 'readonly',
           icon: Building2,
+          essential: true,
           getValue: () => accountName || 'Carregando...'
         }
       : {
@@ -686,6 +687,7 @@
           label: 'Empresa',
           type: 'combobox',
           icon: Building2,
+          essential: true,
           options: accountComboOptions,
           placeholder: 'Buscar ou criar empresa...',
           emptyText: 'Nenhuma empresa',
@@ -697,21 +699,15 @@
       label: 'Etapa',
       type: 'select',
       icon: Target,
+      essential: true,
       options: stageOptions
     }] : []),
-    {
-      key: 'opportunityType',
-      label: 'Tipo',
-      type: 'select',
-      icon: Briefcase,
-      options: typeOptions,
-      placeholder: 'Selecionar tipo'
-    },
     {
       key: 'amount',
       label: 'Valor',
       type: 'number',
       icon: DollarSign,
+      essential: true,
       placeholder: '0'
     },
     {
@@ -719,6 +715,7 @@
       label: 'Moeda',
       type: 'combobox',
       icon: Banknote,
+      essential: true,
       options: allCurrencyOptions,
       placeholder: 'Buscar moeda...',
       onCreate: handleCreateCurrency
@@ -728,7 +725,16 @@
       label: 'Probabilidade',
       type: 'number',
       icon: Percent,
+      essential: true,
       placeholder: '0'
+    },
+    {
+      key: 'opportunityType',
+      label: 'Tipo',
+      type: 'select',
+      icon: Briefcase,
+      options: typeOptions,
+      placeholder: 'Selecionar tipo'
     },
     {
       key: 'closedOn',
@@ -1247,27 +1253,15 @@
       form.append('stage', drawerFormData.stage || 'PROSPECTING');
       form.append('amount', drawerFormData.amount?.toString() || '0');
       form.append('probability', drawerFormData.probability?.toString() || '50');
-      // Always send accountId (even empty) so clearing account persists
+      // Always send all fields (even empty) so clearing a field persists on PATCH
       form.append('accountId', drawerFormData.account || '');
-      if (drawerFormData.opportunityType) {
-        form.append('opportunityType', drawerFormData.opportunityType);
-      }
-      if (drawerFormData.currency) {
-        form.append('currency', drawerFormData.currency);
-      }
-      if (drawerFormData.closedOn) {
-        form.append('closedOn', drawerFormData.closedOn);
-      }
-      if (drawerFormData.leadSource) {
-        form.append('leadSource', drawerFormData.leadSource);
-      }
-      if (drawerFormData.description !== undefined) {
-        form.append('description', drawerFormData.description || '');
-      }
+      form.append('opportunityType', drawerFormData.opportunityType || '');
+      form.append('currency', drawerFormData.currency || '');
+      form.append('closedOn', drawerFormData.closedOn || '');
+      form.append('leadSource', drawerFormData.leadSource || '');
+      form.append('description', drawerFormData.description || '');
       // Pipeline stage
-      if (formStageId) {
-        form.append('pipelineStageId', formStageId);
-      }
+      form.append('pipelineStageId', formStageId || '');
       // Multi-select fields - send as JSON arrays
       form.append('contacts', JSON.stringify(drawerFormData.contacts || []));
       form.append('assignedTo', JSON.stringify(drawerFormData.assignedTo || []));
@@ -1307,39 +1301,20 @@
       form.append('probability', drawerFormData.probability?.toString() || '50');
       // Always send accountId (even empty)
       const accountId = drawerFormData.account || accountIdFromUrl || '';
+      // Always send all fields so backend receives complete data
       form.append('accountId', accountId);
-      if (drawerFormData.opportunityType) {
-        form.append('opportunityType', drawerFormData.opportunityType);
-      }
-      if (drawerFormData.currency) {
-        form.append('currency', drawerFormData.currency);
-      }
-      if (drawerFormData.closedOn) {
-        form.append('closedOn', drawerFormData.closedOn);
-      }
-      if (drawerFormData.leadSource) {
-        form.append('leadSource', drawerFormData.leadSource);
-      }
-      if (drawerFormData.description) {
-        form.append('description', drawerFormData.description);
-      }
+      form.append('opportunityType', drawerFormData.opportunityType || '');
+      form.append('currency', drawerFormData.currency || '');
+      form.append('closedOn', drawerFormData.closedOn || '');
+      form.append('leadSource', drawerFormData.leadSource || '');
+      form.append('description', drawerFormData.description || '');
       // Pipeline stage
-      if (formStageId) {
-        form.append('pipelineStageId', formStageId);
-      }
-      // Multi-select fields - send as JSON arrays
-      if (drawerFormData.contacts?.length > 0) {
-        form.append('contacts', JSON.stringify(drawerFormData.contacts));
-      }
-      if (drawerFormData.assignedTo?.length > 0) {
-        form.append('assignedTo', JSON.stringify(drawerFormData.assignedTo));
-      }
-      if (drawerFormData.teams?.length > 0) {
-        form.append('teams', JSON.stringify(drawerFormData.teams));
-      }
-      if (drawerFormData.tags?.length > 0) {
-        form.append('tags', JSON.stringify(drawerFormData.tags));
-      }
+      form.append('pipelineStageId', formStageId || '');
+      // Multi-select fields - always send as JSON arrays
+      form.append('contacts', JSON.stringify(drawerFormData.contacts || []));
+      form.append('assignedTo', JSON.stringify(drawerFormData.assignedTo || []));
+      form.append('teams', JSON.stringify(drawerFormData.teams || []));
+      form.append('tags', JSON.stringify(drawerFormData.tags || []));
 
       const response = await fetch('?/create', { method: 'POST', body: form });
       const result = await response.json();
@@ -2212,22 +2187,24 @@
     {:else}
       {#if !isClosed}
         <Button
+          size="sm"
           variant="outline"
           class="text-[var(--stage-won)] hover:bg-[var(--stage-won-bg)] hover:text-[var(--stage-won)]"
           onclick={handleMarkWon}
           disabled={isLoading}
         >
-          <Trophy class="mr-1.5 size-4" />
-          Marcar como Ganha
+          <Trophy class="mr-1 size-3.5" />
+          Ganha
         </Button>
         <Button
+          size="sm"
           variant="outline"
           class="text-[var(--stage-lost)] hover:bg-[var(--stage-lost-bg)] hover:text-[var(--stage-lost)]"
           onclick={handleMarkLost}
           disabled={isLoading}
         >
-          <XCircle class="mr-1.5 size-4" />
-          Marcar como Perdida
+          <XCircle class="mr-1 size-3.5" />
+          Perdida
         </Button>
       {/if}
       {#if canCreateInvoice}
@@ -2236,12 +2213,13 @@
             {#snippet child({ props })}
               <Button
                 {...props}
+                size="sm"
                 variant="outline"
                 class="text-[var(--color-primary-default)] hover:bg-[var(--color-primary-light)] hover:text-[var(--color-primary-default)]"
                 disabled={isLoading}
               >
-                <Receipt class="mr-1.5 size-4" />
-                Criar Fatura
+                <Receipt class="mr-1 size-3.5" />
+                Fatura
               </Button>
             {/snippet}
           </AlertDialog.Trigger>
@@ -2265,7 +2243,7 @@
           </AlertDialog.Content>
         </AlertDialog.Root>
       {/if}
-      <Button onclick={handleDrawerUpdate} disabled={isLoading || !drawerFormData.name?.trim()}>
+      <Button size="sm" onclick={handleDrawerUpdate} disabled={isLoading || !drawerFormData.name?.trim()}>
         {isLoading ? 'Salvando...' : 'Salvar'}
       </Button>
     {/if}

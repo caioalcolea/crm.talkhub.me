@@ -328,6 +328,7 @@
                       editable={col.editable !== false}
                       prefix={col.prefix}
                       onchange={(value) => handleFieldChange(col.key, value)}
+                      oncreate={col.onCreate}
                     />
                   {/each}
                 </div>
@@ -348,6 +349,7 @@
                       editable={col.editable !== false}
                       prefix={col.prefix}
                       onchange={(value) => handleFieldChange(col.key, value)}
+                      oncreate={col.onCreate}
                     />
                   {/if}
                 {/each}
@@ -386,7 +388,7 @@
 
             <!-- Custom footer actions -->
             {#if footerActions}
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 {@render footerActions()}
               </div>
             {/if}
