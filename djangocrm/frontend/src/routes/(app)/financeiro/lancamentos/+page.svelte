@@ -62,9 +62,13 @@
     currency: 'BRL',
     valor_total: '',
     exchange_rate_to_base: '1',
+    exchange_rate_type: 'FIXO',
     forma_pagamento: '',
     numero_parcelas: 1,
-    data_primeiro_vencimento: ''
+    data_primeiro_vencimento: '',
+    is_recorrente: false,
+    recorrencia_tipo: '',
+    data_fim_recorrencia: ''
   });
 
   function resetForm() {
@@ -77,12 +81,16 @@
       contact: '',
       opportunity: '',
       invoice: '',
+      exchange_rate_type: 'FIXO',
       currency: defaultCurrency,
       valor_total: '',
       exchange_rate_to_base: '1',
       forma_pagamento: '',
       numero_parcelas: 1,
-      data_primeiro_vencimento: ''
+      data_primeiro_vencimento: '',
+      is_recorrente: false,
+      recorrencia_tipo: '',
+      data_fim_recorrencia: ''
     };
     reminderConfig = null;
   }

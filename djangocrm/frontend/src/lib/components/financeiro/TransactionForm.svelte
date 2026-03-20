@@ -31,6 +31,19 @@
   let isSameCurrency = $derived(formData.currency === orgCurrency);
   let showFinancials = $derived(mode === 'create' || (mode === 'edit' && canEditFinancials));
 
+  // Parcela preview: show user how the value will be split
+  let parcelaPreview = $derived.by(() => {
+    const total = parseFloat(formData.valor_total) || 0;
+    const n = parseInt(formData.numero_parcelas) || 1;
+    if (total <= 0 || n < 1) return null;
+    if (formData.is_recorrente) {
+      return { mode: 'recurring', valorEach: total, count: n, totalEffective: total * n };
+    }
+    if (n === 1) return null;
+    const valorEach = Math.round((total / n) * 100) / 100;
+    return { mode: 'installment', valorEach, count: n, totalEffective: total };
+  });
+
   // Build grouped planos for SearchableSelect
   let planoGroups = $derived.by(() => {
     const planos = formOptions.planos || [];
@@ -381,6 +394,24 @@
         </div>
       </div>
     </div>
+
+    <!-- Parcela value preview -->
+    {#if parcelaPreview}
+      <div class="rounded-md border border-dashed px-3 py-2 text-xs">
+        {#if parcelaPreview.mode === 'installment'}
+          <p class="text-muted-foreground">
+            <span class="font-medium text-foreground">{parcelaPreview.count}x</span> de
+            <span class="font-medium text-foreground">{formData.currency} {parcelaPreview.valorEach.toFixed(2)}</span>
+            <span class="ml-1">(valor total dividido em parcelas)</span>
+          </p>
+        {:else}
+          <p class="text-muted-foreground">
+            <span class="font-medium text-foreground">{formData.currency} {parcelaPreview.valorEach.toFixed(2)}</span>/cobr.
+            <span class="ml-1">(valor cheio por parcela recorrente)</span>
+          </p>
+        {/if}
+      </div>
+    {/if}
 
     <!-- Recurring toggle -->
     <div class="rounded-md border p-3 space-y-3">

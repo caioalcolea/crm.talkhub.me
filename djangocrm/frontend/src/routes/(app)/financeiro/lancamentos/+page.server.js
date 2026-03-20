@@ -78,9 +78,13 @@ export const actions = {
       currency: form.get('currency') || 'BRL',
       valor_total: form.get('valor_total'),
       exchange_rate_to_base: form.get('exchange_rate_to_base') || '1',
+      exchange_rate_type: form.get('exchange_rate_type') || 'FIXO',
       forma_pagamento: form.get('forma_pagamento') || null,
       numero_parcelas: parseInt(form.get('numero_parcelas') || '1'),
-      data_primeiro_vencimento: form.get('data_primeiro_vencimento')
+      data_primeiro_vencimento: form.get('data_primeiro_vencimento'),
+      is_recorrente: form.get('is_recorrente') === 'true',
+      recorrencia_tipo: form.get('recorrencia_tipo') || '',
+      data_fim_recorrencia: form.get('data_fim_recorrencia') || null
     };
 
     try {
