@@ -49,6 +49,7 @@
   // Local state
   let pipelineName = $state(pipeline?.name || '');
   let pipelineDescription = $state(pipeline?.description || '');
+  let autoCreateOpportunity = $state(pipeline?.auto_create_opportunity ?? true);
   let saving = $state(false);
   let addingStageName = $state('');
   let addingStage = $state(false);
@@ -111,6 +112,7 @@
       if (p) {
         pipelineName = p.name || '';
         pipelineDescription = p.description || '';
+        autoCreateOpportunity = p.auto_create_opportunity ?? true;
         selectedTeams = new Set(p.visible_to_teams?.map(String) || []);
         selectedUsers = new Set(p.visible_to_users?.map(String) || []);
       }
@@ -133,7 +135,8 @@
         name: pipelineName,
         description: pipelineDescription,
         visible_to_teams: [...selectedTeams],
-        visible_to_users: [...selectedUsers]
+        visible_to_users: [...selectedUsers],
+        auto_create_opportunity: autoCreateOpportunity
       });
     } catch (err) {
       console.error('Failed to update pipeline:', err);
@@ -483,6 +486,27 @@
             class="w-full rounded-md border border-gray-300 bg-transparent px-3 py-2 text-sm dark:border-gray-600"
           ></textarea>
         </div>
+
+        <!-- Auto-create opportunity toggle (leads only) -->
+        {#if module === 'leads'}
+          <div class="flex items-center justify-between rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+            <div class="mr-3">
+              <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Gerar Negócio Automaticamente</h4>
+              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                Ao arrastar um lead para estágio "Ganho", abre modal para confirmar valor e criar negócio.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoCreateOpportunity}
+              class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors {autoCreateOpportunity ? 'bg-primary' : 'bg-gray-200 dark:bg-gray-700'}"
+              onclick={() => autoCreateOpportunity = !autoCreateOpportunity}
+            >
+              <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform {autoCreateOpportunity ? 'translate-x-5' : 'translate-x-0'}" />
+            </button>
+          </div>
+        {/if}
 
         <!-- Danger zone -->
         <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/10">

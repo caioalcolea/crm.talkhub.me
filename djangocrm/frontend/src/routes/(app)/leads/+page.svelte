@@ -1178,20 +1178,31 @@
     pageLoading = false;
   }
 
+  // ---- Opportunity creation modal state ----
+  let showOpportunityModal = $state(false);
+  let opportunityModalData = $state(
+    /** @type {{ leadId: string, leadTitle: string, amount: string, currency: string, probability: string, targetColumnId: string, company: string }} */ ({
+      leadId: '',
+      leadTitle: '',
+      amount: '',
+      currency: '',
+      probability: '',
+      targetColumnId: '',
+      company: ''
+    })
+  );
+  let creatingOpportunity = $state(false);
+
   /**
-   * Handle kanban status change (drag-drop)
+   * Submit the kanban move (extracted for reuse by modal flow)
    * @param {string} leadId
-   * @param {string} newStatus
-   * @param {string} _columnId
+   * @param {string} targetColumnId
    */
-  async function handleKanbanStatusChange(leadId, targetColumnId, _columnId) {
+  async function _submitKanbanMove(leadId, targetColumnId) {
     kanbanFormState.leadId = leadId;
     kanbanFormState.aboveLeadId = '';
     kanbanFormState.belowLeadId = '';
 
-    // Determine mode from kanban data
-    // In status-based mode, column.id is a status value (e.g., "assigned", "in process")
-    // In pipeline-based mode, column.id is a stage UUID
     if (kanbanData?.mode === 'pipeline') {
       kanbanFormState.status = '';
       kanbanFormState.stageId = targetColumnId;
@@ -1202,6 +1213,85 @@
 
     await tick();
     updateStatusForm.requestSubmit();
+  }
+
+  /**
+   * Confirm opportunity creation from modal, then move lead
+   */
+  async function confirmOpportunityCreation() {
+    creatingOpportunity = true;
+    try {
+      // Update lead amount/probability/currency if user edited them
+      /** @type {Record<string, any>} */
+      const updateData = {};
+      if (opportunityModalData.amount) {
+        updateData.opportunity_amount = parseFloat(opportunityModalData.amount);
+      }
+      if (opportunityModalData.probability) {
+        updateData.probability = parseInt(opportunityModalData.probability);
+      }
+      if (opportunityModalData.currency) {
+        updateData.currency = opportunityModalData.currency;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await clientApiRequest(`/leads/${opportunityModalData.leadId}/`, {
+          method: 'PATCH',
+          body: updateData
+        });
+      }
+
+      // Submit the kanban move — backend signal will auto-create opportunity
+      await _submitKanbanMove(opportunityModalData.leadId, opportunityModalData.targetColumnId);
+
+      showOpportunityModal = false;
+      toast.success('Lead movido para Ganho — Negócio criado automaticamente');
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao processar');
+    } finally {
+      creatingOpportunity = false;
+    }
+  }
+
+  function cancelOpportunityCreation() {
+    showOpportunityModal = false;
+  }
+
+  /**
+   * Handle kanban status change (drag-drop)
+   * @param {string} leadId
+   * @param {string} targetColumnId
+   * @param {string} _columnId
+   */
+  async function handleKanbanStatusChange(leadId, targetColumnId, _columnId) {
+    // Check if target is a "won" stage with auto_create_opportunity enabled
+    if (kanbanData?.mode === 'pipeline') {
+      const activePipeline = leadPipelines.find(p => p.id === activePipelineId);
+      const targetStage = activePipeline?.stages?.find(s => s.id === targetColumnId);
+
+      if (targetStage?.stage_type === 'won' && activePipeline?.auto_create_opportunity) {
+        // Find lead data from kanban columns
+        const leadData = kanbanData.columns
+          .flatMap(col => col.leads || [])
+          .find(l => l.id === leadId);
+
+        // Open modal to confirm deal value before moving
+        opportunityModalData = {
+          leadId,
+          leadTitle: leadData?.title || leadData?.full_name || 'Lead',
+          amount: String(leadData?.opportunity_amount || ''),
+          currency: leadData?.currency || $orgSettings.default_currency || 'BRL',
+          probability: String(leadData?.probability || '50'),
+          targetColumnId,
+          company: leadData?.company_name || ''
+        };
+        showOpportunityModal = true;
+        return; // Don't submit the move yet — wait for modal confirmation
+      }
+    }
+
+    // Normal flow: submit the move directly
+    await _submitKanbanMove(leadId, targetColumnId);
   }
 
   /**
@@ -2234,6 +2324,83 @@
     {/if}
   {/snippet}
 </CrmDrawer>
+
+<!-- Opportunity Creation Modal (shown when dragging to "won" stage) -->
+{#if showOpportunityModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true">
+    <div class="mx-4 w-full max-w-md rounded-xl border border-border bg-background p-6 shadow-2xl">
+      <div class="flex items-center gap-3 mb-1">
+        <div class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+          <DollarSign class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+        </div>
+        <div>
+          <h3 class="text-lg font-semibold text-foreground">Gerar Negócio</h3>
+          <p class="text-sm text-muted-foreground">
+            Lead <strong>{opportunityModalData.leadTitle}</strong>
+          </p>
+        </div>
+      </div>
+
+      <p class="mt-2 text-sm text-muted-foreground">
+        Confirme o valor do negócio antes de mover para "Ganho". Um negócio será criado automaticamente em Oportunidades.
+      </p>
+
+      <div class="mt-4 space-y-3">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-foreground">Valor do Negócio</label>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              bind:value={opportunityModalData.currency}
+              class="w-20 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              placeholder="BRL"
+            />
+            <input
+              type="number"
+              bind:value={opportunityModalData.amount}
+              class="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              placeholder="0.00"
+              step="0.01"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-sm font-medium text-foreground">Probabilidade (%)</label>
+          <input
+            type="number"
+            bind:value={opportunityModalData.probability}
+            class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            placeholder="50"
+            min="0"
+            max="100"
+          />
+        </div>
+
+        {#if opportunityModalData.company}
+          <div class="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+            <Building2 class="h-4 w-4 shrink-0" />
+            {opportunityModalData.company}
+          </div>
+        {/if}
+      </div>
+
+      <div class="mt-6 flex justify-end gap-2">
+        <Button variant="outline" onclick={cancelOpportunityCreation} disabled={creatingOpportunity}>
+          Cancelar
+        </Button>
+        <Button onclick={confirmOpportunityCreation} disabled={creatingOpportunity}>
+          {#if creatingOpportunity}
+            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+            Criando...
+          {:else}
+            Confirmar e Criar Negócio
+          {/if}
+        </Button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- Hidden forms for server actions -->
 <form
