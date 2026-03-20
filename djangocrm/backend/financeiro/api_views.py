@@ -337,6 +337,28 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         with transaction.atomic():
             lancamento.parcelas.filter(status="ABERTO").update(status="CANCELADO")
             lancamento.update_status()
+            # Reverse stock movement if product was tracked
+            product = lancamento.product
+            if (
+                product
+                and getattr(product, "track_inventory", False)
+                and getattr(product, "product_type", "") == "product"
+            ):
+                from invoices.models import StockMovement
+
+                qty = lancamento.quantity or 1
+                StockMovement.objects.create(
+                    product=product,
+                    movement_type="in",
+                    quantity=qty,
+                    unit_cost=product.cost_price,
+                    reference_type="lancamento_cancel",
+                    reference_id=lancamento.pk,
+                    notes=f"Cancelamento: {lancamento.descricao}",
+                    org=lancamento.org,
+                )
+                product.stock_quantity += qty
+                product.save(update_fields=["stock_quantity"])
         lancamento.refresh_from_db()
         return Response(
             LancamentoDetailSerializer(lancamento).data, status=status.HTTP_200_OK

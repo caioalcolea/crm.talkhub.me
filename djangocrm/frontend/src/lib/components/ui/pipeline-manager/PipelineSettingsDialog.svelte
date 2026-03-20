@@ -62,13 +62,17 @@
     opportunityPipelines.find(p => p.id === targetOppPipeline)?.stages?.sort((a, b) => a.order - b.order) || []
   );
   // Auto-default target opp pipeline/stage when toggle is ON and nothing selected
+  // Guard prevents re-firing after user manually selects a different pipeline
+  let _autoDefaultDone = $state(false);
   $effect(() => {
-    if (autoCreateOpportunity && !targetOppPipeline && opportunityPipelines.length > 0) {
+    if (autoCreateOpportunity && !targetOppPipeline && opportunityPipelines.length > 0 && !_autoDefaultDone) {
+      _autoDefaultDone = true;
       const first = opportunityPipelines[0];
       targetOppPipeline = first.id;
       const stages = [...(first.stages || [])].sort((a, b) => a.order - b.order);
       targetOppStage = stages[0]?.id || '';
     }
+    if (!autoCreateOpportunity) _autoDefaultDone = false;
   });
 
   let addingStageName = $state('');
@@ -525,7 +529,13 @@
               role="switch"
               aria-checked={autoCreateOpportunity}
               class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors {autoCreateOpportunity ? 'bg-primary' : 'bg-gray-200 dark:bg-gray-700'}"
-              onclick={() => autoCreateOpportunity = !autoCreateOpportunity}
+              onclick={() => {
+                autoCreateOpportunity = !autoCreateOpportunity;
+                if (!autoCreateOpportunity) {
+                  targetOppPipeline = '';
+                  targetOppStage = '';
+                }
+              }}
             >
               <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform {autoCreateOpportunity ? 'translate-x-5' : 'translate-x-0'}" />
             </button>

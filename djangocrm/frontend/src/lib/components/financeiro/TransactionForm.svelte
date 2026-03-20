@@ -92,17 +92,21 @@
   );
 
   // Auto-fill fields when product is selected
-  let _lastProductId = '';
+  let _prevProductId = $state('');
+  // Track whether valor_total was auto-filled by product (allow qty recalc)
+  let _autoFilledByProduct = $state(false);
+
   $effect(() => {
     const productId = formData.product;
-    if (!productId || productId === _lastProductId) return;
-    _lastProductId = productId;
+    if (!productId || productId === _prevProductId) return;
+    _prevProductId = productId;
     const prod = (formOptions.products || []).find((p) => p.id === productId);
     if (!prod) return;
     // Auto-fill valor_total only if empty
     if (!formData.valor_total || formData.valor_total === '') {
       const qty = parseFloat(formData.quantity) || 1;
       formData.valor_total = (parseFloat(prod.price) * qty).toFixed(2);
+      _autoFilledByProduct = true;
     }
     // Auto-fill currency if product has one
     if (prod.currency && formData.currency === orgCurrency) {
@@ -116,6 +120,23 @@
         formData.plano_de_contas = prod.default_plano_custo;
       }
     }
+  });
+
+  // Recalculate valor_total when quantity changes (only if product selected and auto-filled)
+  let _prevQty = $state('');
+  $effect(() => {
+    const qty = formData.quantity;
+    const pid = formData.product;
+    if (!pid || !_autoFilledByProduct) return;
+    // Only react to actual qty changes
+    const qtyStr = String(qty);
+    if (qtyStr === _prevQty) return;
+    _prevQty = qtyStr;
+    const qtyNum = parseFloat(qty);
+    if (!qtyNum || qtyNum <= 0) return;
+    const prod = (formOptions.products || []).find((p) => p.id === pid);
+    if (!prod) return;
+    formData.valor_total = (parseFloat(prod.price) * qtyNum).toFixed(2);
   });
 
   // Auto-set exchange rate to 1 when same currency

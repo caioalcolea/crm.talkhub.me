@@ -362,6 +362,23 @@ class LeadPipelineSerializer(serializers.ModelSerializer):
             return obj._lead_count
         return Lead.objects.filter(stage__pipeline=obj).count()
 
+    def validate(self, data):
+        stage = data.get("target_opp_stage")
+        pipeline = data.get("target_opp_pipeline")
+        # Cross-pipeline validation: stage must belong to selected pipeline
+        if stage and pipeline and stage.pipeline_id != pipeline.id:
+            raise serializers.ValidationError({
+                "target_opp_stage": "A etapa deve pertencer ao pipeline de oportunidades selecionado."
+            })
+        # Auto-set pipeline if only stage is provided
+        if stage and not pipeline:
+            data["target_opp_pipeline"] = stage.pipeline
+        # Clear target fields when auto_create is disabled
+        if not data.get("auto_create_opportunity", True):
+            data["target_opp_pipeline"] = None
+            data["target_opp_stage"] = None
+        return data
+
 
 class LeadPipelineListSerializer(serializers.ModelSerializer):
     """Pipeline serializer for lists — includes nested stages for settings dialog."""
