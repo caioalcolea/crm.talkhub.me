@@ -26,7 +26,8 @@
     Package,
     Trash2,
     Receipt,
-    Clock
+    Clock,
+    BellRing
   } from '@lucide/svelte';
   import { PageHeader } from '$lib/components/layout';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -62,7 +63,8 @@
   import { ViewToggle } from '$lib/components/ui/view-toggle';
   import { OpportunityKanban } from '$lib/components/ui/opportunity-kanban';
   import { PipelineManager } from '$lib/components/ui/pipeline-manager';
-  import { apiRequest as clientApiRequest } from '$lib/api.js';
+  import { apiRequest as clientApiRequest, financeiro } from '$lib/api.js';
+  import TransactionForm from '$lib/components/financeiro/TransactionForm.svelte';
 
   const STORAGE_KEY = 'opportunities-crm-columns';
 
@@ -261,8 +263,19 @@
   let kanbanFormState = $state({
     opportunityId: '',
     stage: '',
-    pipelineStageId: ''
+    pipelineStageId: '',
+    skipAutoLancamento: ''
   });
+
+  // Won-stage lancamento modal state
+  let showWonModal = $state(false);
+  let wonFormData = $state(/** @type {Record<string, any>} */ ({}));
+  let wonFormOptions = $state(/** @type {Record<string, any>} */ ({
+    planos: [], plano_grupos: [], formas_pagamento: [],
+    accounts: [], contacts: [], opportunities: [], currencies: []
+  }));
+  let wonFormLoading = $state(false);
+  let wonMoveTarget = $state({ oppId: '', targetColumnId: '' });
 
   /**
    * Change view mode (table/kanban)
@@ -276,15 +289,70 @@
   }
 
   /**
-   * Handle kanban drag-drop move
+   * Handle kanban drag-drop move — intercepts "won" stage to show lancamento modal
    * @param {string} oppId
    * @param {string} targetColumnId
    * @param {string} _columnId
    */
   async function handleKanbanMove(oppId, targetColumnId, _columnId) {
-    kanbanFormState.opportunityId = oppId;
+    // Check if target is a "won" stage
+    const targetColumn = kanbanData?.columns?.find((/** @type {any} */ c) => c.id === targetColumnId);
 
-    // Determine if pipeline mode or legacy status mode
+    if (targetColumn?.stage_type === 'won') {
+      // Find opportunity data from kanban columns
+      const oppData = kanbanData.columns
+        .flatMap((/** @type {any} */ col) => col.opportunities || col.items || [])
+        .find((/** @type {any} */ o) => o.id === oppId);
+
+      // Fetch financeiro form options (lazy)
+      try {
+        const opts = await financeiro.formOptions();
+        wonFormOptions = opts;
+      } catch {
+        // User may not have financial access — show modal anyway with basic fields
+      }
+
+      // Pre-fill lancamento form from opportunity data
+      const today = new Date().toISOString().split('T')[0];
+      wonFormData = {
+        tipo: 'RECEBER',
+        descricao: `Oportunidade ganha: ${oppData?.name || ''}`,
+        observacoes: '',
+        plano_de_contas: '',
+        account: '',
+        contact: '',
+        opportunity: oppId,
+        currency: oppData?.currency || $orgSettings.default_currency || 'BRL',
+        valor_total: oppData?.amount || '',
+        exchange_rate_to_base: '1',
+        exchange_rate_type: 'FIXO',
+        forma_pagamento: '',
+        numero_parcelas: 1,
+        data_primeiro_vencimento: oppData?.closed_on || today,
+        is_recorrente: false,
+        recorrencia_tipo: '',
+        data_fim_recorrencia: ''
+      };
+
+      wonMoveTarget = { oppId, targetColumnId };
+      showWonModal = true;
+      return; // Don't submit the move yet
+    }
+
+    // Normal flow: submit the move
+    _submitKanbanMove(oppId, targetColumnId, false);
+  }
+
+  /**
+   * Submit the kanban move form
+   * @param {string} oppId
+   * @param {string} targetColumnId
+   * @param {boolean} skipAutoLancamento
+   */
+  function _submitKanbanMove(oppId, targetColumnId, skipAutoLancamento) {
+    kanbanFormState.opportunityId = oppId;
+    kanbanFormState.skipAutoLancamento = skipAutoLancamento ? 'true' : '';
+
     if (kanbanData?.mode === 'pipeline') {
       kanbanFormState.pipelineStageId = targetColumnId;
       kanbanFormState.stage = '';
@@ -293,8 +361,45 @@
       kanbanFormState.pipelineStageId = '';
     }
 
-    await tick();
-    moveFormEl?.requestSubmit();
+    tick().then(() => moveFormEl?.requestSubmit());
+  }
+
+  /**
+   * Won modal: "Criar Lançamento" — create lancamento then move
+   * @param {Record<string, any>} fd
+   */
+  async function handleWonCreateLancamento(fd) {
+    wonFormLoading = true;
+    try {
+      await financeiro.lancamentos.create({
+        ...fd,
+        plano_de_contas: fd.plano_de_contas || null,
+        account: fd.account || null,
+        contact: fd.contact || null,
+        opportunity: wonMoveTarget.oppId,
+        forma_pagamento: fd.forma_pagamento || null
+      });
+
+      showWonModal = false;
+      _submitKanbanMove(wonMoveTarget.oppId, wonMoveTarget.targetColumnId, false);
+      toast.success('Lançamento criado e negócio fechado!');
+    } catch (err) {
+      toast.error('Erro ao criar lançamento: ' + (/** @type {any} */ (err)?.message || 'erro desconhecido'));
+    } finally {
+      wonFormLoading = false;
+    }
+  }
+
+  /** Won modal: "Fazer Depois" — move without lancamento, notify admins */
+  function handleWonDoLater() {
+    showWonModal = false;
+    _submitKanbanMove(wonMoveTarget.oppId, wonMoveTarget.targetColumnId, true);
+    toast.info('Negócio fechado. Administradores foram notificados para criar o lançamento.');
+  }
+
+  /** Won modal: "Cancelar" — don't move */
+  function handleWonCancel() {
+    showWonModal = false;
   }
 
   /**
@@ -1745,7 +1850,43 @@
   <input type="hidden" name="opportunityId" value={kanbanFormState.opportunityId} />
   <input type="hidden" name="stage" value={kanbanFormState.stage} />
   <input type="hidden" name="pipelineStageId" value={kanbanFormState.pipelineStageId} />
+  <input type="hidden" name="skipAutoLancamento" value={kanbanFormState.skipAutoLancamento} />
 </form>
+
+<!-- Won Stage — Lancamento Creation Modal -->
+{#if showWonModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog">
+    <div class="mx-4 w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-border bg-background shadow-2xl">
+      <div class="border-b border-border px-6 py-4">
+        <h3 class="text-lg font-semibold text-foreground">Negócio Fechado — Contas a Receber</h3>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Configure o lançamento financeiro ou adie para depois.
+        </p>
+      </div>
+
+      <div class="px-6 py-4">
+        <TransactionForm
+          bind:formData={wonFormData}
+          formOptions={wonFormOptions}
+          mode="create"
+          loading={wonFormLoading}
+          onsubmit={handleWonCreateLancamento}
+          oncancel={handleWonCancel}
+        />
+      </div>
+
+      <div class="flex items-center justify-between border-t border-border px-6 py-3">
+        <Button variant="outline" onclick={handleWonDoLater} disabled={wonFormLoading}>
+          <BellRing class="mr-2 h-4 w-4" />
+          Fazer Depois
+        </Button>
+        <p class="text-xs text-muted-foreground">
+          Administradores serão notificados
+        </p>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- Opportunity Drawer -->
 <CrmDrawer

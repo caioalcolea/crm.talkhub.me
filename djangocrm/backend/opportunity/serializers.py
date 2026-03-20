@@ -617,6 +617,7 @@ class OpportunityMoveSerializer(serializers.Serializer):
     )
     above_opportunity_id = serializers.UUIDField(required=False, allow_null=True)
     below_opportunity_id = serializers.UUIDField(required=False, allow_null=True)
+    skip_auto_lancamento = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
         if not attrs.get("pipeline_stage_id") and not attrs.get("stage"):

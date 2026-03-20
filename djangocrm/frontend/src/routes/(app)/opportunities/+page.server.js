@@ -520,6 +520,12 @@ export const actions = {
         moveData.stage = stage;
       }
 
+      // Skip auto-lancamento (user chose "Fazer Depois")
+      const skipAutoLancamento = formData.get('skipAutoLancamento')?.toString();
+      if (skipAutoLancamento === 'true') {
+        moveData.skip_auto_lancamento = true;
+      }
+
       // Kanban ordering hints
       const aboveId = formData.get('aboveId')?.toString();
       const belowId = formData.get('belowId')?.toString();

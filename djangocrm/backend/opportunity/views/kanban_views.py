@@ -278,6 +278,42 @@ class OpportunityMoveView(APIView):
         if "stage" in data:
             opp.stage = data["stage"]
 
+        # Handle skip_auto_lancamento flag (user chose "Fazer Depois")
+        is_moving_to_won = (
+            opp.stage == "CLOSED_WON"
+            or (opp.pipeline_stage and opp.pipeline_stage.maps_to_stage == "CLOSED_WON")
+        )
+        if data.get("skip_auto_lancamento", False) and is_moving_to_won:
+            opp._skip_auto_lancamento = True
+
+            # Create notification for org admins
+            from assistant.models import Notification
+            from common.models import Profile
+
+            admin_profiles = Profile.objects.filter(
+                org=org, role="ADMIN", is_active=True
+            )
+            amount_str = f"{opp.currency or 'BRL'} {opp.amount}" if opp.amount else "valor não definido"
+            for admin in admin_profiles:
+                Notification.objects.create(
+                    org=org,
+                    user=admin,
+                    type="system",
+                    title=f"Negócio fechado sem lançamento: {opp.name}",
+                    body=(
+                        f'O negócio "{opp.name}" foi fechado como ganho '
+                        f"({amount_str}) mas não foi registrado "
+                        f"em Contas a Receber. Crie o lançamento manualmente."
+                    ),
+                    link=f"/financeiro/lancamentos?action=create&opportunity={opp.id}",
+                    metadata={
+                        "opportunity_id": str(opp.id),
+                        "opportunity_name": opp.name,
+                        "amount": str(opp.amount) if opp.amount else "",
+                        "currency": opp.currency or "",
+                    },
+                )
+
         # Calculate new order
         new_order = self._calculate_order(data, opp, org)
         opp.kanban_order = new_order

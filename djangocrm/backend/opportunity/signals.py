@@ -24,6 +24,10 @@ def create_lancamento_on_closed_won(sender, instance, **kwargs):
     """
     from financeiro.models import Lancamento
 
+    # Skip if explicitly requested (e.g., "Fazer Depois" from frontend)
+    if getattr(instance, '_skip_auto_lancamento', False):
+        return
+
     # Determine if opportunity is in "CLOSED_WON" state
     is_won = False
 
