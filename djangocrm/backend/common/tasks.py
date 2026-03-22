@@ -1,9 +1,8 @@
 import logging
 
-from botocore.exceptions import ClientError
 from celery import shared_task
 from django.conf import settings
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.db import connection
@@ -32,8 +31,15 @@ def set_rls_context(org_id):
             )
 
 
-@shared_task
-def send_welcome_email(user_id):
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+    retry_jitter=True,
+)
+def send_welcome_email(self, user_id):
     """Send welcome email to newly created users."""
     user_obj = User.objects.filter(id=user_id).first()
     if not user_obj:
@@ -49,25 +55,36 @@ def send_welcome_email(user_id):
     context = {"url": settings.FRONTEND_URL}
     subject = "Bem-vindo ao TalkHub CRM"
     html_content = render_to_string("welcome_email.html", context=context)
+    text_content = f"Bem-vindo ao TalkHub CRM!\n\nAcesse: {settings.FRONTEND_URL}"
 
-    msg = EmailMessage(
-        subject,
-        html_content,
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=text_content,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email],
     )
-    msg.content_subtype = "html"
-    try:
-        msg.send()
-    except ClientError:
-        logger.exception("SES rejected welcome email for user %s", user_id)
+    msg.attach_alternative(html_content, "text/html")
+    msg.send()
+    logger.info("Welcome email sent to %s", email)
 
 
-@shared_task
-def send_magic_link_email(token_id):
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+    retry_jitter=True,
+)
+def send_magic_link_email(self, token_id):
     """Send magic link email for passwordless authentication."""
     magic_token = MagicLinkToken.objects.filter(id=token_id).first()
     if not magic_token:
+        return
+
+    # Skip if token already expired (no point sending)
+    if magic_token.expires_at < timezone.now():
+        logger.info("Magic link token %s already expired, skipping email", token_id)
         return
 
     email = magic_token.email.strip()
@@ -83,21 +100,38 @@ def send_magic_link_email(token_id):
         "magic_link_email.html",
         {"magic_link_url": magic_link_url},
     )
-    msg = EmailMessage(
-        "TalkHub CRM - Seu link de acesso",
-        html_content,
+
+    text_content = (
+        "Entrar no TalkHub CRM\n\n"
+        "Clique no link abaixo para entrar na sua conta. "
+        "Este link expira em 10 minutos.\n\n"
+        f"{magic_link_url}\n\n"
+        "Se você não solicitou este link, ignore este e-mail."
+    )
+
+    msg = EmailMultiAlternatives(
+        subject="TalkHub CRM - Seu link de acesso",
+        body=text_content,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email],
     )
-    msg.content_subtype = "html"
-    try:
-        msg.send()
-    except ClientError:
-        logger.exception("SES rejected email for magic link token %s", token_id)
+    msg.attach_alternative(html_content, "text/html")
+    msg.extra_headers["X-Mailer"] = "TalkHub CRM"
+    msg.extra_headers["X-Auto-Response-Suppress"] = "All"
+    msg.send()
+    logger.info("Magic link email sent to %s (token %s)", email, token_id)
 
 
-@shared_task
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+    retry_jitter=True,
+)
 def send_email_user_mentions(
+    self,
     comment_id,
     called_from,
     org_id=None,
@@ -107,129 +141,134 @@ def send_email_user_mentions(
     set_rls_context(org_id)
 
     comment = Comment.objects.filter(id=comment_id).first()
-    if comment:
-        comment_text = comment.comment
-        comment_text_list = comment_text.split()
-        recipients = []
-        for comment_text in comment_text_list:
-            if comment_text.startswith("@"):
-                if comment_text.strip("@").strip(",") not in recipients:
-                    if User.objects.filter(
-                        username=comment_text.strip("@").strip(","), is_active=True
-                    ).exists():
-                        email = (
-                            User.objects.filter(
-                                username=comment_text.strip("@").strip(",")
-                            )
-                            .first()
-                            .email
-                        )
-                        recipients.append(email)
+    if not comment:
+        return
 
-        context = {}
-        context["commented_by"] = comment.commented_by
-        context["comment_description"] = comment.comment
-        subject = None
-        if called_from == "accounts":
-            subject = "Novo comentário em Conta. "
-        elif called_from == "contacts":
-            subject = "Novo comentário em Contato. "
-        elif called_from == "leads":
-            subject = "Novo comentário em Lead. "
-        elif called_from == "opportunity":
-            subject = "Novo comentário em Oportunidade. "
-        elif called_from == "cases":
-            subject = "Novo comentário em Chamado. "
-        elif called_from == "tasks":
-            subject = "Novo comentário em Tarefa. "
-        elif called_from == "invoices":
-            subject = "Novo comentário em Fatura. "
-        if subject:
-            context["url"] = settings.DOMAIN_NAME
-        else:
-            context["url"] = ""
-        # subject = 'Django CRM : comment '
-        if recipients:
-            for recipient in recipients:
-                recipients_list = [
-                    recipient,
-                ]
-                context["mentioned_user"] = recipient
-                html_content = render_to_string("comment_email.html", context=context)
-                msg = EmailMessage(
-                    subject,
-                    html_content,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    to=recipients_list,
-                )
-                msg.content_subtype = "html"
-                msg.send()
+    comment_text = comment.comment
+    comment_text_list = comment_text.split()
+    recipients = []
+    for word in comment_text_list:
+        if word.startswith("@"):
+            username = word.strip("@").strip(",")
+            if username not in recipients:
+                user = User.objects.filter(username=username, is_active=True).first()
+                if user:
+                    recipients.append(user.email)
+
+    SUBJECT_MAP = {
+        "accounts": "Novo comentário em Conta",
+        "contacts": "Novo comentário em Contato",
+        "leads": "Novo comentário em Lead",
+        "opportunity": "Novo comentário em Oportunidade",
+        "cases": "Novo comentário em Chamado",
+        "tasks": "Novo comentário em Tarefa",
+        "invoices": "Novo comentário em Fatura",
+    }
+    subject = SUBJECT_MAP.get(called_from)
+    if not subject or not recipients:
+        return
+
+    context = {
+        "commented_by": comment.commented_by,
+        "comment_description": comment.comment,
+        "url": settings.DOMAIN_NAME,
+    }
+
+    for recipient in recipients:
+        context["mentioned_user"] = recipient
+        html_content = render_to_string("comment_email.html", context=context)
+        text_content = f"{subject}\n\n{comment.comment}\n\nPor: {comment.commented_by}"
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_content,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[recipient],
+        )
+        msg.attach_alternative(html_content, "text/html")
+        msg.send()
 
 
-@shared_task
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+    retry_jitter=True,
+)
 def send_email_user_status(
+    self,
     user_id,
     status_changed_user="",
 ):
     """Send Mail To Users Regarding their status i.e active or inactive"""
     user = User.objects.filter(id=user_id).first()
-    if user:
-        context = {}
+    if not user:
+        return
+
+    context = {
+        "email": user.email,
+        "url": settings.DOMAIN_NAME,
+        "status_changed_user": status_changed_user,
+    }
+    if user.has_marketing_access:
+        context["url"] = context["url"] + "/marketing"
+
+    if user.is_active:
+        context["message"] = "activated"
+        subject = "Conta Ativada"
+        html_content = render_to_string("user_status_activate.html", context=context)
+        text_content = f"Sua conta foi ativada por {status_changed_user}."
+    else:
         context["message"] = "deactivated"
-        context["email"] = user.email
-        context["url"] = settings.DOMAIN_NAME
-        if user.has_marketing_access:
-            context["url"] = context["url"] + "/marketing"
-        if user.is_active:
-            context["message"] = "activated"
-        context["status_changed_user"] = status_changed_user
-        if context["message"] == "activated":
-            subject = "Conta Ativada"
-            html_content = render_to_string(
-                "user_status_activate.html", context=context
-            )
-        else:
-            subject = "Conta Desativada"
-            html_content = render_to_string(
-                "user_status_deactivate.html", context=context
-            )
-        recipients = []
-        recipients.append(user.email)
-        if recipients:
-            msg = EmailMessage(
-                subject,
-                html_content,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=recipients,
-            )
-            msg.content_subtype = "html"
-            msg.send()
+        subject = "Conta Desativada"
+        html_content = render_to_string("user_status_deactivate.html", context=context)
+        text_content = f"Sua conta foi desativada por {status_changed_user}."
+
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=text_content,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+    msg.attach_alternative(html_content, "text/html")
+    msg.send()
 
 
-@shared_task
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+    retry_jitter=True,
+)
 def send_email_user_delete(
+    self,
     user_email,
     deleted_by="",
 ):
     """Send Mail To Users When their account is deleted"""
-    if user_email:
-        context = {}
-        context["message"] = "deleted"
-        context["deleted_by"] = deleted_by
-        context["email"] = user_email
-        recipients = []
-        recipients.append(user_email)
-        subject = "TalkHub CRM: Sua conta foi excluída."
-        html_content = render_to_string("user_delete_email.html", context=context)
-        if recipients:
-            msg = EmailMessage(
-                subject,
-                html_content,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=recipients,
-            )
-            msg.content_subtype = "html"
-            msg.send()
+    if not user_email:
+        return
+
+    context = {
+        "message": "deleted",
+        "deleted_by": deleted_by,
+        "email": user_email,
+    }
+    subject = "TalkHub CRM: Sua conta foi excluída."
+    html_content = render_to_string("user_delete_email.html", context=context)
+    text_content = f"Sua conta no TalkHub CRM foi excluída por {deleted_by}."
+
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=text_content,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user_email],
+    )
+    msg.attach_alternative(html_content, "text/html")
+    msg.send()
 
 
 @shared_task
@@ -359,8 +398,15 @@ REASON_LABELS = {
 }
 
 
-@shared_task
-def send_contact_form_email(submission_id):
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+    retry_jitter=True,
+)
+def send_contact_form_email(self, submission_id):
     """Send contact form submission to adm@talkhub.me."""
     submission = ContactFormSubmission.objects.filter(id=submission_id).first()
     if not submission:
@@ -377,20 +423,23 @@ def send_contact_form_email(submission_id):
             "reason_label": reason_label,
         },
     )
+    text_content = (
+        f"{reason_label}\n\n"
+        f"De: {submission.name} ({submission.email})\n"
+        f"Assunto: {submission.subject or 'N/A'}\n\n"
+        f"{submission.message or ''}"
+    )
 
-    msg = EmailMessage(
-        subject,
-        html_content,
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=text_content,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=["adm@talkhub.me"],
         reply_to=[submission.email],
     )
-    msg.content_subtype = "html"
-    try:
-        msg.send()
-        logger.info("Contact form email sent for submission %s", submission_id)
-    except Exception:
-        logger.exception("Failed to send contact form email for submission %s", submission_id)
+    msg.attach_alternative(html_content, "text/html")
+    msg.send()
+    logger.info("Contact form email sent for submission %s", submission_id)
 
 ROLE_LABELS_INVITE = {
     "ADMIN": "Administrador",
@@ -398,8 +447,16 @@ ROLE_LABELS_INVITE = {
 }
 
 
-@shared_task(name="common.tasks.send_invitation_email")
-def send_invitation_email(invitation_id):
+@shared_task(
+    name="common.tasks.send_invitation_email",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+    retry_jitter=True,
+)
+def send_invitation_email(self, invitation_id):
     """Envia email de convite para novo usuário."""
     from common.models import PendingInvitation
 
@@ -433,19 +490,22 @@ def send_invitation_email(invitation_id):
         },
     )
 
+    text_content = (
+        f"Convite para {invitation.org.name}\n\n"
+        f"{invited_by_name} convidou você como {role_label}.\n\n"
+        f"Aceite o convite: {accept_url}"
+    )
+
     subject = f"Convite para {invitation.org.name} — TalkHub CRM"
-    msg = EmailMessage(
-        subject,
-        html_content,
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=text_content,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email],
     )
-    msg.content_subtype = "html"
-    try:
-        msg.send()
-        logger.info("Invitation email sent to %s for org %s", email, invitation.org.name)
-    except Exception:
-        logger.exception("Failed to send invitation email to %s", email)
+    msg.attach_alternative(html_content, "text/html")
+    msg.send()
+    logger.info("Invitation email sent to %s for org %s", email, invitation.org.name)
 
 
 @shared_task(name="common.tasks.expire_pending_invitations")
