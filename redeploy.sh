@@ -32,7 +32,8 @@ COWORK_SERVER_IMAGE="talkhub/cowork-server:latest"
 COWORK_APP_IMAGE="talkhub/cowork-app:latest"
 API_URL="${PUBLIC_DJANGO_API_URL:-https://crm.talkhub.me}"
 
-# Source environment variables (optional — YAML has inline defaults)
+# Source environment variables
+# 1. Load from docker/.env if present (recommended for secrets)
 ENV_FILE="docker/.env"
 if [[ -f "$ENV_FILE" ]]; then
     set -a
@@ -41,6 +42,17 @@ if [[ -f "$ENV_FILE" ]]; then
     ok "Environment loaded from $ENV_FILE"
 else
     warn "No docker/.env found — using inline defaults from YAML"
+    warn "Create docker/.env with CRM_GOOGLE_CLIENT_ID, CRM_GOOGLE_CLIENT_SECRET, etc."
+fi
+
+# 2. Validate critical env vars
+MISSING_VARS=()
+[[ -z "${CRM_GOOGLE_CLIENT_ID:-}" ]] && MISSING_VARS+=("CRM_GOOGLE_CLIENT_ID")
+[[ -z "${CRM_GOOGLE_CLIENT_SECRET:-}" ]] && MISSING_VARS+=("CRM_GOOGLE_CLIENT_SECRET")
+if [[ ${#MISSING_VARS[@]} -gt 0 ]]; then
+    warn "Variáveis não definidas: ${MISSING_VARS[*]}"
+    warn "Google OAuth não funcionará sem elas."
+    warn "Defina em docker/.env ou exporte no shell antes de rodar."
 fi
 
 SLEEP_SECONDS=15
