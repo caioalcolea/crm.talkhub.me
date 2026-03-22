@@ -325,7 +325,7 @@
         product: '',
         quantity: 1,
         currency: oppData?.currency || $orgSettings.default_currency || 'BRL',
-        valor_total: oppData?.amount || '',
+        valor_total: oppData?.amount || 0,
         exchange_rate_to_base: '1',
         exchange_rate_type: 'FIXO',
         forma_pagamento: '',
@@ -373,13 +373,18 @@
   async function handleWonCreateLancamento(fd) {
     wonFormLoading = true;
     try {
+      // Sanitize: convert empty strings to null for FK/date/choice fields
       await financeiro.lancamentos.create({
         ...fd,
         plano_de_contas: fd.plano_de_contas || null,
         account: fd.account || null,
         contact: fd.contact || null,
         opportunity: wonMoveTarget.oppId,
-        forma_pagamento: fd.forma_pagamento || null
+        forma_pagamento: fd.forma_pagamento || null,
+        product: fd.product || null,
+        data_fim_recorrencia: fd.data_fim_recorrencia || null,
+        recorrencia_tipo: fd.recorrencia_tipo || null,
+        valor_total: fd.valor_total || 0,
       });
 
       showWonModal = false;
