@@ -80,7 +80,7 @@ services:
       ## Sentry (opcional)
       - SENTRY_DSN=${CRM_SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${CRM_SENTRY_ENVIRONMENT:-prod}
-      ## Google OAuth (opcional)
+      ## Google OAuth
       - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
       ## OpenAI (AI copilot — opcional)
