@@ -304,6 +304,14 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         instance = serializer.instance
         data = serializer.validated_data
 
+        # CANCELADO lancamentos: only allow descricao/observacoes edits
+        if instance.status == "CANCELADO":
+            allowed = {"descricao", "observacoes"}
+            if set(data.keys()) - allowed:
+                raise DRFValidationError(
+                    {"detail": "Lançamento cancelado. Apenas descrição e observações podem ser alterados."}
+                )
+
         financial_fields = {
             "valor_total", "numero_parcelas", "data_primeiro_vencimento",
             "currency", "exchange_rate_to_base", "exchange_rate_type",
@@ -328,6 +336,8 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
+        from django.utils import timezone as tz
+
         lancamento = self.get_object()
         if lancamento.status == "CANCELADO":
             return Response(
@@ -335,7 +345,15 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         with transaction.atomic():
-            lancamento.parcelas.filter(status="ABERTO").update(status="CANCELADO")
+            now = tz.now()
+            lancamento.parcelas.filter(status="ABERTO").update(
+                status="CANCELADO",
+                cancelled_at=now,
+                cancelled_by=request.user,
+            )
+            lancamento.cancelled_at = now
+            lancamento.cancelled_by = request.user
+            lancamento.save(update_fields=["cancelled_at", "cancelled_by"])
             lancamento.update_status()
             # Reverse stock movement if product was tracked
             product = lancamento.product
@@ -383,6 +401,22 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
         return Response(
             LancamentoDetailSerializer(lancamento).data, status=status.HTTP_200_OK
         )
+
+    def destroy(self, request, *args, **kwargs):
+        lancamento = self.get_object()
+        profile = getattr(request.user, "profile", None)
+        if not profile or not profile.is_admin:
+            return Response(
+                {"detail": "Apenas administradores podem excluir lançamentos."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if lancamento.status != "CANCELADO":
+            return Response(
+                {"detail": "Cancele o lançamento antes de excluir."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        lancamento.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["get"])
     def parcelas(self, request, pk=None):
@@ -552,9 +586,13 @@ class ParcelaViewSet(FinanceiroMixin, ModelViewSet):
                 {"detail": "Parcela já está cancelada."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        from django.utils import timezone as tz
+
         with transaction.atomic():
             parcela.status = "CANCELADO"
-            parcela.save()
+            parcela.cancelled_at = tz.now()
+            parcela.cancelled_by = request.user
+            parcela.save(update_fields=["status", "cancelled_at", "cancelled_by"])
             parcela.lancamento.update_status()
         return Response(ParcelaSerializer(parcela).data, status=status.HTTP_200_OK)
 

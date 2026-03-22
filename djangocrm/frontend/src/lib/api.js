@@ -490,6 +490,9 @@ export const financeiro = {
   async cancelLancamento(id) {
     return apiRequest(`/financeiro/lancamentos/${id}/cancel/`, { method: 'POST' });
   },
+  async deleteLancamento(id) {
+    return apiRequest(`/financeiro/lancamentos/${id}/`, { method: 'DELETE' });
+  },
   async getLancamentoParcelas(id) {
     return apiRequest(`/financeiro/lancamentos/${id}/parcelas/`);
   },

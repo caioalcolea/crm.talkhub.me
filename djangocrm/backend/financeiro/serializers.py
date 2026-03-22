@@ -199,6 +199,9 @@ class LancamentoListSerializer(serializers.ModelSerializer):
     valor_parcela_display = serializers.SerializerMethodField()
     recorrencia_label = serializers.SerializerMethodField()
     product_name = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+    updated_by_name = serializers.SerializerMethodField()
+    cancelled_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Lancamento
@@ -239,6 +242,11 @@ class LancamentoListSerializer(serializers.ModelSerializer):
             "valor_parcela_display",
             "recorrencia_label",
             "created_at",
+            "updated_at",
+            "created_by_name",
+            "updated_by_name",
+            "cancelled_at",
+            "cancelled_by_name",
         ]
 
     def get_plano_de_contas_nome(self, obj):
@@ -294,6 +302,22 @@ class LancamentoListSerializer(serializers.ModelSerializer):
         if not obj.recorrencia_ativa:
             label += " (parado)"
         return label
+
+    @staticmethod
+    def _user_display(user):
+        if not user:
+            return None
+        name = f"{user.first_name} {user.last_name}".strip()
+        return name or user.email
+
+    def get_created_by_name(self, obj):
+        return self._user_display(obj.created_by)
+
+    def get_updated_by_name(self, obj):
+        return self._user_display(obj.updated_by)
+
+    def get_cancelled_by_name(self, obj):
+        return self._user_display(obj.cancelled_by)
 
 
 class LancamentoDetailSerializer(LancamentoListSerializer):

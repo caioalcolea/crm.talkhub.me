@@ -7,11 +7,16 @@
   import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { orgSettings } from '$lib/stores/org.js';
-  import { Plus, Search, X, Repeat, Ban } from '@lucide/svelte';
+  import { Plus, Search, X, Repeat, Ban, Trash2 } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { financeiro, assistant } from '$lib/api.js';
+  import { financeiro, assistant, getCurrentUser } from '$lib/api.js';
 
   let { data } = $props();
+
+  let isAdmin = $derived.by(() => {
+    const user = getCurrentUser();
+    return user?.organizations?.some((/** @type {any} */ o) => o.role === 'ADMIN') ?? false;
+  });
   let cur = $derived($orgSettings.default_currency || 'BRL');
 
   let showCreateModal = $state(false);
@@ -146,6 +151,16 @@
       invalidateAll();
     } catch (err) {
       alert('Erro ao cancelar: ' + (/** @type {any} */ (err)?.message || 'erro desconhecido'));
+    }
+  }
+
+  async function handleDeleteLancamento(item) {
+    if (!confirm(`Excluir permanentemente "${item.descricao}"? Esta ação não pode ser desfeita.`)) return;
+    try {
+      await financeiro.deleteLancamento(item.id);
+      invalidateAll();
+    } catch (err) {
+      alert('Erro ao excluir: ' + (/** @type {any} */ (err)?.message || 'erro desconhecido'));
     }
   }
 
@@ -286,15 +301,26 @@
             <td class="px-3 py-2.5"><StatusBadge status={item.status} tipo={item.tipo} /></td>
             <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{formatDate(item.data_primeiro_vencimento)}</td>
             <td class="px-2 py-2.5">
-              {#if item.status === 'ABERTO'}
-                <button
-                  class="text-destructive hover:bg-destructive/10 rounded p-1 transition-colors"
-                  title="Cancelar lançamento"
-                  onclick={(e) => { e.stopPropagation(); handleCancelLancamento(item); }}
-                >
-                  <Ban class="h-4 w-4" />
-                </button>
-              {/if}
+              <div class="flex gap-0.5">
+                {#if item.status === 'ABERTO'}
+                  <button
+                    class="text-destructive hover:bg-destructive/10 rounded p-1 transition-colors"
+                    title="Cancelar lançamento"
+                    onclick={(e) => { e.stopPropagation(); handleCancelLancamento(item); }}
+                  >
+                    <Ban class="h-4 w-4" />
+                  </button>
+                {/if}
+                {#if item.status === 'CANCELADO' && isAdmin}
+                  <button
+                    class="text-destructive hover:bg-destructive/10 rounded p-1 transition-colors"
+                    title="Excluir lançamento"
+                    onclick={(e) => { e.stopPropagation(); handleDeleteLancamento(item); }}
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </button>
+                {/if}
+              </div>
             </td>
           </tr>
         {:else}

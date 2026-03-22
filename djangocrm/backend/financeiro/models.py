@@ -1,6 +1,7 @@
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -210,6 +211,16 @@ class Lancamento(BaseOrgModel):
     # Status (derived from parcelas)
     status = models.CharField(
         max_length=10, choices=LANCAMENTO_STATUS, default="ABERTO"
+    )
+
+    # Cancellation audit
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cancelled_lancamentos",
     )
 
     # Competência
@@ -442,6 +453,16 @@ class Parcela(BaseOrgModel):
     competencia_ano = models.IntegerField(null=True, blank=True)
     competencia_mes = models.IntegerField(null=True, blank=True)
     observacoes = models.TextField(blank=True, default="")
+
+    # Cancellation audit
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cancelled_parcelas",
+    )
 
     class Meta:
         db_table = "financeiro_parcela"

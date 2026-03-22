@@ -4,17 +4,22 @@
   import { StatusBadge, ParcelaTable, TransactionForm } from '$lib/components/financeiro';
   import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
-  import { financeiro } from '$lib/api.js';
+  import { financeiro, getCurrentUser } from '$lib/api.js';
   import { orgSettings } from '$lib/stores/org.js';
   import ReminderSection from '$lib/components/assistant/ReminderSection.svelte';
   import EntityRunsHistory from '$lib/components/assistant/EntityRunsHistory.svelte';
-  import { ArrowLeft, Ban, Pencil, Repeat, Square } from '@lucide/svelte';
+  import { ArrowLeft, Ban, Pencil, Repeat, Square, Trash2 } from '@lucide/svelte';
 
   let { data } = $props();
   let l = $derived(data.lancamento);
   let orgCurrency = $derived($orgSettings.default_currency || 'BRL');
   let loading = $state(false);
   let editing = $state(false);
+
+  let isAdmin = $derived.by(() => {
+    const user = getCurrentUser();
+    return user?.organizations?.some((/** @type {any} */ o) => o.role === 'ADMIN') ?? false;
+  });
 
   let editFormData = $state({});
 
@@ -47,7 +52,7 @@
     try {
       const body = { ...fd };
       // Clean empty strings to null for FK fields
-      for (const key of ['plano_de_contas', 'account', 'contact', 'opportunity', 'invoice', 'forma_pagamento']) {
+      for (const key of ['plano_de_contas', 'account', 'contact', 'opportunity', 'invoice', 'forma_pagamento', 'product']) {
         if (body[key] === '') body[key] = null;
       }
       if (body.data_fim_recorrencia === '') body.data_fim_recorrencia = null;
@@ -95,6 +100,19 @@
     }
   }
 
+  async function handleDeleteLancamento() {
+    if (!confirm(`Excluir permanentemente "${l.descricao}"? Esta ação não pode ser desfeita.`)) return;
+    loading = true;
+    try {
+      await financeiro.deleteLancamento(l.id);
+      goto('/financeiro/lancamentos');
+    } catch (err) {
+      alert('Erro ao excluir: ' + (/** @type {any} */ (err)?.message || 'erro desconhecido'));
+    } finally {
+      loading = false;
+    }
+  }
+
   async function handleToggleRecorrencia() {
     const newVal = !l.recorrencia_ativa;
     const msg = newVal
@@ -136,6 +154,11 @@
       {#if l.status === 'ABERTO'}
         <Button variant="destructive" size="sm" onclick={handleCancelLancamento} disabled={loading}>
           <Ban class="mr-1 h-4 w-4" /><span class="hidden sm:inline">Cancelar</span>
+        </Button>
+      {/if}
+      {#if l.status === 'CANCELADO' && isAdmin}
+        <Button variant="destructive" size="sm" onclick={handleDeleteLancamento} disabled={loading}>
+          <Trash2 class="mr-1 h-4 w-4" /><span class="hidden sm:inline">Excluir</span>
         </Button>
       {/if}
     {/if}
@@ -248,6 +271,21 @@
       <div class="rounded-lg border p-4">
         <span class="text-muted-foreground text-xs font-medium">Observacoes</span>
         <p class="mt-1 text-sm">{l.observacoes}</p>
+      </div>
+    {/if}
+
+    <!-- Audit Trail -->
+    {#if l.created_by_name || l.updated_by_name || l.cancelled_by_name}
+      <div class="text-muted-foreground space-y-0.5 text-xs">
+        {#if l.created_by_name}
+          <p>Criado por <span class="font-medium">{l.created_by_name}</span> em {formatDate(l.created_at)}</p>
+        {/if}
+        {#if l.updated_by_name && l.updated_at !== l.created_at}
+          <p>Atualizado por <span class="font-medium">{l.updated_by_name}</span> em {formatDate(l.updated_at)}</p>
+        {/if}
+        {#if l.cancelled_by_name}
+          <p class="text-destructive">Cancelado por <span class="font-medium">{l.cancelled_by_name}</span> em {formatDate(l.cancelled_at)}</p>
+        {/if}
       </div>
     {/if}
 
