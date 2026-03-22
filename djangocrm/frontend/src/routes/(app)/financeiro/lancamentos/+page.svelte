@@ -164,15 +164,22 @@
     }
   }
 
-  function applyFilters() {
+  function buildFilterParams(extra = {}) {
     const params = new URLSearchParams();
     if (searchInput) params.set('search', searchInput);
     const tipo = data.filters.tipo;
     if (tipo) params.set('tipo', tipo);
-    const status = data.filters.status;
-    if (status) params.set('status', status);
+    const st = data.filters.status;
+    if (st) params.set('status', st);
     if (selectedPlano) params.set('plano_de_contas', selectedPlano);
-    goto(`/financeiro/lancamentos?${params.toString()}`);
+    for (const [k, v] of Object.entries(extra)) {
+      if (v) params.set(k, String(v));
+    }
+    return params.toString();
+  }
+
+  function applyFilters() {
+    goto(`/financeiro/lancamentos?${buildFilterParams()}`);
   }
 
   function clearFilters() {
@@ -346,7 +353,7 @@
             variant={pg === data.pagination.page ? 'default' : 'outline'}
             size="sm"
             class="h-8 w-8"
-            onclick={() => goto(`/financeiro/lancamentos?page=${pg}`)}
+            onclick={() => goto(`/financeiro/lancamentos?${buildFilterParams({ page: pg })}`)}
           >
             {pg}
           </Button>

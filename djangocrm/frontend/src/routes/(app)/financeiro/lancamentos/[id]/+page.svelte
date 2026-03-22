@@ -305,6 +305,7 @@
         parcelas={l.parcelas || []}
         onpay={handlePayParcela}
         oncancel={handleCancelParcela}
+        oncancelLancamento={() => handleCancelLancamento()}
       />
     </div>
 

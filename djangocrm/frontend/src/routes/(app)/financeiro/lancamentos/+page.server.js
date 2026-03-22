@@ -85,7 +85,7 @@ export const actions = {
       numero_parcelas: parseInt(form.get('numero_parcelas') || '1'),
       data_primeiro_vencimento: form.get('data_primeiro_vencimento'),
       is_recorrente: form.get('is_recorrente') === 'true',
-      recorrencia_tipo: form.get('recorrencia_tipo') || '',
+      recorrencia_tipo: form.get('recorrencia_tipo') || null,
       data_fim_recorrencia: form.get('data_fim_recorrencia') || null
     };
 
