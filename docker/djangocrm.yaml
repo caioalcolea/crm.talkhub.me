@@ -123,13 +123,19 @@ services:
     image: talkhub/djangocrm-backend:latest
     command: daphne -b 0.0.0.0 -p 8001 crm.asgi:application
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-c", "import socket; s = socket.socket(); s.settimeout(3); s.connect(('127.0.0.1', 8001)); s.close()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     environment:
       - SERVICE_ROLE=ws
       - SECRET_KEY=${CRM_SECRET_KEY:-78d4bf35b7539fcd583e0df1a03cca511b79bfe9448d2f85a189a22295d1b1f1}
       - ENV_TYPE=prod
       - DEBUG=False
       - ALLOWED_HOSTS=crm.talkhub.me,localhost
+      - DOMAIN_NAME=https://crm.talkhub.me
+      - FRONTEND_URL=https://crm.talkhub.me
       - DBNAME=crm_db
       - DBUSER=crm_user
       - DBPASSWORD=${CRM_DB_PASSWORD:-crm_talkhub_2026}
@@ -145,6 +151,9 @@ services:
       replicas: 1
       restart_policy:
         condition: on-failure
+        delay: 10s
+        max_attempts: 10
+        window: 120s
       placement:
         constraints:
           - node.role == manager
