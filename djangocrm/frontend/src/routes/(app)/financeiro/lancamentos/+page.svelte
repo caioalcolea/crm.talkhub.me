@@ -7,7 +7,7 @@
   import { PageHeader } from '$lib/components/layout';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
   import { orgSettings } from '$lib/stores/org.js';
-  import { Plus, Search, X, Repeat } from '@lucide/svelte';
+  import { Plus, Search, X, Repeat, Ban } from '@lucide/svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { financeiro, assistant } from '$lib/api.js';
 
@@ -109,7 +109,10 @@
         contact: fd.contact || null,
         opportunity: fd.opportunity || null,
         invoice: fd.invoice || null,
-        forma_pagamento: fd.forma_pagamento || null
+        product: fd.product || null,
+        forma_pagamento: fd.forma_pagamento || null,
+        data_fim_recorrencia: fd.data_fim_recorrencia || null,
+        recorrencia_tipo: fd.recorrencia_tipo || null,
       });
 
       // Create reminder if configured inline
@@ -133,6 +136,16 @@
       alert('Erro ao criar: ' + err.message);
     } finally {
       loading = false;
+    }
+  }
+
+  async function handleCancelLancamento(item) {
+    if (!confirm(`Cancelar "${item.descricao}" e todas as parcelas em aberto?`)) return;
+    try {
+      await financeiro.cancelLancamento(item.id);
+      invalidateAll();
+    } catch (err) {
+      alert('Erro ao cancelar: ' + (/** @type {any} */ (err)?.message || 'erro desconhecido'));
     }
   }
 
@@ -236,6 +249,7 @@
           <th class="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Parcelas</th>
           <th class="px-3 py-2.5 text-left font-medium">Status</th>
           <th class="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Vencimento</th>
+          <th class="w-10 px-2 py-2.5"></th>
         </tr>
       </thead>
       <tbody>
@@ -271,10 +285,21 @@
             <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{item.parcelas_pagas}</td>
             <td class="px-3 py-2.5"><StatusBadge status={item.status} tipo={item.tipo} /></td>
             <td class="hidden px-3 py-2.5 text-xs sm:table-cell">{formatDate(item.data_primeiro_vencimento)}</td>
+            <td class="px-2 py-2.5">
+              {#if item.status === 'ABERTO'}
+                <button
+                  class="text-destructive hover:bg-destructive/10 rounded p-1 transition-colors"
+                  title="Cancelar lançamento"
+                  onclick={(e) => { e.stopPropagation(); handleCancelLancamento(item); }}
+                >
+                  <Ban class="h-4 w-4" />
+                </button>
+              {/if}
+            </td>
           </tr>
         {:else}
           <tr>
-            <td colspan="8" class="text-muted-foreground px-3 py-12 text-center">
+            <td colspan="9" class="text-muted-foreground px-3 py-12 text-center">
               Nenhum lançamento encontrado.
             </td>
           </tr>

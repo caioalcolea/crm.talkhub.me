@@ -102,6 +102,16 @@
     }
   }
 
+  async function handleCancelLancamento(lancamentoId) {
+    if (!confirm('Cancelar este lançamento e todas as parcelas em aberto?')) return;
+    try {
+      await financeiro.cancelLancamento(lancamentoId);
+      invalidateAll();
+    } catch (err) {
+      alert('Erro ao cancelar: ' + (/** @type {any} */ (err)?.message || 'erro desconhecido'));
+    }
+  }
+
   async function handleBulkPay() {
     if (selectedIds.length === 0) return;
     if (!confirm(`Marcar ${selectedIds.length} parcela(s) como paga(s)?`)) return;
@@ -232,6 +242,7 @@
                 bind:selectedIds
                 onpay={handlePay}
                 oncancel={handleCancel}
+                oncancelLancamento={handleCancelLancamento}
               />
             </div>
           {/if}

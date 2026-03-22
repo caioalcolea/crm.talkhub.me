@@ -359,6 +359,26 @@ class LancamentoViewSet(FinanceiroMixin, ModelViewSet):
                 )
                 product.stock_quantity += qty
                 product.save(update_fields=["stock_quantity"])
+
+            # Deactivate reminder policies and cancel pending jobs
+            try:
+                from django.contrib.contenttypes.models import ContentType
+                from assistant.models import ReminderPolicy, ScheduledJob
+
+                ct = ContentType.objects.get_for_model(Lancamento)
+                ReminderPolicy.objects.filter(
+                    target_content_type=ct,
+                    target_object_id=lancamento.pk,
+                    is_active=True,
+                ).update(is_active=False)
+                ScheduledJob.objects.filter(
+                    target_content_type=ct,
+                    target_object_id=lancamento.pk,
+                    status="pending",
+                ).update(status="cancelled")
+            except Exception:
+                pass  # Assistant app may not be installed
+
         lancamento.refresh_from_db()
         return Response(
             LancamentoDetailSerializer(lancamento).data, status=status.HTTP_200_OK

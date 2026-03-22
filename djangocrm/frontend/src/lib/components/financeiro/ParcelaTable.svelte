@@ -2,13 +2,14 @@
   import StatusBadge from './StatusBadge.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { formatCurrency, formatDate } from '$lib/utils/formatting.js';
-  import { Check, X } from '@lucide/svelte';
+  import { Check, X, Ban } from '@lucide/svelte';
 
   let {
     parcelas = [],
     currency = 'BRL',
     onpay,
     oncancel,
+    oncancelLancamento,
     selectable = false,
     selectedIds = $bindable([])
   } = $props();
@@ -118,10 +119,21 @@
                   size="sm"
                   class="text-destructive h-7 px-2"
                   onclick={() => oncancel?.(parcela)}
-                  title="Cancelar"
+                  title="Cancelar parcela"
                 >
                   <X class="h-3.5 w-3.5" />
                 </Button>
+                {#if oncancelLancamento}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="text-destructive h-7 px-2"
+                    onclick={() => oncancelLancamento?.(parcela.lancamento)}
+                    title="Cancelar lançamento inteiro"
+                  >
+                    <Ban class="h-3.5 w-3.5" />
+                  </Button>
+                {/if}
               </div>
             {/if}
           </td>

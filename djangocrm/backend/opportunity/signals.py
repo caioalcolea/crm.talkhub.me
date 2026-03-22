@@ -57,8 +57,10 @@ def create_lancamento_on_closed_won(sender, instance, **kwargs):
         )
         return
 
-    # Skip if a Lancamento already exists for this opportunity
-    if Lancamento.objects.filter(opportunity=instance, tipo="RECEBER").exists():
+    # Skip if a non-cancelled Lancamento already exists for this opportunity
+    if Lancamento.objects.filter(
+        opportunity=instance, tipo="RECEBER"
+    ).exclude(status="CANCELADO").exists():
         return
 
     due_date = instance.closed_on
