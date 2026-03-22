@@ -266,6 +266,9 @@ services:
       - PUBLIC_DJANGO_API_URL=https://crm.talkhub.me
       - NODE_ENV=production
       - ORIGIN=https://crm.talkhub.me
+      ## Google OAuth (client_id only — secret stays on backend)
+      - GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
+      - GOOGLE_LOGIN_DOMAIN=https://crm.talkhub.me
     networks:
       - talkhub
     deploy:
