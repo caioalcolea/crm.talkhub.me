@@ -242,6 +242,9 @@ class TaskListView(APIView, LimitOffsetPagination):
                     id__in=assigned_ids, org=request.profile.org, is_active=True
                 )
                 task_obj.assigned_to.add(*profiles)
+            else:
+                # Auto-assign creator as default responsible
+                task_obj.assigned_to.add(request.profile)
 
             if params.get("tags"):
                 tags = params.get("tags")
@@ -1173,17 +1176,31 @@ class ProjectDetailView(APIView):
 
 
 class MyDayView(APIView):
-    """Tasks for today and overdue for the current user."""
+    """Tasks for today, overdue, upcoming, and no-date for a user.
+
+    Query params:
+        user_id (optional): View tasks for a specific org member.
+                            Defaults to the current user.
+    """
 
     permission_classes = (IsAuthenticated, HasOrgContext)
 
     def get(self, request):
         today = date.today()
-        profile = request.profile
+        target_profile = request.profile
+
+        # Allow viewing another org member's tasks
+        user_id = request.query_params.get("user_id")
+        if user_id:
+            other = Profile.objects.filter(
+                id=user_id, org=request.profile.org, is_active=True
+            ).first()
+            if other:
+                target_profile = other
 
         base_qs = Task.objects.filter(
-            org=profile.org,
-            assigned_to=profile,
+            org=request.profile.org,
+            assigned_to=target_profile,
         ).select_related("account", "case", "lead", "opportunity")
 
         overdue = base_qs.filter(
@@ -1199,15 +1216,32 @@ class MyDayView(APIView):
             updated_at__date=today,
         ).order_by("-updated_at")
 
+        upcoming = base_qs.filter(
+            due_date__gt=today,
+            due_date__lte=today + timedelta(days=7),
+        ).exclude(status="Completed").order_by("due_date", "due_time")
+
+        no_date = base_qs.filter(
+            due_date__isnull=True,
+        ).exclude(status="Completed").order_by("-created_at")[:10]
+
         from tasks.serializers import TaskKanbanCardSerializer
 
         return Response({
             "overdue": TaskKanbanCardSerializer(overdue, many=True).data,
             "today": TaskKanbanCardSerializer(today_tasks, many=True).data,
             "completed_today": TaskKanbanCardSerializer(completed_today, many=True).data,
+            "upcoming": TaskKanbanCardSerializer(upcoming, many=True).data,
+            "no_date": TaskKanbanCardSerializer(no_date, many=True).data,
             "overdue_count": overdue.count(),
             "today_count": today_tasks.count(),
             "completed_today_count": completed_today.count(),
+            "upcoming_count": upcoming.count(),
+            "no_date_count": no_date.count(),
+            "viewing_user": {
+                "id": str(target_profile.id),
+                "name": str(target_profile),
+            },
         })
 
 

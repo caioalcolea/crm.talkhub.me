@@ -1075,14 +1075,33 @@
   }
 
   // ---- My Day (Today) view ----
-  let myDayData = $state(/** @type {{ overdue: any[], today: any[], completed_today: any[], overdue_count: number, today_count: number, completed_today_count: number } | null} */ (null));
+  let myDayData = $state(/** @type {any} */ (null));
   let myDayLoading = $state(false);
   let showCompletedToday = $state(false);
+  let showUpcoming = $state(true);
+  let showNoDate = $state(false);
+  let myDayUserId = $state('');
+  let orgMembers = $state(/** @type {{ id: string, name: string }[]} */ ([]));
+  let membersLoaded = $state(false);
+
+  async function loadOrgMembers() {
+    if (membersLoaded) return;
+    try {
+      const res = await clientApiRequest('/users/');
+      const users = res.active_users || res.results || [];
+      orgMembers = users.map((/** @type {any} */ u) => ({
+        id: u.id,
+        name: u.user_details?.email || u.email || 'User'
+      }));
+      membersLoaded = true;
+    } catch { /* ignore */ }
+  }
 
   async function loadMyDay() {
     myDayLoading = true;
     try {
-      const res = await clientApiRequest('/tasks/my-day/');
+      const url = myDayUserId ? `/tasks/my-day/?user_id=${myDayUserId}` : '/tasks/my-day/';
+      const res = await clientApiRequest(url);
       myDayData = res;
     } catch {
       myDayData = null;
@@ -1090,10 +1109,13 @@
     myDayLoading = false;
   }
 
-  // Load my-day data when switching to today view
+  // Load my-day data when switching to today view or changing user
   $effect(() => {
     if (viewMode === 'today') {
+      // Track myDayUserId to reload on change
+      const _userId = myDayUserId;
       loadMyDay();
+      loadOrgMembers();
     }
   });
 
@@ -2022,6 +2044,26 @@
   {:else if viewMode === 'today'}
     <!-- My Day View -->
     <div class="mx-auto max-w-3xl space-y-4">
+      <!-- User filter -->
+      {#if orgMembers.length > 1}
+        <div class="flex items-center gap-3 px-1">
+          <User class="h-4 w-4 text-muted-foreground" />
+          <select
+            class="text-sm border border-input rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            value={myDayUserId}
+            onchange={(e) => { myDayUserId = e.target.value; }}
+          >
+            <option value="">Minhas Tarefas</option>
+            {#each orgMembers as member (member.id)}
+              <option value={member.id}>{member.name}</option>
+            {/each}
+          </select>
+          {#if myDayData?.viewing_user && myDayUserId}
+            <span class="text-xs text-muted-foreground">Vendo tarefas de {myDayData.viewing_user.name}</span>
+          {/if}
+        </div>
+      {/if}
+
       {#if myDayLoading}
         <div class="flex items-center justify-center py-16">
           <div class="text-muted-foreground text-sm">Carregando...</div>
@@ -2078,6 +2120,9 @@
                             <span class="text-xs text-muted-foreground">· {task.due_time.slice(0, 5)}</span>
                           {/if}
                           <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                          {#if task.related_entity}
+                            <span class="text-xs text-muted-foreground">· {task.related_entity.name}</span>
+                          {/if}
                         </div>
                       </button>
                       {#if task.subtask_progress && task.subtask_progress !== '0/0'}
@@ -2124,6 +2169,9 @@
                             <span class="text-xs text-muted-foreground">Dia inteiro</span>
                           {/if}
                           <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                          {#if task.related_entity}
+                            <span class="text-xs text-muted-foreground">· {task.related_entity.name}</span>
+                          {/if}
                         </div>
                       </button>
                       {#if task.subtask_progress && task.subtask_progress !== '0/0'}
@@ -2143,6 +2191,115 @@
             </Card.Root>
           {/if}
         </div>
+
+        <!-- Upcoming (next 7 days) -->
+        {#if myDayData.upcoming && myDayData.upcoming.length > 0}
+          <div>
+            <button
+              type="button"
+              class="flex items-center gap-2 mb-2 px-1"
+              onclick={() => (showUpcoming = !showUpcoming)}
+            >
+              <Calendar class="h-4 w-4 text-blue-500" />
+              <h3 class="text-sm font-semibold text-foreground">Próximos 7 dias ({myDayData.upcoming_count})</h3>
+              <ChevronRight class="h-4 w-4 text-muted-foreground transition-transform {showUpcoming ? 'rotate-90' : ''}" />
+            </button>
+            {#if showUpcoming}
+              <div class="space-y-2">
+                {#each myDayData.upcoming as task (task.id)}
+                  <Card.Root class="border-l-[3px] border-l-blue-400">
+                    <Card.Content class="p-3">
+                      <div class="flex items-center gap-3">
+                        <button
+                          type="button"
+                          class="shrink-0 text-muted-foreground hover:text-emerald-500 transition-colors"
+                          onclick={() => quickCompleteTask(task.id)}
+                          title="Concluir tarefa"
+                        >
+                          <Circle class="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          class="flex-1 text-left"
+                          onclick={() => openTaskSheet(task.id)}
+                        >
+                          <div class="font-medium text-sm text-foreground">{task.title}</div>
+                          <div class="flex items-center gap-2 mt-0.5">
+                            {#if task.due_date}
+                              <span class="text-xs text-blue-600 dark:text-blue-400">{formatDate(task.due_date)}</span>
+                            {/if}
+                            {#if task.due_time}
+                              <span class="text-xs text-muted-foreground">· {task.due_time.slice(0, 5)}</span>
+                            {/if}
+                            <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                            {#if task.related_entity}
+                              <span class="text-xs text-muted-foreground">· {task.related_entity.name}</span>
+                            {/if}
+                          </div>
+                        </button>
+                        {#if task.subtask_progress && task.subtask_progress !== '0/0'}
+                          <span class="text-muted-foreground text-xs">{task.subtask_progress}</span>
+                        {/if}
+                      </div>
+                    </Card.Content>
+                  </Card.Root>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- No-date tasks -->
+        {#if myDayData.no_date && myDayData.no_date.length > 0}
+          <div>
+            <button
+              type="button"
+              class="flex items-center gap-2 mb-2 px-1"
+              onclick={() => (showNoDate = !showNoDate)}
+            >
+              <CircleDot class="h-4 w-4 text-muted-foreground" />
+              <h3 class="text-sm font-semibold text-muted-foreground">Sem prazo ({myDayData.no_date_count})</h3>
+              <ChevronRight class="h-4 w-4 text-muted-foreground transition-transform {showNoDate ? 'rotate-90' : ''}" />
+            </button>
+            {#if showNoDate}
+              <div class="space-y-2">
+                {#each myDayData.no_date as task (task.id)}
+                  <Card.Root class="opacity-80">
+                    <Card.Content class="p-3">
+                      <div class="flex items-center gap-3">
+                        <button
+                          type="button"
+                          class="shrink-0 text-muted-foreground hover:text-emerald-500 transition-colors"
+                          onclick={() => quickCompleteTask(task.id)}
+                          title="Concluir tarefa"
+                        >
+                          <Circle class="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          class="flex-1 text-left"
+                          onclick={() => openTaskSheet(task.id)}
+                        >
+                          <div class="font-medium text-sm text-foreground">{task.title}</div>
+                          <div class="flex items-center gap-2 mt-0.5">
+                            <span class="text-xs text-muted-foreground">Sem prazo definido</span>
+                            <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium {getOptionStyle(task.priority, priorityOptions)}">{getOptionLabel(task.priority, priorityOptions)}</span>
+                            {#if task.related_entity}
+                              <span class="text-xs text-muted-foreground">· {task.related_entity.name}</span>
+                            {/if}
+                          </div>
+                        </button>
+                        {#if task.subtask_progress && task.subtask_progress !== '0/0'}
+                          <span class="text-muted-foreground text-xs">{task.subtask_progress}</span>
+                        {/if}
+                      </div>
+                    </Card.Content>
+                  </Card.Root>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <!-- Completed today -->
         {#if myDayData.completed_today.length > 0}
