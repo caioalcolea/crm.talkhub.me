@@ -290,6 +290,8 @@ class LeadMoveView(APIView):
         new_order = self._calculate_order(data, lead, org)
         lead.kanban_order = new_order
 
+        # Pass the user who moved the card to the signal
+        lead._moved_by_profile = request.profile
         lead.save()
 
         return Response(

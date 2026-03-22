@@ -7,6 +7,7 @@ Signals:
 """
 
 import logging
+from datetime import date
 
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
@@ -55,7 +56,7 @@ def auto_create_opportunity(sender, instance, **kwargs):
 
 def _do_create_opportunity(lead):
     """Create Opportunity from Lead with Contact+Pipeline deduplication."""
-    from opportunity.models import Opportunity
+    from opportunity.models import Opportunity, OpportunityPipeline
 
     contacts = lead.contacts.all()
     if not contacts.exists():
@@ -108,6 +109,22 @@ def _do_create_opportunity(lead):
                     getattr(first_stage, "maps_to_stage", "") or "PROSPECTING"
                 )
 
+        # Fallback: use first active opportunity pipeline & its first stage
+        if target_pipeline_stage is None:
+            first_opp_pipeline = OpportunityPipeline.objects.filter(
+                org=lead.org, is_active=True
+            ).order_by("-is_default", "created_at").first()
+            if first_opp_pipeline:
+                first_stage = first_opp_pipeline.stages.order_by("order").first()
+                if first_stage:
+                    target_pipeline_stage = first_stage
+                    target_legacy_stage = (
+                        getattr(first_stage, "maps_to_stage", "") or "PROSPECTING"
+                    )
+
+        # Who moved the card (set by LeadMoveView)
+        moved_by = getattr(lead, "_moved_by_profile", None)
+
         opp = Opportunity.objects.create(
             org=lead.org,
             name=opp_name,
@@ -116,22 +133,27 @@ def _do_create_opportunity(lead):
             pipeline_stage=target_pipeline_stage,
             probability=lead.probability or 50,
             amount=lead.opportunity_amount or 0,
+            closed_on=date.today(),
             description=f"Auto-created from lead: {lead.title}",
-            created_by=lead.created_by,
+            created_by=moved_by.user if moved_by else lead.created_by,
         )
         # Copiar contacts do lead
         opp.contacts.set(contacts)
-        # Copiar assigned_to do lead
+        # Copiar assigned_to do lead + quem moveu o card
         if lead.assigned_to.exists():
             opp.assigned_to.set(lead.assigned_to.all())
+        if moved_by:
+            opp.assigned_to.add(moved_by)
         # Copiar account se existir
         if hasattr(lead, "account") and lead.account:
             opp.account = lead.account
             opp.save(update_fields=["account"])
 
         logger.info(
-            "Auto-created Opportunity %s from Lead %s (pipeline=%s)",
+            "Auto-created Opportunity %s from Lead %s (pipeline=%s, stage=%s, moved_by=%s)",
             opp.id, lead.id, pipeline.name,
+            target_pipeline_stage.name if target_pipeline_stage else "none",
+            moved_by or "signal",
         )
     except Exception as exc:
         logger.error("Failed to auto-create opportunity from lead %s: %s", lead.id, exc)
